@@ -12,10 +12,26 @@ let dbPath = path.join(dataDir, 'gestionseguro.db');
 
 const seedPath = path.join(__dirname, 'seed.db');
 if (fs.existsSync(seedPath)) {
+    let forceSeed = false;
     if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size < 50000) {
+        forceSeed = true;
+    } else {
+        try {
+            const checkDb = new Database(dbPath);
+            const countGestiones = checkDb.prepare("SELECT COUNT(*) as c FROM historial_gestiones_whatsapp").get();
+            if (!countGestiones || countGestiones.c === 0) {
+                forceSeed = true;
+            }
+            checkDb.close();
+        } catch (e) {
+            forceSeed = true;
+        }
+    }
+
+    if (forceSeed) {
         try {
             fs.copyFileSync(seedPath, dbPath);
-            console.log('✅ Base de datos inicial sembrada desde seed.db exitosamente.');
+            console.log('✅ Base de datos inicial sembrada con métricas desde seed.db.');
         } catch (e) {
             console.error('Error sembrando seed.db:', e);
         }
