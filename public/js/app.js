@@ -314,6 +314,15 @@ function filterByState(estadoVal) {
   }
   state.filters.estado = estadoVal;
 
+  // Actualizar indicador visual activo (.active) en las tarjetas de estado superiores
+  document.querySelectorAll('.action-card-btn').forEach(btn => {
+    btn.classList.remove('active');
+    const onclickAttr = btn.getAttribute('onclick') || '';
+    if (onclickAttr.includes(`filterByState('${estadoVal}')`) || (estadoVal === '' && onclickAttr.includes("filterByState('')"))) {
+      btn.classList.add('active');
+    }
+  });
+
   const notice = getEl('activeFilterNotice');
   const label = getEl('activeFilterLabel');
   const summary = getEl('activeFilterHumanSummary');
