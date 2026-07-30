@@ -606,6 +606,53 @@ function renderTable() {
   updateTableHeader();
   tableBody.innerHTML = '';
 
+function getRenovacionesRank(item) {
+  const p = item.poliza;
+  if (!p) return 4;
+
+  const fvRen = p.fin_vigencia_poliza || p.fecha_vencimiento;
+  if (!fvRen) return 4;
+
+  const clean = String(fvRen).split('T')[0].split(' ')[0];
+  const parts = clean.split('-');
+  let isVencida = false;
+  if (parts.length === 3) {
+    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    const todayDate = new Date();
+    todayDate.setHours(0, 0, 0, 0);
+    isVencida = vtoDate < todayDate;
+  }
+
+  const saldo = parseFloat(p.saldo_pendiente || 0);
+  const cuotas = parseInt(p.cuotas_debe || 0);
+  const tieneDeuda = saldo > 0 || cuotas > 0;
+
+  // 1. 🟢 PRIMERO (Rank 1): Clientes AL DÍA (Saldo = 0 / Sin cuotas impagas) que no están vencidas.
+  if (!isVencida && !tieneDeuda) {
+    return 1;
+  }
+
+  // 2. 🟠 SEGUNDO (Rank 2): Clientes CON DEUDA (Saldo > 0 / Con cuotas impagas) que no están vencidas.
+  if (!isVencida && tieneDeuda) {
+    return 2;
+  }
+
+  // 3. ⚫ TERCERO (Rank 3): Pólizas ya vencidas.
+  if (isVencida) {
+    return 3;
+  }
+
+  return 4;
+}
+
+function renderTable() {
+  const tableBody = getEl('clientsTableBody');
+  const emptyState = getEl('emptyState');
+  if (!tableBody) return;
+
+  updateTableHeader();
+  tableBody.innerHTML = '';
+
   if (!state.clients || state.clients.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
     return;
@@ -613,18 +660,34 @@ function renderTable() {
 
   if (emptyState) emptyState.classList.add('hidden');
 
+  const items = [];
   state.clients.forEach(client => {
     const polizas = client.polizas || [];
-
     if (polizas.length === 0) {
-      const row = createClientRow(client, null);
-      tableBody.appendChild(row);
+      items.push({ client, poliza: null, isSecondary: false });
     } else {
       polizas.forEach((poliza, idx) => {
-        const row = createClientRow(client, poliza, idx > 0);
-        tableBody.appendChild(row);
+        items.push({ client, poliza, isSecondary: idx > 0 });
       });
     }
+  });
+
+  if (state.activeView === 'renovaciones') {
+    items.sort((a, b) => {
+      const rankA = getRenovacionesRank(a);
+      const rankB = getRenovacionesRank(b);
+      if (rankA !== rankB) {
+        return rankA - rankB;
+      }
+      const dateA = a.poliza ? (a.poliza.fin_vigencia_poliza || a.poliza.fecha_vencimiento || '') : '';
+      const dateB = b.poliza ? (b.poliza.fin_vigencia_poliza || b.poliza.fecha_vencimiento || '') : '';
+      return dateA.localeCompare(dateB);
+    });
+  }
+
+  items.forEach(item => {
+    const row = createClientRow(item.client, item.poliza, item.isSecondary);
+    tableBody.appendChild(row);
   });
 
   makeColumnsResizable();
