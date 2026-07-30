@@ -193,7 +193,11 @@ try {
         db.prepare("INSERT INTO plantillas (nombre, tipo, mensaje) VALUES (?, ?, ?)").run(
             '📄 Póliza: Renovación + Deuda Pendiente',
             'renovacion_deuda',
-            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago.'
+            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
+        );
+    } else {
+        db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_deuda'").run(
+            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
         );
     }
 } catch (e) {}

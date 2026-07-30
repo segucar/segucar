@@ -857,27 +857,41 @@ function calcularProximaAccion(polizaInput) {
 
 // ─── WHATSAPP ──────────────────────────────────────────────────────────────
 
-function isTemplateMatch(t, recTarget, activeView) {
-  if (!t) return false;
+function getTemplateMatchScore(t, recTarget, activeView) {
+  if (!t) return 0;
   const tType = String(t.tipo || '').toLowerCase();
   const tName = String(t.nombre || t.name || '').toLowerCase();
   const target = String(recTarget || '').toLowerCase();
 
-  if (tType === target) return true;
+  // Exact match gets highest score
+  if (tType === target) return 100;
 
-  if (activeView === 'renovaciones' || target.includes('renovacion') || target.includes('poliza_vencida')) {
-    if (target === 'renovacion_deuda' && (tType === 'renovacion_deuda' || tName.includes('deuda') || tName.includes('renovación + deuda') || tName.includes('renovacion + deuda'))) return true;
-    if (target === 'poliza_vencida' && (tType === 'poliza_vencida' || tName.includes('póliza vencida') || tName.includes('poliza vencida'))) return true;
-    if (target === 'renovacion_7_dias' && (tType === 'renovacion_7_dias' || tName.includes('aviso renovación') || tName.includes('aviso renovacion'))) return true;
-    if (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('renovacion') || tName.includes('póliza')) return true;
-  } else if (activeView === 'cobranza' || target.includes('cuota') || target.includes('aviso') || target.includes('mora')) {
-    if (target === 'recordatorio_48hs' && (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo'))) return true;
-    if (target === 'primer_aviso' && (tType === 'primer_aviso' || tName.includes('primer aviso'))) return true;
-    if (target === 'segundo_aviso' && (tType === 'segundo_aviso' || tName.includes('segundo aviso'))) return true;
-    if (target === 'mora_critica' && (tType === 'mora_critica' || tName.includes('mora crítica') || tName.includes('mora critica'))) return true;
+  // Specific target matching
+  if (target === 'renovacion_deuda') {
+    if (tType === 'renovacion_deuda' || (tName.includes('deuda') && tName.includes('renovación')) || tName.includes('renovación + deuda') || tName.includes('renovacion + deuda')) return 90;
+  } else if (target === 'renovacion_7_dias') {
+    if (tType === 'renovacion_7_dias' || (tName.includes('aviso renovación') && !tName.includes('deuda'))) return 90;
+  } else if (target === 'poliza_vencida') {
+    if (tType === 'poliza_vencida' || tName.includes('póliza vencida') || tName.includes('poliza vencida')) return 90;
+  } else if (target === 'recordatorio_48hs') {
+    if (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo')) return 90;
+  } else if (target === 'primer_aviso') {
+    if (tType === 'primer_aviso' || tName.includes('primer aviso')) return 90;
+  } else if (target === 'segundo_aviso') {
+    if (tType === 'segundo_aviso' || tName.includes('segundo aviso')) return 90;
+  } else if (target === 'mora_critica') {
+    if (tType === 'mora_critica' || tName.includes('mora crítica') || tName.includes('mora critica')) return 90;
   }
 
-  return false;
+  // Same module fallback matching
+  if (activeView === 'renovaciones' && (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('póliza'))) return 40;
+  if (activeView === 'cobranza' && (tType.includes('cuota') || tType.includes('aviso') || tType.includes('mora') || tName.includes('cuota'))) return 40;
+
+  return 0;
+}
+
+function isTemplateMatch(t, recTarget, activeView) {
+  return getTemplateMatchScore(t, recTarget, activeView) > 0;
 }
 
 function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
@@ -914,11 +928,9 @@ function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
   if (recAccion && recAccion.plantilla) {
     const recTarget = recAccion.plantilla.toLowerCase();
     sortedTemplates.sort((a, b) => {
-      const aMatch = isTemplateMatch(a, recTarget, state.activeView);
-      const bMatch = isTemplateMatch(b, recTarget, state.activeView);
-      if (aMatch && !bMatch) return -1;
-      if (!aMatch && bMatch) return 1;
-      return 0;
+      const scoreA = getTemplateMatchScore(a, recTarget, state.activeView);
+      const scoreB = getTemplateMatchScore(b, recTarget, state.activeView);
+      return scoreB - scoreA;
     });
   }
 
