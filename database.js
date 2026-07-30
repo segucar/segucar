@@ -174,6 +174,18 @@ addColumn('cuotas_historial', 'TEXT');
 // Purge any old combined templates to guarantee clean single-variable templates
 db.prepare("DELETE FROM plantillas WHERE tipo LIKE 'combinado%' OR nombre LIKE '%Combinado%'").run();
 
+// Clean up {nombre} variable from all existing templates in DB
+try {
+    db.exec(`
+        UPDATE plantillas SET mensaje = REPLACE(mensaje, 'Hola {nombre},', 'Hola,') WHERE mensaje LIKE '%{nombre}%';
+        UPDATE plantillas SET mensaje = REPLACE(mensaje, 'Hola {nombre}', 'Hola') WHERE mensaje LIKE '%{nombre}%';
+        UPDATE plantillas SET mensaje = REPLACE(mensaje, '{nombre},', '') WHERE mensaje LIKE '%{nombre}%';
+        UPDATE plantillas SET mensaje = REPLACE(mensaje, '{nombre}', '') WHERE mensaje LIKE '%{nombre}%';
+    `);
+} catch (e) {
+    console.error('Error limpiando {nombre} de plantillas:', e);
+}
+
 let appName = 'SEGUCar';
 try {
     const configPath = path.join(__dirname, 'config.json');
@@ -191,49 +203,49 @@ if (countPlantillas === 0) {
     insertPlantilla.run(
         '🟡 Cuota: Recordatorio Preventivo (Vence en 48 hs)',
         'recordatorio_48hs',
-        'Hola {nombre}, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu seguro ({vehiculo} - Patente {patente}). Escribinos si querés abonarla o si necesitás el cbu/link de pago. ¡Saludos!'
+        'Hola, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu seguro ({vehiculo} - Patente {patente}). Escribinos si querés abonarla o si necesitás el cbu/link de pago. ¡Saludos!'
     );
 
     // 2. 🟠 PRIMER AVISO (Vencida hace 48 hs)
     insertPlantilla.run(
         '🟠 Cuota: Primer Aviso (Vencida hace 48 hs)',
         'primer_aviso',
-        'Hola {nombre}, te recuerdo que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
+        'Hola, te recuerdo que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
     );
 
     // 3. 🔴 SEGUNDO AVISO (Vencida hace 96 hs)
     insertPlantilla.run(
         '🔴 Cuota: Segundo Aviso (Vencida hace 96 hs)',
         'segundo_aviso',
-        'Hola {nombre}, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y finaliza tu período de gracia. Escribinos para regularizar la cuota antes de perder la cobertura.'
+        'Hola, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y finaliza tu período de gracia. Escribinos para regularizar la cuota antes de perder la cobertura.'
     );
 
     // 4. 🚨 MORA CRÍTICA (+96hs / Perdió Período de Gracia)
     insertPlantilla.run(
         '🚨 Cuota: Mora Crítica (+96 hs / Perdió Período de Gracia)',
         'mora_critica',
-        'Hola {nombre}, te aviso que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
+        'Hola, te aviso que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
     );
 
     // 5. 📄 AVISO RENOVACIÓN 7 DÍAS
     insertPlantilla.run(
         '📄 Póliza: Aviso Renovación (Vence en 7 Días)',
         'renovacion_7_dias',
-        'Hola {nombre}, ¿cómo estás? Te informamos que en 7 días vence la póliza de tu {vehiculo} (Patente {patente}). Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
+        'Hola, ¿cómo estás? Te informamos que en 7 días vence la póliza de tu {vehiculo} (Patente {patente}). Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
     );
 
     // 6. ⚫ PÓLIZA VENCIDA
     insertPlantilla.run(
         '⚫ Póliza: Aviso Póliza Vencida',
         'poliza_vencida',
-        `Hola {nombre}, te escribimos de ${appName} para avisarte que la póliza de tu {vehiculo} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!`
+        `Hola, te escribimos de ${appName} para avisarte que la póliza de tu {vehiculo} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!`
     );
 
     // 7. 🔄 RECTIVACIÓN CARTERA HISTÓRICA
     insertPlantilla.run(
         '🔄 Recuperación: Propuesta Reactivación Cartera Histórica',
         'recuperacion_historica',
-        `Hola {nombre}, te saludamos de ${appName}. Queremos ponernos en contacto nuevamente por tu {vehiculo} (Dominio: {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`
+        `Hola, te saludamos de ${appName}. Queremos ponernos en contacto nuevamente por tu {vehiculo} (Dominio: {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`
     );
 
     console.log('✅ Plantillas exclusivas por variable creadas.');
