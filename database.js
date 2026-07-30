@@ -186,6 +186,18 @@ try {
     console.error('Error limpiando {nombre} de plantillas:', e);
 }
 
+// Ensure renovacion_deuda template exists in DB
+try {
+    const existing = db.prepare("SELECT id FROM plantillas WHERE tipo = 'renovacion_deuda'").get();
+    if (!existing) {
+        db.prepare("INSERT INTO plantillas (nombre, tipo, mensaje) VALUES (?, ?, ?)").run(
+            '📄 Póliza: Renovación + Deuda Pendiente',
+            'renovacion_deuda',
+            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago.'
+        );
+    }
+} catch (e) {}
+
 let appName = 'SEGUCar';
 try {
     const configPath = path.join(__dirname, 'config.json');
@@ -232,6 +244,13 @@ if (countPlantillas === 0) {
         '📄 Póliza: Aviso Renovación (Vence en 7 Días)',
         'renovacion_7_dias',
         'Hola, ¿cómo estás? Te informamos que en 7 días vence la póliza de tu {vehiculo} (Patente {patente}). Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
+    );
+
+    // 5b. 📄 RENOVACIÓN CON DEUDA PENDIENTE
+    insertPlantilla.run(
+        '📄 Póliza: Renovación + Deuda Pendiente',
+        'renovacion_deuda',
+        'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago.'
     );
 
     // 6. ⚫ PÓLIZA VENCIDA

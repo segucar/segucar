@@ -238,13 +238,32 @@ const SeguroStateManager = (function () {
     if (!fvRen) return ESTADOS.CONTRATO_VIGENTE;
 
     const dias = calcularDiasVencimiento(fvRen);
+    const saldo = parseFloat(poliza ? (poliza.saldo_pendiente || 0) : 0);
+    const cuotas = parseInt(poliza ? (poliza.cuotas_debe || 0) : 0);
+    const tieneDeuda = saldo > 0 || cuotas > 0;
 
-    if (dias === 7) {
-      return ESTADOS.RENOVACION_7_DIAS;
-    }
     if (dias < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
+
+    if (dias <= 7 && dias >= 0) {
+      if (tieneDeuda) {
+        return {
+          code: 'RENOVACION_DEUDA',
+          modulo: 'renovaciones',
+          label: '📄 Renovación + Deuda Pendiente',
+          accion: '📄 Renovación + Deuda Pendiente',
+          accionDetalle: 'Aviso de renovación condicionado a regularización de saldo impago',
+          prioridadRank: 2,
+          prioridadLevel: 'alta',
+          tagClass: 'tag-blue',
+          badgeColor: '#00b4d8',
+          plantilla: 'renovacion_deuda'
+        };
+      }
+      return ESTADOS.RENOVACION_7_DIAS;
+    }
+
     return ESTADOS.CONTRATO_VIGENTE;
   }
 

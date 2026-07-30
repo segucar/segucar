@@ -807,19 +807,23 @@ function getAccionPorVista(polizaInput, viewName) {
     if (typeof SeguroStateManager !== 'undefined') {
       const resRen = SeguroStateManager.evaluarRenovacion(polizaInput);
       const templateMap = {
+        'RENOVACION_DEUDA': 'renovacion_deuda',
         'RENOVACION_7_DIAS': 'renovacion_7_dias',
         'POLIZA_VENCIDA': 'poliza_vencida'
       };
       return {
         codigo: resRen.code,
-        accion: resRen.accionDetalle,
+        accion: resRen.accionDetalle || resRen.accion,
         prioridad: resRen.prioridadLevel,
         rank: resRen.prioridadRank,
         badgeColor: resRen.badgeColor,
-        plantilla: templateMap[resRen.code] || 'renovacion_7_dias'
+        plantilla: resRen.plantilla || templateMap[resRen.code] || 'renovacion_7_dias'
       };
     }
-    return { accion: 'Renovación Póliza', prioridad: 'alta', tagClass: 'tag-blue', plantilla: 'renovacion_7_dias' };
+    const saldo = parseFloat(polizaInput ? (polizaInput.saldo_pendiente || 0) : 0);
+    const cuotas = parseInt(polizaInput ? (polizaInput.cuotas_debe || 0) : 0);
+    const plantillaType = (saldo > 0 || cuotas > 0) ? 'renovacion_deuda' : 'renovacion_7_dias';
+    return { accion: 'Renovación Póliza', prioridad: 'alta', tagClass: 'tag-blue', plantilla: plantillaType };
   } else if (currentView === 'cobranza') {
     if (typeof SeguroStateManager !== 'undefined') {
       const resCob = SeguroStateManager.evaluarCobranza(polizaInput, state.lastSyncDate);
@@ -862,6 +866,7 @@ function isTemplateMatch(t, recTarget, activeView) {
   if (tType === target) return true;
 
   if (activeView === 'renovaciones' || target.includes('renovacion') || target.includes('poliza_vencida')) {
+    if (target === 'renovacion_deuda' && (tType === 'renovacion_deuda' || tName.includes('deuda') || tName.includes('renovación + deuda') || tName.includes('renovacion + deuda'))) return true;
     if (target === 'poliza_vencida' && (tType === 'poliza_vencida' || tName.includes('póliza vencida') || tName.includes('poliza vencida'))) return true;
     if (target === 'renovacion_7_dias' && (tType === 'renovacion_7_dias' || tName.includes('aviso renovación') || tName.includes('aviso renovacion'))) return true;
     if (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('renovacion') || tName.includes('póliza')) return true;
