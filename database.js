@@ -271,4 +271,52 @@ db.marcarTelefonoInvalido = (clienteId, motivo = 'numero_inexistente') => {
     }
 };
 
+db.evaluarAtribucionMetricas = () => {
+    try {
+        const activas = db.prepare(`
+            SELECT * FROM historial_gestiones_whatsapp 
+            WHERE estado_resultado IN ('pendiente', 'vencido_sin_pago')
+              AND fecha_envio >= date('now', '-30 days', 'localtime')
+        `).all();
+
+        if (activas.length === 0) return;
+
+        const checkPolizaSaldo = db.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo FROM polizas WHERE id = ?");
+        const checkClienteSaldo = db.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?");
+
+        const updateGestion = db.prepare(`
+            UPDATE historial_gestiones_whatsapp
+            SET estado_resultado = ?,
+                fecha_resolucion = CURRENT_TIMESTAMP,
+                dias_hasta_pago = MAX(0, CAST(julianday(CURRENT_TIMESTAMP) - julianday(fecha_envio) AS INTEGER))
+            WHERE id = ?
+        `);
+
+        db.transaction(() => {
+            for (const g of activas) {
+                let currentSaldo = 0;
+                if (g.poliza_id) {
+                    const polRes = checkPolizaSaldo.get(g.poliza_id);
+                    currentSaldo = polRes ? parseFloat(polRes.saldo || 0) : 0;
+                } else {
+                    const saldoRes = checkClienteSaldo.get(g.cliente_id);
+                    currentSaldo = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
+                }
+
+                const daysElapsed = (new Date() - new Date(g.fecha_envio)) / (1000 * 60 * 60 * 24);
+
+                if (currentSaldo === 0 && g.saldo_al_enviar > 0) {
+                    updateGestion.run('exitoso_total', g.id);
+                } else if (currentSaldo < g.saldo_al_enviar) {
+                    updateGestion.run('exitoso_parcial', g.id);
+                } else if (daysElapsed >= 30) {
+                    updateGestion.run('vencido_sin_pago', g.id);
+                }
+            }
+        })();
+    } catch (e) {
+        console.error('Error evaluando atribución de métricas:', e);
+    }
+};
+
 module.exports = db;

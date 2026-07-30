@@ -337,6 +337,9 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
+    if (typeof db.evaluarAtribucionMetricas === 'function') {
+        db.evaluarAtribucionMetricas();
+    }
 
     return { actualizados, deudores_totales: Object.keys(deudasPorOp).length };
 }
@@ -354,6 +357,9 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
 
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
+    }
+    if (typeof db.evaluarAtribucionMetricas === 'function') {
+        db.evaluarAtribucionMetricas();
     }
 
     return {
