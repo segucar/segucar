@@ -125,7 +125,15 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
     const findClienteByName = db.prepare('SELECT id FROM clientes WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(?)) LIMIT 1');
     const insertCliente = db.prepare('INSERT INTO clientes (nombre, telefono) VALUES (?, ?)');
-    const updateClienteTel = db.prepare("UPDATE clientes SET telefono = COALESCE(NULLIF(?, ''), telefono) WHERE id = ? AND (telefono IS NULL OR telefono = '')");
+    const updateClienteTel = db.prepare(`
+        UPDATE clientes 
+        SET telefono = COALESCE(NULLIF(?, ''), telefono) 
+        WHERE id = ? 
+          AND (telefono IS NULL OR telefono = '' OR length(telefono) < 10)
+          AND NOT EXISTS (
+              SELECT 1 FROM telefonos_invalidos ti WHERE ti.cliente_id = clientes.id
+          )
+    `);
     const findPoliza = db.prepare('SELECT id FROM polizas WHERE operacion = ?');
     const insertPoliza = db.prepare(`
         INSERT INTO polizas (cliente_id, operacion, seccion, tipo_vehiculo, patente, vehiculo, suma_asegurada, cod_prod, cuenta, fecha_vencimiento, fin_vigencia_poliza, renovada, cuotas_debe, estado)

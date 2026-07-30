@@ -167,7 +167,10 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
             SELECT p.operacion, c.id as cliente_id, c.nombre 
             FROM polizas p 
             JOIN clientes c ON p.cliente_id = c.id 
-            WHERE c.telefono IS NULL OR c.telefono = ''
+            WHERE (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10)
+              AND NOT EXISTS (
+                  SELECT 1 FROM telefonos_invalidos ti WHERE ti.cliente_id = c.id
+              )
         `).all();
 
         onProgress({ status: `Se encontraron ${rows.length} pólizas sin teléfono.` });
@@ -257,7 +260,14 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
                 if (foundPhone) {
                     const sanitized = sanitizeAndFixPhone(foundPhone);
                     if (sanitized) {
-                        db.prepare('UPDATE clientes SET telefono = ? WHERE id = ?').run(sanitized, row.cliente_id);
+                        db.prepare(`
+                            UPDATE clientes 
+                            SET telefono = ? 
+                            WHERE id = ? 
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM telefonos_invalidos ti WHERE ti.cliente_id = clientes.id
+                              )
+                        `).run(sanitized, row.cliente_id);
                         if (typeof db.guardarTelefonoMaestro === 'function') {
                             db.guardarTelefonoMaestro(row.cliente_id, row.nombre, sanitized, 'scraper');
                         }

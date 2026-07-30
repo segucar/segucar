@@ -911,6 +911,18 @@ app.put('/api/clientes/:id', (req, res) => {
         const sanitizedPhone = sanitizeAndFixPhone(telefono);
         const info = db.prepare(`UPDATE clientes SET nombre=?, dni=?, direccion=?, telefono=?, email=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nombre, dni, direccion, sanitizedPhone, email, req.params.id);
         if (info.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+        if (sanitizedPhone && sanitizedPhone.length >= 10) {
+            if (typeof db.guardarTelefonoMaestro === 'function') {
+                db.guardarTelefonoMaestro(req.params.id, nombre, sanitizedPhone, 'manual');
+            }
+            db.prepare("DELETE FROM telefonos_invalidos WHERE cliente_id = ?").run(req.params.id);
+        } else if (!sanitizedPhone) {
+            if (typeof db.marcarTelefonoInvalido === 'function') {
+                db.marcarTelefonoInvalido(req.params.id, 'borrado_manual');
+            }
+        }
+
         res.json({ message: 'Cliente actualizado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
