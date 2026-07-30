@@ -1163,11 +1163,17 @@ function triggerSmartWhatsApp(clientId, operacion) {
     ? recAccion.plantilla 
     : (state.activeView === 'renovaciones' ? 'renovacion_7_dias' : 'primer_aviso');
   
-  let template = state.templates.find(t => isTemplateMatch(t, templateType, state.activeView));
-  if (!template && state.activeView === 'renovaciones') {
-    template = state.templates.find(t => String(t.tipo).toLowerCase().includes('renovacion') || String(t.nombre).toLowerCase().includes('renovación'));
-  }
-  if (!template && state.templates.length > 0) {
+  const sortedTemplates = (state.templates || []).slice().sort((a, b) => {
+    const scoreA = getTemplateMatchScore(a, templateType, state.activeView);
+    const scoreB = getTemplateMatchScore(b, templateType, state.activeView);
+    return scoreB - scoreA;
+  });
+
+  let template = sortedTemplates.length > 0 && getTemplateMatchScore(sortedTemplates[0], templateType, state.activeView) > 0
+    ? sortedTemplates[0]
+    : null;
+
+  if (!template && state.templates && state.templates.length > 0) {
     template = state.templates[0];
   }
 
