@@ -598,14 +598,6 @@ function updateTableHeader() {
   }
 }
 
-function renderTable() {
-  const tableBody = getEl('clientsTableBody');
-  const emptyState = getEl('emptyState');
-  if (!tableBody) return;
-
-  updateTableHeader();
-  tableBody.innerHTML = '';
-
 function getRenovacionesRank(item) {
   const p = item.poliza;
   if (!p) return 4;
