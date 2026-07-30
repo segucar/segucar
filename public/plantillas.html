@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEGUCar — Plantillas de Mensajes</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="brand">
+                <svg class="brand-logo-icon" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="6" stroke-dasharray="210 50" stroke-linecap="round" transform="rotate(-40 50 50)"/>
+                    <path d="M 30 52 L 34 40 C 35 37 38 35 42 35 L 58 35 C 62 35 65 37 66 40 L 70 52 C 73 53 75 55 75 59 L 75 66 C 75 68 73 70 71 70 L 69 70 C 67 70 65 68 65 66 L 65 64 L 35 64 L 35 66 C 35 68 33 70 31 70 L 29 70 C 27 70 25 68 25 66 L 25 59 C 25 55 27 53 30 52 Z M 37 43 L 63 43 L 60 48 L 40 48 Z M 34 57 C 36.2 57 38 55.2 38 53 C 38 50.8 36.2 49 34 49 C 31.8 49 30 50.8 30 53 C 30 55.2 31.8 57 34 57 Z M 66 57 C 68.2 57 70 55.2 70 53 C 70 50.8 68.2 49 66 49 C 63.8 49 62 50.8 62 53 C 62 55.2 63.8 57 66 57 Z" fill="currentColor"/>
+                </svg>
+                <span class="brand-text">SEGU<em>Car</em></span>
+            </a>
+            <div class="navbar-nav" style="align-items:center;">
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'dashboard')" class="nav-link">🏠 Dashboard</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'cobranza')" class="nav-link">💰 Cobranza</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'renovaciones')" class="nav-link">🛡️ Renovaciones</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'metricas')" class="nav-link">📊 Métricas</a>
+                <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
+                <a href="importar.html" class="nav-link">📥 Importar</a>
+                <a href="plantillas.html" class="nav-link active">📋 Plantillas</a>
+                <a href="/api/exportar" class="nav-link" style="color:var(--accent-cyan-light); font-weight:600;">📥 Exportar Excel</a>
+                <a href="index.html" onclick="localStorage.setItem('targetSyncNRE', 'true')" class="btn btn-sm btn-primary" style="gap:6px; margin-left:8px; display:inline-flex; align-items:center; text-decoration:none;">🔄 Sincronizar NRE</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4 mb-4">
+        <div class="flex flex-between flex-center mb-4" style="flex-wrap:wrap; gap:16px;">
+            <div>
+                <h1 class="mb-1">Plantillas de Mensajes de WhatsApp</h1>
+                <p style="color:var(--text-secondary); font-size:0.9rem;">
+                    Variables disponibles: 
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{nombre}</code>
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{vehiculo}</code>
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{patente}</code>
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{fecha_vencimiento}</code>
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{cuotas_debe}</code>
+                    <code style="color:var(--accent-cyan); background:rgba(0,180,216,0.1); padding:2px 6px; border-radius:4px;">{operacion}</code>
+                </p>
+            </div>
+            <button class="btn btn-primary" onclick="addPlantilla()">+ Nueva Plantilla</button>
+        </div>
+
+        <div id="plantillasGrid" class="stats-grid" style="grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));">
+            <!-- Rendered by JS -->
+            <div class="loading">Cargando plantillas...</div>
+        </div>
+    </main>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="js/config.js"></script>
+    <script src="js/plantillas.js"></script>
+</body>
+</html>

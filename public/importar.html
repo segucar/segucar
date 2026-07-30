@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SEGUCar — Importar Datos</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+    <!-- Top Navigation Bar -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="brand">
+                <svg class="brand-logo-icon" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="42" fill="none" stroke="currentColor" stroke-width="6" stroke-dasharray="210 50" stroke-linecap="round" transform="rotate(-40 50 50)"/>
+                    <path d="M 30 52 L 34 40 C 35 37 38 35 42 35 L 58 35 C 62 35 65 37 66 40 L 70 52 C 73 53 75 55 75 59 L 75 66 C 75 68 73 70 71 70 L 69 70 C 67 70 65 68 65 66 L 65 64 L 35 64 L 35 66 C 35 68 33 70 31 70 L 29 70 C 27 70 25 68 25 66 L 25 59 C 25 55 27 53 30 52 Z M 37 43 L 63 43 L 60 48 L 40 48 Z M 34 57 C 36.2 57 38 55.2 38 53 C 38 50.8 36.2 49 34 49 C 31.8 49 30 50.8 30 53 C 30 55.2 31.8 57 34 57 Z M 66 57 C 68.2 57 70 55.2 70 53 C 70 50.8 68.2 49 66 49 C 63.8 49 62 50.8 62 53 C 62 55.2 63.8 57 66 57 Z" fill="currentColor"/>
+                </svg>
+                <span class="brand-text">SEGU<em>Car</em></span>
+            </a>
+            <div class="navbar-nav" style="align-items:center;">
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'dashboard')" class="nav-link">🏠 Dashboard</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'cobranza')" class="nav-link">💰 Cobranza</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'renovaciones')" class="nav-link">🛡️ Renovaciones</a>
+                <a href="index.html" onclick="localStorage.setItem('targetView', 'metricas')" class="nav-link">📊 Métricas</a>
+                <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
+                <a href="importar.html" class="nav-link active">📥 Importar</a>
+                <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
+                <a href="/api/exportar" class="nav-link" style="color:var(--accent-cyan-light); font-weight:600;">📥 Exportar Excel</a>
+                <a href="index.html" onclick="localStorage.setItem('targetSyncNRE', 'true')" class="btn btn-sm btn-primary" style="gap:6px; margin-left:8px; display:inline-flex; align-items:center; text-decoration:none;">🔄 Sincronizar NRE</a>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mt-4 mb-4">
+        <h1 class="mb-4">Importar Datos & Sincronización</h1>
+        
+        <div class="flex gap-4" style="align-items: flex-start; flex-wrap: wrap;">
+            
+            <!-- Excel Import -->
+            <div class="card" style="flex: 1; min-width: 320px;">
+                <h2 class="mb-3">📄 Importar desde Excel</h2>
+                <div id="dropZone" class="drop-zone mb-3">
+                    <div style="font-size: 2.5rem; margin-bottom: 0.8rem;">📥</div>
+                    <p class="mb-2" style="font-weight:600;">Arrastrá tu archivo .xlsx aquí</p>
+                    <p class="empty-state mb-2">o</p>
+                    <button class="btn btn-ghost" onclick="document.getElementById('fileInput').click()">Examinar archivo</button>
+                    <input type="file" id="fileInput" class="hidden" accept=".xlsx,.xls">
+                </div>
+                
+                <div id="fileInfo" class="hidden mb-3 p-3" style="background: rgba(0, 180, 216, 0.1); border-radius: 8px; border: 1px solid var(--border-color);">
+                    <strong>Archivo:</strong> <span id="fileName"></span> <br>
+                    <strong>Tamaño:</strong> <span id="fileSize"></span>
+                </div>
+                
+                <button id="importBtn" class="btn btn-primary w-100 hidden" onclick="uploadExcel()">Importar Archivo</button>
+                
+                <div id="importProgress" class="hidden mt-3">
+                    <p class="mb-1 text-center">Importando pólizas y clientes...</p>
+                    <div class="progress-bar-container" style="background: var(--surface); border-radius: 10px; overflow: hidden; height: 10px;">
+                        <div class="progress-bar" style="background: var(--accent-cyan); width: 100%; height: 100%; animation: pulse 1.5s infinite;"></div>
+                    </div>
+                </div>
+
+                <div id="importResults" class="hidden mt-3 p-3" style="background: rgba(37, 211, 102, 0.1); border-radius: 8px; border: 1px solid var(--success);">
+                    <h3 class="mb-2">Resultados de Importación</h3>
+                    <p>✅ Importados: <strong id="resImportados">0</strong></p>
+                    <p>🔄 Actualizados: <strong id="resActualizados">0</strong></p>
+                    <p>❌ Errores: <strong id="resErrores">0</strong></p>
+                </div>
+            </div>
+
+            <!-- Invalid Phones Report -->
+            <div class="card" style="flex: 1; min-width: 320px;">
+                <h2 class="mb-3">⚠️ Reporte de Teléfonos Incompletos</h2>
+                <p class="mb-4" style="color:var(--text-secondary); line-height: 1.45;">
+                    Descargá un listado detallado en formato Excel (.xlsx) con todos los clientes que no poseen un número de teléfono cargado o cuya longitud sea menor a los 10 dígitos obligatorios (código de área + número local). Usá este reporte para completarlos manualmente en la oficina.
+                </p>
+                <a href="/api/reportes/telefonos-invalidos" class="btn btn-whatsapp w-100" style="text-align: center; display: block; font-weight: 700; text-decoration: none; padding: 12px 0; box-shadow: 0 4px 12px rgba(37,211,102,0.3);">
+                    📥 Descargar Excel de Errores
+                </a>
+            </div>
+
+        </div>
+
+        <!-- Phone Contacts Import -->
+        <div class="card mt-4">
+            <h2 class="mb-3">📱 Importar Agenda de Contactos (.vcf)</h2>
+            <p class="mb-3" style="color:var(--text-secondary);">Subí el archivo .vcf exportado desde la agenda del celular. El sistema cruza automáticamente los nombres con los clientes existentes y completa sus teléfonos.</p>
+            
+            <div class="flex gap-3" style="align-items:center;">
+                <input type="file" id="vcfInput" accept=".vcf" style="display:none;">
+                <button class="btn btn-primary" onclick="document.getElementById('vcfInput').click()">📁 Seleccionar Archivo VCF</button>
+                <span id="vcfFileName" style="color:var(--text-secondary); font-weight:600;"></span>
+            </div>
+
+            <div id="vcfProgress" class="hidden mt-3">
+                <p class="mb-1 text-center">Cruzando contactos...</p>
+                <div class="progress-bar-container" style="background: var(--surface); border-radius: 10px; overflow: hidden; height: 10px;">
+                    <div class="progress-bar" style="background: #25D366; width: 100%; height: 100%; animation: pulse 1.5s infinite;"></div>
+                </div>
+            </div>
+
+            <div id="vcfResults" class="hidden mt-3 p-3" style="background: rgba(37, 211, 102, 0.1); border-radius: 8px; border: 1px solid var(--success);">
+                <h3 class="mb-2">Resultados de Agenda</h3>
+                <p>📥 Contactos leídos: <strong id="vcfImportados">0</strong></p>
+                <p>🔗 Cruzados exitosamente: <strong id="vcfCruzados">0</strong></p>
+                <ul id="vcfDetalles" class="hidden" style="max-height:250px;overflow-y:auto;font-size:0.85em;margin-top:8px;"></ul>
+            </div>
+        </div>
+    </main>
+
+    <div id="toastContainer" class="toast-container"></div>
+
+    <script src="js/config.js"></script>
+    <script src="js/importar.js"></script>
+</body>
+</html>
