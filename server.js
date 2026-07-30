@@ -654,11 +654,16 @@ app.get('/api/clientes', (req, res) => {
                 END`;
             }
         } else if (sortBy === 'prioridad_poliza') {
-            // Semáforo de Renovaciones:
+            // Criterio de Ordenamiento de Renovaciones:
+            // 1. PRIMERO (Rank 1): Clientes al día (saldo = 0 y cuotas_debe = 0) que vencen / vigentes.
+            // 2. SEGUNDO (Rank 2): Clientes con deuda pendiente (saldo > 0 o cuotas_debe > 0).
+            // 3. TERCERO (Rank 3): Pólizas ya vencidas (fin_vigencia < date('now')).
+            const targetVencExpr = "COALESCE(NULLIF(p.fin_vigencia_poliza, ''), p.fecha_vencimiento)";
             sortCol = `CASE 
-                WHEN p.fecha_vencimiento < date('now') THEN 1
-                WHEN p.fecha_vencimiento = date('now', '+7 days') THEN 2
-                ELSE 3
+                WHEN ${targetVencExpr} >= date('now') AND (COALESCE(p.saldo_pendiente, 0) = 0 AND COALESCE(p.cuotas_debe, 0) = 0) THEN 1
+                WHEN COALESCE(p.saldo_pendiente, 0) > 0 OR COALESCE(p.cuotas_debe, 0) > 0 THEN 2
+                WHEN ${targetVencExpr} < date('now') THEN 3
+                ELSE 4
             END`;
         }
 
