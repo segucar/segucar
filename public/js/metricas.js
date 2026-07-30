@@ -39,6 +39,7 @@ function renderMetricasUI(data) {
     'segundo_aviso': '🔴 Segundo Aviso (Cuota Vencida)',
     'mora_critica': '🚨 Mora Crítica (+96 hs)',
     'renovacion_7_dias': '📄 Aviso Renovación (Vence en 7 Días)',
+    'renovacion_deuda': '📄 Póliza: Renovación + Deuda Pendiente',
     'poliza_vencida': '⚫ Aviso Póliza Vencida',
     'recuperacion_historica': '🔄 Propuesta Reactivación Cartera'
   };
