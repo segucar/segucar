@@ -91,8 +91,8 @@ function renderMetricasUI(data) {
         <button class="btn btn-ghost" onclick="fetchMetricas()" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15);">
           🔄 Actualizar
         </button>
-        <a href="/api/reportes/telefonos-invalidos" class="btn btn-ghost" style="color: #ff4757; border: 1px solid rgba(255,71,87,0.4); background: rgba(255,71,87,0.1); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;" title="Descargar reporte CSV de teléfonos marcados como inexistentes o sin WhatsApp">
-          🚫 Exportar Teléfonos Inválidos
+        <a href="/api/reportes/telefonos-incompletos" class="btn btn-ghost" style="color: var(--accent-cyan-light); border: 1px solid rgba(0, 180, 216, 0.4); background: rgba(0, 180, 216, 0.1); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;" title="Descargar reporte Excel unificado con todos los clientes sin teléfono, incompletos o invalidados">
+          📱 Exportar Clientes Sin Teléfono
         </a>
       </div>
     </div>
