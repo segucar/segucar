@@ -798,11 +798,57 @@ function calcularAccionPoliza(polizaInput) {
   return { accion: '🟢 Contrato vigente', tagClass: 'tag-green' };
 }
 
-function calcularProximaAccion(polizaInput) {
-  if (typeof SeguroStateManager !== 'undefined') {
-    return SeguroStateManager.evaluarProximaAccion(polizaInput, state.lastSyncDate);
+function getAccionPorVista(polizaInput, viewName) {
+  if (!polizaInput) return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: 'recordatorio_48hs' };
+  
+  const currentView = viewName || state.activeView;
+
+  if (currentView === 'renovaciones') {
+    if (typeof SeguroStateManager !== 'undefined') {
+      const resRen = SeguroStateManager.evaluarRenovacion(polizaInput);
+      const templateMap = {
+        'RENOVACION_7_DIAS': 'renovacion_7_dias',
+        'POLIZA_VENCIDA': 'poliza_vencida'
+      };
+      return {
+        codigo: resRen.code,
+        accion: resRen.accionDetalle,
+        prioridad: resRen.prioridadLevel,
+        rank: resRen.prioridadRank,
+        badgeColor: resRen.badgeColor,
+        plantilla: templateMap[resRen.code] || 'renovacion_7_dias'
+      };
+    }
+    return { accion: 'Renovación Póliza', prioridad: 'alta', tagClass: 'tag-blue', plantilla: 'renovacion_7_dias' };
+  } else if (currentView === 'cobranza') {
+    if (typeof SeguroStateManager !== 'undefined') {
+      const resCob = SeguroStateManager.evaluarCobranza(polizaInput, state.lastSyncDate);
+      const templateMap = {
+        'RECORDATORIO_48HS': 'recordatorio_48hs',
+        'CUOTA_VENCIDA_0_48HS': 'primer_aviso',
+        'CUOTA_VENCIDA_48_96HS': 'segundo_aviso',
+        'MORA_CRITICA_96HS': 'mora_critica'
+      };
+      return {
+        codigo: resCob.code,
+        accion: resCob.accionDetalle,
+        prioridad: resCob.prioridadLevel,
+        rank: resCob.prioridadRank,
+        badgeColor: resCob.badgeColor,
+        plantilla: templateMap[resCob.code] || 'primer_aviso'
+      };
+    }
+    return { accion: 'Cobranza Cuota', prioridad: 'alta', tagClass: 'tag-amber', plantilla: 'primer_aviso' };
+  } else {
+    if (typeof SeguroStateManager !== 'undefined') {
+      return SeguroStateManager.evaluarProximaAccion(polizaInput, state.lastSyncDate);
+    }
+    return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: 'recordatorio_48hs' };
   }
-  return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green' };
+}
+
+function calcularProximaAccion(polizaInput) {
+  return getAccionPorVista(polizaInput, state.activeView);
 }
 
 // ─── WHATSAPP ──────────────────────────────────────────────────────────────
@@ -835,16 +881,19 @@ function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
   ];
 
   const poliza = client.polizas ? client.polizas.find(p => p.operacion === operacion) : (client.polizas ? client.polizas[0] : null);
-  const recAccion = poliza ? calcularProximaAccion(poliza) : null;
+  const recAccion = poliza ? getAccionPorVista(poliza, state.activeView) : null;
 
   let sortedTemplates = [...templates];
   if (recAccion && recAccion.plantilla) {
     const recTarget = recAccion.plantilla.toLowerCase();
     sortedTemplates.sort((a, b) => {
-      const aName = (a.nombre || a.name || '').toLowerCase();
-      const bName = (b.nombre || b.name || '').toLowerCase();
-      const aMatch = aName.includes('combinado') || aName.includes(recTarget.substring(0, 10));
-      const bMatch = bName.includes('combinado') || bName.includes(recTarget.substring(0, 10));
+      const aType = String(a.tipo || '').toLowerCase();
+      const bType = String(b.tipo || '').toLowerCase();
+      const aName = String(a.nombre || a.name || '').toLowerCase();
+      const bName = String(b.nombre || b.name || '').toLowerCase();
+
+      const aMatch = aType === recTarget || aName.includes(recTarget);
+      const bMatch = bType === recTarget || bName.includes(recTarget);
       if (aMatch && !bMatch) return -1;
       if (!aMatch && bMatch) return 1;
       return 0;
@@ -1020,10 +1069,15 @@ function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
-  const recAccion = calcularProximaAccion(poliza);
-  const templateType = (recAccion && recAccion.plantilla) ? recAccion.plantilla : 'primer_aviso';
+  const recAccion = getAccionPorVista(poliza, state.activeView);
+  const templateType = (recAccion && recAccion.plantilla) 
+    ? recAccion.plantilla 
+    : (state.activeView === 'renovaciones' ? 'renovacion_7_dias' : 'primer_aviso');
   
   let template = state.templates.find(t => String(t.tipo).toLowerCase() === templateType.toLowerCase());
+  if (!template && state.activeView === 'renovaciones') {
+    template = state.templates.find(t => String(t.tipo).toLowerCase().includes('renovacion') || String(t.nombre).toLowerCase().includes('renovación'));
+  }
   if (!template && state.templates.length > 0) {
     template = state.templates[0];
   }
