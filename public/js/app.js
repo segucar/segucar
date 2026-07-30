@@ -853,6 +853,28 @@ function calcularProximaAccion(polizaInput) {
 
 // ─── WHATSAPP ──────────────────────────────────────────────────────────────
 
+function isTemplateMatch(t, recTarget, activeView) {
+  if (!t) return false;
+  const tType = String(t.tipo || '').toLowerCase();
+  const tName = String(t.nombre || t.name || '').toLowerCase();
+  const target = String(recTarget || '').toLowerCase();
+
+  if (tType === target) return true;
+
+  if (activeView === 'renovaciones' || target.includes('renovacion') || target.includes('poliza_vencida')) {
+    if (target === 'poliza_vencida' && (tType === 'poliza_vencida' || tName.includes('póliza vencida') || tName.includes('poliza vencida'))) return true;
+    if (target === 'renovacion_7_dias' && (tType === 'renovacion_7_dias' || tName.includes('aviso renovación') || tName.includes('aviso renovacion'))) return true;
+    if (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('renovacion') || tName.includes('póliza')) return true;
+  } else if (activeView === 'cobranza' || target.includes('cuota') || target.includes('aviso') || target.includes('mora')) {
+    if (target === 'recordatorio_48hs' && (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo'))) return true;
+    if (target === 'primer_aviso' && (tType === 'primer_aviso' || tName.includes('primer aviso'))) return true;
+    if (target === 'segundo_aviso' && (tType === 'segundo_aviso' || tName.includes('segundo aviso'))) return true;
+    if (target === 'mora_critica' && (tType === 'mora_critica' || tName.includes('mora crítica') || tName.includes('mora critica'))) return true;
+  }
+
+  return false;
+}
+
 function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
   e.stopPropagation();
   const btn = e.currentTarget || (e.target ? e.target.closest('button') : null);
@@ -887,13 +909,8 @@ function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
   if (recAccion && recAccion.plantilla) {
     const recTarget = recAccion.plantilla.toLowerCase();
     sortedTemplates.sort((a, b) => {
-      const aType = String(a.tipo || '').toLowerCase();
-      const bType = String(b.tipo || '').toLowerCase();
-      const aName = String(a.nombre || a.name || '').toLowerCase();
-      const bName = String(b.nombre || b.name || '').toLowerCase();
-
-      const aMatch = aType === recTarget || aName.includes(recTarget);
-      const bMatch = bType === recTarget || bName.includes(recTarget);
+      const aMatch = isTemplateMatch(a, recTarget, state.activeView);
+      const bMatch = isTemplateMatch(b, recTarget, state.activeView);
       if (aMatch && !bMatch) return -1;
       if (!aMatch && bMatch) return 1;
       return 0;
@@ -1074,7 +1091,7 @@ function triggerSmartWhatsApp(clientId, operacion) {
     ? recAccion.plantilla 
     : (state.activeView === 'renovaciones' ? 'renovacion_7_dias' : 'primer_aviso');
   
-  let template = state.templates.find(t => String(t.tipo).toLowerCase() === templateType.toLowerCase());
+  let template = state.templates.find(t => isTemplateMatch(t, templateType, state.activeView));
   if (!template && state.activeView === 'renovaciones') {
     template = state.templates.find(t => String(t.tipo).toLowerCase().includes('renovacion') || String(t.nombre).toLowerCase().includes('renovación'));
   }
