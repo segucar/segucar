@@ -10,6 +10,18 @@ if (!fs.existsSync(dataDir)) {
 
 let dbPath = path.join(dataDir, 'gestionseguro.db');
 
+const seedPath = path.join(__dirname, 'seed.db');
+if (fs.existsSync(seedPath)) {
+    if (!fs.existsSync(dbPath) || fs.statSync(dbPath).size < 50000) {
+        try {
+            fs.copyFileSync(seedPath, dbPath);
+            console.log('✅ Base de datos inicial sembrada desde seed.db exitosamente.');
+        } catch (e) {
+            console.error('Error sembrando seed.db:', e);
+        }
+    }
+}
+
 if (process.env.NETLIFY || process.env.LAMBDA_TASK_ROOT) {
     const tmpPath = path.join('/tmp', 'gestionseguro.db');
     if (!fs.existsSync(tmpPath) && fs.existsSync(dbPath)) {
