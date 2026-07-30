@@ -156,29 +156,13 @@ function switchView(viewName) {
     return;
   }
 
-  const thEstadoPoliza = getEl('thEstadoPoliza');
-  const thEstadoCuotas = getEl('thEstadoCuotas');
-  const thAccionCobranza = getEl('thAccionCobranza');
-  const thAccionPoliza = getEl('thAccionPoliza');
-  const thOperacion = getEl('thOperacion');
-
   if (viewName === 'cobranza') {
-    if (thEstadoPoliza) thEstadoPoliza.style.display = 'none';
-    if (thAccionPoliza) thAccionPoliza.style.display = 'none';
-    if (thOperacion) thOperacion.style.display = 'table-cell';
-    if (thEstadoCuotas) thEstadoCuotas.style.display = 'table-cell';
-    if (thAccionCobranza) thAccionCobranza.style.display = 'table-cell';
     // Default sort: prioridad urgente primero
     if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
       state.sort.by = 'vencimiento';
       state.sort.dir = 'ASC';
     }
   } else if (viewName === 'renovaciones') {
-    if (thEstadoCuotas) thEstadoCuotas.style.display = 'none';
-    if (thAccionCobranza) thAccionCobranza.style.display = 'none';
-    if (thEstadoPoliza) thEstadoPoliza.style.display = 'table-cell';
-    if (thAccionPoliza) thAccionPoliza.style.display = 'table-cell';
-    if (thOperacion) thOperacion.style.display = 'table-cell';
     // Default sort: pólizas vencidas primero
     if (state.sort.by === 'nombre') {
       state.sort.by = 'prioridad_poliza';
