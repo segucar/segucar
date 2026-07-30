@@ -400,7 +400,7 @@ body {
 table {
   width: 100%;
   table-layout: auto;
-  min-width: 1350px;
+  min-width: 100%;
   border-collapse: collapse;
   text-align: left;
 }
@@ -412,11 +412,11 @@ thead {
 
 th {
   position: relative;
-  padding: 12px 16px;
-  font-size: 0.74rem;
+  padding: 6px 10px;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.4px;
   color: var(--text-secondary);
   white-space: nowrap;
 }
