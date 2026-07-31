@@ -18,7 +18,7 @@ function handleSortRecuperacion(col) {
     state.sort.dir = 'ASC';
   }
 
-  const cols = ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'fecha_vencimiento', 'estrategia'];
+  const cols = ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'fecha_vencimiento', 'estrategia', 'acciones'];
   cols.forEach(c => {
     const el = document.getElementById(`sort_icon_${c}`);
     if (el) {

@@ -1108,7 +1108,8 @@ app.get('/api/recuperacion', (req, res) => {
             'operacion': 'operacion',
             'vehiculo': 'vehiculo',
             'fecha_vencimiento': 'fecha_vencimiento',
-            'estrategia': 'estrategia'
+            'estrategia': 'estrategia',
+            'acciones': 'CASE WHEN (telefono IS NOT NULL AND length(telefono) >= 10) THEN 1 ELSE 0 END'
         };
         const sortCol = validSortCols[sortBy] || 'fecha_vencimiento';
 

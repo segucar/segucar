@@ -315,4 +315,32 @@ db.evaluarAtribucionMetricas = () => {
     }
 };
 
+db.sincronizarSaldosCuotasHistorial = () => {
+    try {
+        const polizas = db.prepare('SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial FROM polizas').all();
+        const updateStmt = db.prepare('UPDATE polizas SET cuotas_debe = ?, saldo_pendiente = ? WHERE id = ?');
+        db.transaction(() => {
+            for (const p of polizas) {
+                if (!p.cuotas_historial) continue;
+                let hist = [];
+                try { hist = JSON.parse(p.cuotas_historial); } catch(e){}
+                if (!Array.isArray(hist) || hist.length === 0) continue;
+
+                const pendingCuotas = hist.filter(c => (c.estado === 'PENDIENTE' || !c.estado) && (c.saldo_cli > 0 || c.saldo > 0));
+                const pendingCount = pendingCuotas.length;
+                const pendingTotal = pendingCuotas.reduce((sum, c) => sum + (c.saldo_cli || c.saldo || 0), 0);
+
+                if (p.cuotas_debe !== pendingCount || Math.abs((p.saldo_pendiente || 0) - pendingTotal) > 0.01) {
+                    updateStmt.run(pendingCount, pendingTotal, p.id);
+                }
+            }
+        })();
+    } catch (e) {
+        console.error('Error sincronizando saldos de cuotas_historial:', e);
+    }
+};
+
+// Ejecutar al iniciar para mantener integridad
+db.sincronizarSaldosCuotasHistorial();
+
 module.exports = db;

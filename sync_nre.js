@@ -345,6 +345,9 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
+    if (typeof db.sincronizarSaldosCuotasHistorial === 'function') {
+        db.sincronizarSaldosCuotasHistorial();
+    }
     if (typeof db.evaluarAtribucionMetricas === 'function') {
         db.evaluarAtribucionMetricas();
     }
