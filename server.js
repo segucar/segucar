@@ -652,7 +652,9 @@ app.get('/api/clientes', (req, res) => {
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0`;
+                where += ` AND p.fecha_vencimiento < date('now', 'localtime') AND p.fecha_vencimiento >= date('now', 'localtime', '-30 days')`;
+            } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
+                where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`;
 
@@ -810,12 +812,22 @@ app.get('/api/clientes', (req, res) => {
                         return calDiffRen === 7;
                     }
                     if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                        const parts = fvRen.split('-');
+                        const parts = fv.split('-');
                         if (parts.length !== 3) return false;
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
-                        const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen < 0;
+                        const calDiff = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                        return calDiff < 0 && calDiff >= -30;
+                    }
+                    if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
+                        const est = (p.estado || '').toLowerCase();
+                        if (est === 'anulada' || est === 'baja') return true;
+                        const parts = fv.split('-');
+                        if (parts.length !== 3) return false;
+                        const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                        const todayDate = parseLocalDate(hoyStr);
+                        const calDiff = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                        return calDiff < -30;
                     }
                     if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
                         const parts = fvRen.split('-');
