@@ -653,6 +653,20 @@ tbody tr:hover {
   box-shadow: 0 6px 18px rgba(37, 211, 102, 0.5);
 }
 
+/* AZUL SEGURO #3366cc — ESTADO PERSISTENTE 'ENVIADO / COMPLETADO ✅' */
+.btn-whatsapp-sent, .btn-blue-sent, .btn-completed {
+  background: linear-gradient(135deg, #3366cc 0%, #1e40af 100%) !important;
+  color: #ffffff !important;
+  border: 1px solid #60a5fa !important;
+  box-shadow: 0 4px 14px rgba(51, 102, 204, 0.45) !important;
+}
+
+.btn-whatsapp-sent:hover, .btn-blue-sent:hover, .btn-completed:hover {
+  background: linear-gradient(135deg, #2554b8 0%, #1c388c 100%) !important;
+  transform: translateY(-2px) scale(1.03) !important;
+  box-shadow: 0 6px 18px rgba(51, 102, 204, 0.65) !important;
+}
+
 .btn-danger {
   background: rgba(255, 77, 77, 0.15);
   color: var(--danger);
