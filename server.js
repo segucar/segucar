@@ -1507,6 +1507,10 @@ app.get('/api/clientes/:id/contactos', (req, res) => {
     }
 });
 
+app.get('/api/metricas', (req, res) => {
+    res.redirect('/api/metricas/resumen');
+});
+
 app.get('/api/metricas/resumen', (req, res) => {
     try {
         evaluarAtribucionMetricas();
