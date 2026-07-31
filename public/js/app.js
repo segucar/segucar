@@ -1132,7 +1132,10 @@ function getWaMessageData(client, polizaInput, template) {
   }
 
   const msg = msgTemplate
-    .replace(/\{nombre\}/g, formattedName)
+    .replace(/Hola \{nombre\},/gi, 'Hola,')
+    .replace(/Hola \{nombre\}/gi, 'Hola')
+    .replace(/\{nombre\},/gi, '')
+    .replace(/\{nombre\}/gi, '')
     .replace(/\{vehiculo\}/g, vehiculo)
     .replace(/\{patente\}/g, patente)
     .replace(/\{fecha_vencimiento\}/g, fechaVenc)
