@@ -488,15 +488,35 @@ async function generarExcelEstructuradoExcelJS(req, res) {
 
         const qHistoricas = `
             SELECT 
-                c.id, c.nombre, c.dni, c.telefono,
-                p.operacion, p.patente, p.vehiculo,
+                c.id as id,
+                c.nombre as nombre,
+                c.dni as dni,
+                c.telefono as telefono,
+                p.operacion as operacion,
+                p.patente as patente,
+                p.vehiculo as vehiculo,
                 p.fecha_vencimiento as vencimiento,
-                COALESCE(p.estado, 'Histórica/Baja') as estado,
-                p.observaciones
+                COALESCE(p.estado, 'Baja / Anulada') as estado,
+                COALESCE(p.observaciones, 'Póliza Histórica / Anulada') as observaciones
             FROM clientes c
             LEFT JOIN polizas p ON c.id = p.cliente_id
             WHERE LOWER(COALESCE(p.estado, '')) IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
-            ORDER BY c.nombre ASC
+
+            UNION ALL
+
+            SELECT 
+                NULL as id,
+                ph.nombre as nombre,
+                NULL as dni,
+                ph.telefono as telefono,
+                ph.operacion as operacion,
+                ph.patente as patente,
+                ph.vehiculo as vehiculo,
+                ph.fecha_vencimiento as vencimiento,
+                'Histórica / Bajas' as estado,
+                COALESCE(ph.estrategia, 'Reactivación Histórica') as observaciones
+            FROM polizas_historicas ph
+            ORDER BY nombre ASC
         `;
         const rowsHistoricas = db.prepare(qHistoricas).all();
         rowsHistoricas.forEach(r => sheet3.addRow(r));
@@ -514,12 +534,78 @@ async function generarExcelEstructuradoExcelJS(req, res) {
     }
 }
 
+async function generarExcelSinTelefonoExcelJS(req, res) {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'SEGUCar';
+        workbook.created = new Date();
+
+        const sheet2 = workbook.addWorksheet('SIN TELÉFONO');
+        sheet2.columns = [
+            { header: 'ID Cliente', key: 'id', width: 12 },
+            { header: 'Nombre', key: 'nombre', width: 35 },
+            { header: 'DNI', key: 'dni', width: 15 },
+            { header: 'Póliza', key: 'operacion', width: 20 },
+            { header: 'Vehículo', key: 'vehiculo', width: 30 },
+            { header: 'Condición Póliza', key: 'condicion_poliza', width: 25 },
+            { header: 'Fin Vigencia / Vencimiento', key: 'fin_vigencia', width: 22 },
+            { header: 'Teléfono Registrado', key: 'telefono_registrado', width: 22 },
+            { header: 'Estado/Tipo de Error', key: 'tipo_error', width: 28 },
+            { header: 'Dirección', key: 'direccion', width: 35 },
+            { header: 'Email', key: 'email', width: 25 }
+        ];
+
+        const qSinTel = `
+            SELECT 
+                c.id, c.nombre, c.dni,
+                COALESCE(p.operacion, '-') as operacion,
+                COALESCE(p.vehiculo, '-') as vehiculo,
+                CASE 
+                    WHEN CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 THEN '🟢 ACTIVA / VIGENTE'
+                    ELSE '🔴 VENCIDA'
+                END as condicion_poliza,
+                COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento, '-') as fin_vigencia,
+                COALESCE(ti.telefono, NULLIF(c.telefono, ''), 'Sin Registro') as telefono_registrado,
+                CASE 
+                    WHEN ti.id IS NOT NULL THEN 'Inválido / Inexistente'
+                    WHEN c.telefono IS NOT NULL AND c.telefono != '' AND length(c.telefono) < 10 THEN 'Incompleto (< 10 dígitos)'
+                    ELSE 'Sin Registro'
+                END as tipo_error,
+                c.direccion, c.email
+            FROM clientes c
+            LEFT JOIN polizas p ON c.id = p.cliente_id
+            LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
+            WHERE (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10 OR ti.id IS NOT NULL)
+              AND LOWER(COALESCE(p.estado, '')) NOT IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
+            ORDER BY 
+                CASE 
+                    WHEN CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 THEN 1 
+                    ELSE 2 
+                END ASC, 
+                c.nombre ASC
+        `;
+        const rowsSinTel = db.prepare(qSinTel).all();
+        rowsSinTel.forEach(r => sheet2.addRow(r));
+        sheet2.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        sheet2.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD35400' } };
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename="SEGUCar_Reporte_Sin_Telefono.xlsx"');
+
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error("Error al generar Excel Sin Teléfono:", error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
 app.get('/api/exportar', generarExcelEstructuradoExcelJS);
 app.get('/api/exportar/excel', generarExcelEstructuradoExcelJS);
 app.get('/api/exportar-excel', generarExcelEstructuradoExcelJS);
-app.get('/api/exportar-sin-telefono', generarExcelEstructuradoExcelJS);
-app.get('/api/reportes/telefonos-incompletos', generarExcelEstructuradoExcelJS);
-app.get('/api/reportes/sin-telefono', generarExcelEstructuradoExcelJS);
+app.get('/api/exportar-sin-telefono', generarExcelSinTelefonoExcelJS);
+app.get('/api/reportes/telefonos-incompletos', generarExcelSinTelefonoExcelJS);
+app.get('/api/reportes/sin-telefono', generarExcelSinTelefonoExcelJS);
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
