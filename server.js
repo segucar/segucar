@@ -1672,9 +1672,13 @@ app.get('/api/metricas/resumen', (req, res) => {
     try {
         evaluarAtribucionMetricas();
 
-        const rango = req.query.rango || 'este_mes'; // 'este_mes', '30_dias', 'anio_actual', 'todo'
+        const rango = req.query.rango || 'este_mes'; // 'hoy', 'esta_semana', 'este_mes', '30_dias', 'anio_actual', 'todo'
         let whereRango = '';
-        if (rango === 'este_mes') {
+        if (rango === 'hoy') {
+            whereRango = "WHERE date(fecha_envio) = date('now', 'localtime')";
+        } else if (rango === 'esta_semana') {
+            whereRango = "WHERE fecha_envio >= date('now', '-7 days', 'localtime')";
+        } else if (rango === 'este_mes') {
             whereRango = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime')";
         } else if (rango === '30_dias') {
             whereRango = "WHERE fecha_envio >= date('now', '-30 days', 'localtime')";

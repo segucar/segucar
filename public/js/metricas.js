@@ -84,6 +84,8 @@ function renderMetricasUI(data) {
       </div>
       <div style="display: flex; align-items: center; gap: 12px;">
         <select id="selectRangoMetricas" onchange="changeRangoMetricas(this.value)" style="background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 0.88rem; cursor: pointer;">
+          <option value="hoy" ${currentRangoMetricas === 'hoy' ? 'selected' : ''}>☀️ Hoy (Día Actual)</option>
+          <option value="esta_semana" ${currentRangoMetricas === 'esta_semana' ? 'selected' : ''}>📆 Esta Semana</option>
           <option value="este_mes" ${currentRangoMetricas === 'este_mes' ? 'selected' : ''}>📅 Este Mes</option>
           <option value="30_dias" ${currentRangoMetricas === '30_dias' ? 'selected' : ''}>🗓️ Últimos 30 días</option>
           <option value="anio_actual" ${currentRangoMetricas === 'anio_actual' ? 'selected' : ''}>📆 Año Actual</option>
