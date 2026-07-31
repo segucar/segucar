@@ -1289,7 +1289,7 @@ app.get('/api/telefonos-invalidos', (req, res) => {
     }
 });
 
-app.get('/api/reportes/telefonos-invalidos', generarReporteClientesSinTelefono);
+app.get('/api/reportes/telefonos-invalidos', generarExcelEstructuradoExcelJS);
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  MÉTRICAS Y CONVERSIÓN COMERCIAL (Atribución Automática & Edge Cases)
