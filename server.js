@@ -664,6 +664,11 @@ function renovarServicioGrucar(polizaId, fechaBaseInput = null) {
         const pol = db.prepare('SELECT id, cliente_id, operacion, fecha_vencimiento_grucar, grucar_activo, estado, cuotas_debe FROM polizas WHERE id = ? OR operacion = ?').get(polizaId, polizaId);
         if (!pol) return null;
 
+        // Solo renovar si la póliza YA tiene el servicio Grucar Acarreo habilitado (grucar_activo === 1)
+        if (pol.grucar_activo !== 1) {
+            return { activo: false, motivo: 'La póliza no posee el servicio Grucar Acarreo contratado o activo' };
+        }
+
         const est = (pol.estado || '').toLowerCase();
         const cuotas = parseInt(pol.cuotas_debe || 0);
         if (est === 'anulada' || est === 'baja' || cuotas >= 2) {
@@ -728,21 +733,26 @@ app.get('/api/cliente/grucar-cupon', (req, res) => {
             return res.status(404).json({ error: 'No se encontro poliza activa para el asegurado' });
         }
 
-        const hoyStr = new Date().toISOString().split('T')[0];
-        let vtoGrucar = pol.fecha_vencimiento_grucar;
-        if (!vtoGrucar) {
-            renovarServicioGrucar(pol.id, hoyStr);
-            const polFresh = db.prepare('SELECT fecha_vencimiento_grucar, grucar_activo FROM polizas WHERE id = ?').get(pol.id);
-            vtoGrucar = polFresh ? polFresh.fecha_vencimiento_grucar : hoyStr;
-        }
-
         const cuotas = parseInt(pol.cuotas_debe || 0);
         const est = (pol.estado || '').toLowerCase();
-        const isActivo = pol.grucar_activo !== 0 && est !== 'anulada' && est !== 'baja' && cuotas < 2 && vtoGrucar >= hoyStr;
+        const hoyStr = new Date().toISOString().split('T')[0];
+        const vtoGrucar = pol.fecha_vencimiento_grucar || hoyStr;
+
+        // Solo es activo si la póliza tiene grucar_activo === 1 y no está en mora crítica ni dada de baja
+        const isActivo = pol.grucar_activo === 1 && est !== 'anulada' && est !== 'baja' && cuotas < 2 && vtoGrucar >= hoyStr;
+
+        if (!isActivo) {
+            return res.json({
+                success: true,
+                activo: false,
+                motivo: 'El cliente no posee el servicio de acarreo local Grucar contratado o activo.',
+                cupon: null
+            });
+        }
 
         res.json({
             success: true,
-            activo: isActivo,
+            activo: true,
             cupon: {
                 nro_comprobante: `GRUCAR-SUA-${pol.operacion}`,
                 asegurado: pol.nombre,
