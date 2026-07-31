@@ -151,7 +151,7 @@ function resetRecuperacionFilters() {
 
 function sendWinBackWhatsApp(nombre, telefono, vehiculo, patente) {
   const clean = formatPhoneForWhatsApp(telefono);
-  const msg = `Hola ${nombre}, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu ${vehiculo} (Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`;
+  const msg = `Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu ${vehiculo} (Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`;
   window.open(`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`, '_blank');
 }
 

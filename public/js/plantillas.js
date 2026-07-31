@@ -156,7 +156,7 @@ async function addPlantilla() {
             body: JSON.stringify({
                 nombre,
                 tipo: 'vencimiento',
-                mensaje: 'Hola {nombre}, te saludamos de SEGUCar...',
+                mensaje: 'Hola, te saludamos de SEGUCar...',
                 activa: 1
             })
         });
