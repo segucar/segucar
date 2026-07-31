@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
 const xlsx = require('xlsx');
+const ExcelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
 const db = require('./database');
@@ -374,26 +375,40 @@ app.get('/api/dashboard/stats', (req, res) => {
 //  EXPORTAR A EXCEL
 // ═══════════════════════════════════════════════════════════════════════════
 
-function generarExcelEstructurado(req, res) {
+async function generarExcelEstructuradoExcelJS(req, res) {
     try {
-        const wb = xlsx.utils.book_new();
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'SEGUCar';
+        workbook.created = new Date();
 
-        // 1. HOJA 1 (Pestaña Principal - 'PÓLIZAS ACTIVAS')
+        // 1. HOJA 1: PÓLIZAS ACTIVAS (Clientes con contrato vigente/activo y teléfono limpio cargado)
+        const sheet1 = workbook.addWorksheet('PÓLIZAS ACTIVAS');
+        sheet1.columns = [
+            { header: 'ID Cliente', key: 'id', width: 12 },
+            { header: 'Nombre', key: 'nombre', width: 35 },
+            { header: 'DNI', key: 'dni', width: 15 },
+            { header: 'Teléfono', key: 'telefono', width: 18 },
+            { header: 'Operación', key: 'operacion', width: 16 },
+            { header: 'Patente', key: 'patente', width: 14 },
+            { header: 'Vehículo', key: 'vehiculo', width: 30 },
+            { header: 'N° Cuota', key: 'nro_cuota', width: 14 },
+            { header: 'Venc. Cuota', key: 'venc_cuota', width: 15 },
+            { header: 'Saldo Pendiente', key: 'saldo_pendiente', width: 18 },
+            { header: 'Fin Vigencia Póliza', key: 'fin_vigencia', width: 20 },
+            { header: 'Estado Póliza', key: 'estado', width: 15 },
+            { header: 'Dirección', key: 'direccion', width: 30 }
+        ];
+
         const qActivas = `
             SELECT 
-                c.id as "ID Cliente",
-                c.nombre as "Nombre",
-                c.dni as "DNI",
-                c.telefono as "Teléfono",
-                p.operacion as "Operación",
-                p.patente as "Patente",
-                p.vehiculo as "Vehículo",
-                ('Cuota ' || COALESCE(p.nro_cuota, 1) || '/' || COALESCE(p.total_cuotas, 3)) as "N° Cuota",
-                p.fecha_vencimiento as "Venc. Cuota",
-                p.saldo_pendiente as "Saldo Pendiente",
-                p.fin_vigencia_poliza as "Fin Vigencia Póliza",
-                COALESCE(p.estado, 'vigente') as "Estado Póliza",
-                c.direccion as "Dirección"
+                c.id, c.nombre, c.dni, c.telefono,
+                p.operacion, p.patente, p.vehiculo,
+                ('Cuota ' || COALESCE(p.nro_cuota, 1) || '/' || COALESCE(p.total_cuotas, 3)) as nro_cuota,
+                p.fecha_vencimiento as venc_cuota,
+                COALESCE(p.saldo_pendiente, 0) as saldo_pendiente,
+                COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) as fin_vigencia,
+                COALESCE(p.estado, 'vigente') as estado,
+                c.direccion
             FROM clientes c
             LEFT JOIN polizas p ON c.id = p.cliente_id
             LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
@@ -402,30 +417,36 @@ function generarExcelEstructurado(req, res) {
             ORDER BY c.nombre ASC
         `;
         const rowsActivas = db.prepare(qActivas).all();
-        const wsActivas = xlsx.utils.json_to_sheet(rowsActivas);
-        wsActivas['!cols'] = [
-            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 16 },
-            { wch: 14 }, { wch: 30 }, { wch: 12 }, { wch: 15 }, { wch: 16 },
-            { wch: 18 }, { wch: 15 }, { wch: 30 }
-        ];
-        xlsx.utils.book_append_sheet(wb, wsActivas, 'PÓLIZAS ACTIVAS');
+        rowsActivas.forEach(r => sheet1.addRow(r));
+        sheet1.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        sheet1.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF007ACC' } };
 
-        // 2. HOJA 2 ('SIN TELÉFONO')
+        // 2. HOJA 2: SIN TELÉFONO (Pólizas activas con teléfonos faltantes/inválidos)
+        const sheet2 = workbook.addWorksheet('SIN TELÉFONO');
+        sheet2.columns = [
+            { header: 'ID Cliente', key: 'id', width: 12 },
+            { header: 'Nombre', key: 'nombre', width: 35 },
+            { header: 'DNI', key: 'dni', width: 15 },
+            { header: 'Póliza', key: 'operacion', width: 20 },
+            { header: 'Vehículo', key: 'vehiculo', width: 30 },
+            { header: 'Teléfono Registrado', key: 'telefono_registrado', width: 22 },
+            { header: 'Estado/Tipo de Error', key: 'tipo_error', width: 28 },
+            { header: 'Dirección', key: 'direccion', width: 35 },
+            { header: 'Email', key: 'email', width: 25 }
+        ];
+
         const qSinTel = `
             SELECT 
-                c.id as "ID Cliente",
-                c.nombre as "Nombre",
-                c.dni as "DNI",
-                COALESCE(p.operacion, '-') as "Póliza",
-                COALESCE(p.vehiculo, '-') as "Vehículo",
-                COALESCE(ti.telefono, NULLIF(c.telefono, ''), 'Sin Registro') as "Teléfono Registrado",
+                c.id, c.nombre, c.dni,
+                COALESCE(p.operacion, '-') as operacion,
+                COALESCE(p.vehiculo, '-') as vehiculo,
+                COALESCE(ti.telefono, NULLIF(c.telefono, ''), 'Sin Registro') as telefono_registrado,
                 CASE 
                     WHEN ti.id IS NOT NULL THEN 'Inválido / Inexistente'
                     WHEN c.telefono IS NOT NULL AND c.telefono != '' AND length(c.telefono) < 10 THEN 'Incompleto (< 10 dígitos)'
                     ELSE 'Sin Registro'
-                END as "Estado/Tipo de Error",
-                c.direccion as "Dirección",
-                c.email as "Email"
+                END as tipo_error,
+                c.direccion, c.email
             FROM clientes c
             LEFT JOIN polizas p ON c.id = p.cliente_id
             LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
@@ -434,53 +455,59 @@ function generarExcelEstructurado(req, res) {
             ORDER BY c.nombre ASC
         `;
         const rowsSinTel = db.prepare(qSinTel).all();
-        const wsSinTel = xlsx.utils.json_to_sheet(rowsSinTel);
-        wsSinTel['!cols'] = [
-            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 30 },
-            { wch: 22 }, { wch: 28 }, { wch: 35 }, { wch: 25 }
-        ];
-        xlsx.utils.book_append_sheet(wb, wsSinTel, 'SIN TELÉFONO');
+        rowsSinTel.forEach(r => sheet2.addRow(r));
+        sheet2.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        sheet2.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD35400' } };
 
-        // 3. HOJA 3 ('HISTÓRICO Y BAJAS')
+        // 3. HOJA 3: HISTÓRICO Y BAJAS (Pólizas dadas de baja, anuladas o canceladas)
+        const sheet3 = workbook.addWorksheet('HISTÓRICO Y BAJAS');
+        sheet3.columns = [
+            { header: 'ID Cliente', key: 'id', width: 12 },
+            { header: 'Nombre', key: 'nombre', width: 35 },
+            { header: 'DNI', key: 'dni', width: 15 },
+            { header: 'Teléfono', key: 'telefono', width: 18 },
+            { header: 'Póliza / Operación', key: 'operacion', width: 18 },
+            { header: 'Patente', key: 'patente', width: 14 },
+            { header: 'Vehículo', key: 'vehiculo', width: 30 },
+            { header: 'Fecha Vencimiento', key: 'vencimiento', width: 18 },
+            { header: 'Estado Póliza', key: 'estado', width: 18 },
+            { header: 'Observaciones', key: 'observaciones', width: 35 }
+        ];
+
         const qHistoricas = `
             SELECT 
-                c.id as "ID Cliente",
-                c.nombre as "Nombre",
-                c.dni as "DNI",
-                c.telefono as "Teléfono",
-                p.operacion as "Póliza / Operación",
-                p.patente as "Patente",
-                p.vehiculo as "Vehículo",
-                p.fecha_vencimiento as "Fecha Vencimiento",
-                COALESCE(p.estado, 'Histórica/Baja') as "Estado Póliza",
-                p.observaciones as "Observaciones"
+                c.id, c.nombre, c.dni, c.telefono,
+                p.operacion, p.patente, p.vehiculo,
+                p.fecha_vencimiento as vencimiento,
+                COALESCE(p.estado, 'Histórica/Baja') as estado,
+                p.observaciones
             FROM clientes c
             LEFT JOIN polizas p ON c.id = p.cliente_id
             WHERE LOWER(COALESCE(p.estado, '')) IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
             ORDER BY c.nombre ASC
         `;
         const rowsHistoricas = db.prepare(qHistoricas).all();
-        const wsHistoricas = xlsx.utils.json_to_sheet(rowsHistoricas);
-        wsHistoricas['!cols'] = [
-            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 18 },
-            { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 35 }
-        ];
-        xlsx.utils.book_append_sheet(wb, wsHistoricas, 'HISTÓRICO Y BAJAS');
-
-        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
+        rowsHistoricas.forEach(r => sheet3.addRow(r));
+        sheet3.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        sheet3.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF7F8C8D' } };
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.setHeader('Content-Disposition', 'attachment; filename="SEGUCar_Reporte_General.xlsx"');
-        res.send(buffer);
+
+        await workbook.xlsx.write(res);
+        res.end();
     } catch (error) {
-        console.error("Error al generar Excel estructurado:", error);
+        console.error("Error al generar ExcelJS estructurado:", error);
         res.status(500).json({ error: error.message });
     }
 }
 
-app.get('/api/exportar', generarExcelEstructurado);
-app.get('/api/exportar/excel', generarExcelEstructurado);
-app.get('/api/reportes/telefonos-incompletos', generarExcelEstructurado);
+app.get('/api/exportar', generarExcelEstructuradoExcelJS);
+app.get('/api/exportar/excel', generarExcelEstructuradoExcelJS);
+app.get('/api/exportar-excel', generarExcelEstructuradoExcelJS);
+app.get('/api/exportar-sin-telefono', generarExcelEstructuradoExcelJS);
+app.get('/api/reportes/telefonos-incompletos', generarExcelEstructuradoExcelJS);
+app.get('/api/reportes/sin-telefono', generarExcelEstructuradoExcelJS);
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
