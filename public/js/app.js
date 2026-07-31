@@ -659,6 +659,10 @@ function renderTable() {
 
   if (!state.clients || state.clients.length === 0) {
     if (emptyState) emptyState.classList.remove('hidden');
+    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
+      ? 'No se encontraron pólizas vencidas'
+      : 'No se encontraron clientes para los filtros seleccionados';
+    tableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
     return;
   }
 
