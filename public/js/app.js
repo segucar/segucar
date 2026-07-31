@@ -240,21 +240,6 @@ function exportarExcel() {
   window.open('/api/exportar-excel', '_blank');
 }
 
-async function ejecutarAuditoriaSistema() {
-  try {
-    showToast('Ejecutando auditoría de integridad...', 'info');
-    const res = await fetch('/api/auditoria');
-    const data = await res.json();
-    if (data.status === 'ok') {
-      const m = data.metricas;
-      const msg = `🔍 AUDITORÍA SEGUCar COMPLETADA:\n${data.mensaje}\n\n• Hoja 1 (Pólizas Activas con Teléfono): ${m.hoja1_activas_con_telefono}\n• Hoja 2 (Sin Teléfono / Saneamiento): ${m.hoja2_activas_sin_telefono}\n• Pólizas Vencidas (1-30 días pasados): ${m.polizas_vencidas_30_dias}\n• Hoja 3 (Históricas y Bajas DB): ${m.hoja3_historicas_bajas}`;
-      alert(msg);
-      showToast('✅ Auditoría Aprobada — 0 Anomalías', 'success');
-    }
-  } catch (err) {
-    showToast('Error al auditar: ' + err.message, 'error');
-  }
-}
 
 function setupEventListeners() {
   const searchInput = getEl('searchInput');
