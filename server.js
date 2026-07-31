@@ -1079,12 +1079,11 @@ app.get('/api/clientes', (req, res) => {
 app.get('/api/recuperacion', (req, res) => {
     try {
         const search = req.query.search || '';
+        const filtroTel = req.query.filtro_telefono || 'todos';
         const page = parseInt(req.query.page) || 1;
         const limit = parseInt(req.query.limit) || 50;
         const offset = (page - 1) * limit;
 
-        // Exclude historical records if client currently has an active policy in `polizas`
-        // AND exclusively require > 1 month of antiquity (fecha_vencimiento < date('now', '-30 days'))
         let where = `WHERE (fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
             SELECT 1 FROM polizas p 
             WHERE (p.patente = polizas_historicas.patente AND p.patente IS NOT NULL AND p.patente != '')
@@ -1096,6 +1095,12 @@ app.get('/api/recuperacion', (req, res) => {
             where += ` AND (nombre LIKE ? OR patente LIKE ? OR vehiculo LIKE ? OR operacion LIKE ? OR telefono LIKE ?)`;
             const term = `%${search}%`;
             params.push(term, term, term, term, term);
+        }
+
+        if (filtroTel === 'con_telefono') {
+            where += ` AND (telefono IS NOT NULL AND length(telefono) >= 10)`;
+        } else if (filtroTel === 'sin_telefono') {
+            where += ` AND (telefono IS NULL OR length(telefono) < 10)`;
         }
 
         const sortBy = req.query.sort_by || 'fecha_vencimiento';
@@ -1114,11 +1119,66 @@ app.get('/api/recuperacion', (req, res) => {
         const sortCol = validSortCols[sortBy] || 'fecha_vencimiento';
 
         const total = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${where}`).get(...params).count;
+        
+        // Base counts without phone filter for stats UI
+        let baseWhere = `WHERE (fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
+            SELECT 1 FROM polizas p 
+            WHERE (p.patente = polizas_historicas.patente AND p.patente IS NOT NULL AND p.patente != '')
+               OR (p.operacion = polizas_historicas.operacion AND p.operacion IS NOT NULL AND p.operacion != '')
+        )`;
+        let baseParams = [];
+        if (search) {
+            baseWhere += ` AND (nombre LIKE ? OR patente LIKE ? OR vehiculo LIKE ? OR operacion LIKE ? OR telefono LIKE ?)`;
+            const term = `%${search}%`;
+            baseParams.push(term, term, term, term, term);
+        }
+        const totalBase = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${baseWhere}`).get(...baseParams).count;
+        const conTelefonoCount = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${baseWhere} AND (telefono IS NOT NULL AND length(telefono) >= 10)`).get(...baseParams).count;
+        const sinTelefonoCount = totalBase - conTelefonoCount;
+
         const items = db.prepare(`SELECT * FROM polizas_historicas ${where} ORDER BY ${sortCol} ${sortDir} LIMIT ? OFFSET ?`).all(...params, limit, offset);
 
-        res.json({ items, total, page, pages: Math.ceil(total / limit) });
+        res.json({ 
+            items, 
+            total, 
+            page, 
+            pages: Math.ceil(total / limit),
+            stats: {
+                total_base: totalBase,
+                con_telefono: conTelefonoCount,
+                sin_telefono: sinTelefonoCount
+            }
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+app.put('/api/recuperacion/:id/telefono', (req, res) => {
+    try {
+        const { id } = req.params;
+        const { telefono } = req.body;
+        
+        if (!id) return res.status(400).json({ error: 'ID de póliza requerida' });
+        
+        const cleanTel = (telefono || '').trim().replace(/[^0-9]/g, '');
+        
+        db.prepare('UPDATE polizas_historicas SET telefono = ? WHERE id = ?').run(cleanTel, id);
+        
+        const item = db.prepare('SELECT * FROM polizas_historicas WHERE id = ?').get(id);
+        if (item && item.patente) {
+            try {
+                db.prepare(`
+                    UPDATE clientes 
+                    SET telefono = ? 
+                    WHERE id IN (SELECT cliente_id FROM polizas WHERE patente = ?)
+                `).run(cleanTel, item.patente);
+            } catch(e) {}
+        }
+        
+        res.json({ success: true, item });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
     }
 });
 
