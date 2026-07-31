@@ -1,20 +1,10 @@
 services:
   - type: web
-    name: segucar
+    name: segucar-gestion
     env: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node server.js
     envVars:
       - key: PORT
         value: 10000
-      - key: SISTEMA_URL
-        value: http://149.50.137.101/emision
-      - key: SISTEMA_USUARIO
-        value: SUA
-      - key: SISTEMA_PASSWORD
-        value: sua
-    disk:
-      name: segucar-db-disk
-      mountPath: /opt/render/project/src/data
-      sizeGB: 1
