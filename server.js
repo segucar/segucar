@@ -821,7 +821,8 @@ app.get('/api/clientes', (req, res) => {
 
             // ── RENOVACIONES ────────────────────────────────────────────────
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`;
+                // AL DIA (sin deuda) Y vence en exactamente 6 o 7 dias
+                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN 6 AND 7`;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0`;
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
@@ -975,12 +976,15 @@ app.get('/api/clientes', (req, res) => {
                     const cd = parseInt(p.cuotas_debe || 0);
                     const fvRen = p.fin_vigencia_poliza || fv;
                     if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
+                        const saldo = parseFloat(p.saldo_pendiente || 0);
+                        const cuotas = parseInt(p.cuotas_debe || 0);
+                        if (saldo > 0 || cuotas > 0) return false; // excluir con deuda
                         const parts = fvRen.split('-');
                         if (parts.length !== 3) return false;
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen === 7;
+                        return calDiffRen >= 6 && calDiffRen <= 7; // exactamente ventana 6-7 dias
                     }
                     if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                         const parts = fvRen.split('-');
