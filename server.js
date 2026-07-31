@@ -445,28 +445,47 @@ app.get('/api/exportar', (req, res) => {
         const rows = db.prepare(query).all(...params);
 
         const wb = xlsx.utils.book_new();
-        const ws = xlsx.utils.json_to_sheet(rows);
-        xlsx.utils.book_append_sheet(wb, ws, 'Clientes');
 
-        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-
-        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename=SEGUCar_Clientes.xlsx');
-        res.send(buffer);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-});
-
-function generarReporteClientesSinTelefono(req, res) {
-    try {
-        const rows = db.prepare(`
+        // 1. HOJA 1 (Pestaña Principal - 'PÓLIZAS ACTIVAS')
+        const qActivas = `
             SELECT 
                 c.id as "ID Cliente",
                 c.nombre as "Nombre",
                 c.dni as "DNI",
-                COALESCE(GROUP_CONCAT(DISTINCT p.operacion), '-') as "Póliza",
-                COALESCE(GROUP_CONCAT(DISTINCT p.vehiculo), '-') as "Vehículo",
+                c.telefono as "Teléfono",
+                p.operacion as "Operación",
+                p.patente as "Patente",
+                p.vehiculo as "Vehículo",
+                ('Cuota ' || COALESCE(p.nro_cuota, 1) || '/' || COALESCE(p.total_cuotas, 3)) as "N° Cuota",
+                p.fecha_vencimiento as "Venc. Cuota",
+                p.saldo_pendiente as "Saldo Pendiente",
+                p.fin_vigencia_poliza as "Fin Vigencia Póliza",
+                COALESCE(p.estado, 'vigente') as "Estado Póliza",
+                c.direccion as "Dirección"
+            FROM clientes c
+            LEFT JOIN polizas p ON c.id = p.cliente_id
+            LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
+            WHERE (c.telefono IS NOT NULL AND c.telefono != '' AND length(c.telefono) >= 10 AND ti.id IS NULL)
+              AND LOWER(COALESCE(p.estado, '')) NOT IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
+            ORDER BY c.nombre ASC
+        `;
+        const rowsActivas = db.prepare(qActivas).all();
+        const wsActivas = xlsx.utils.json_to_sheet(rowsActivas);
+        wsActivas['!cols'] = [
+            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 16 },
+            { wch: 14 }, { wch: 30 }, { wch: 12 }, { wch: 15 }, { wch: 16 },
+            { wch: 18 }, { wch: 15 }, { wch: 30 }
+        ];
+        xlsx.utils.book_append_sheet(wb, wsActivas, 'PÓLIZAS ACTIVAS');
+
+        // 2. HOJA 2 ('SIN TELÉFONO')
+        const qSinTel = `
+            SELECT 
+                c.id as "ID Cliente",
+                c.nombre as "Nombre",
+                c.dni as "DNI",
+                COALESCE(p.operacion, '-') as "Póliza",
+                COALESCE(p.vehiculo, '-') as "Vehículo",
                 COALESCE(ti.telefono, NULLIF(c.telefono, ''), 'Sin Registro') as "Teléfono Registrado",
                 CASE 
                     WHEN ti.id IS NOT NULL THEN 'Inválido / Inexistente'
@@ -479,44 +498,55 @@ function generarReporteClientesSinTelefono(req, res) {
             LEFT JOIN polizas p ON c.id = p.cliente_id
             LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
             WHERE (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10 OR ti.id IS NOT NULL)
-            GROUP BY c.id
-            ORDER BY 
-                CASE 
-                    WHEN ti.id IS NOT NULL THEN 1
-                    WHEN c.telefono IS NOT NULL AND c.telefono != '' THEN 2
-                    ELSE 3
-                END, c.nombre ASC
-        `).all();
-
-        const wb = xlsx.utils.book_new();
-        const ws = xlsx.utils.json_to_sheet(rows);
-        xlsx.utils.book_append_sheet(wb, ws, 'Clientes Sin Teléfono');
-
-        const wscols = [
-            { wch: 12 }, // ID Cliente
-            { wch: 35 }, // Nombre
-            { wch: 15 }, // DNI
-            { wch: 25 }, // Póliza
-            { wch: 35 }, // Vehículo
-            { wch: 22 }, // Teléfono Registrado
-            { wch: 28 }, // Estado/Tipo de Error
-            { wch: 35 }, // Dirección
-            { wch: 25 }  // Email
+              AND LOWER(COALESCE(p.estado, '')) NOT IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
+            ORDER BY c.nombre ASC
+        `;
+        const rowsSinTel = db.prepare(qSinTel).all();
+        const wsSinTel = xlsx.utils.json_to_sheet(rowsSinTel);
+        wsSinTel['!cols'] = [
+            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 30 },
+            { wch: 22 }, { wch: 28 }, { wch: 35 }, { wch: 25 }
         ];
-        ws['!cols'] = wscols;
+        xlsx.utils.book_append_sheet(wb, wsSinTel, 'SIN TELÉFONO');
+
+        // 3. HOJA 3 ('HISTÓRICO Y BAJAS')
+        const qHistoricas = `
+            SELECT 
+                c.id as "ID Cliente",
+                c.nombre as "Nombre",
+                c.dni as "DNI",
+                c.telefono as "Teléfono",
+                p.operacion as "Póliza / Operación",
+                p.patente as "Patente",
+                p.vehiculo as "Vehículo",
+                p.fecha_vencimiento as "Fecha Vencimiento",
+                COALESCE(p.estado, 'Histórica/Baja') as "Estado Póliza",
+                p.observaciones as "Observaciones"
+            FROM clientes c
+            LEFT JOIN polizas p ON c.id = p.cliente_id
+            WHERE LOWER(COALESCE(p.estado, '')) IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
+            ORDER BY c.nombre ASC
+        `;
+        const rowsHistoricas = db.prepare(qHistoricas).all();
+        const wsHistoricas = xlsx.utils.json_to_sheet(rowsHistoricas);
+        wsHistoricas['!cols'] = [
+            { wch: 10 }, { wch: 35 }, { wch: 15 }, { wch: 18 }, { wch: 18 },
+            { wch: 14 }, { wch: 30 }, { wch: 18 }, { wch: 18 }, { wch: 35 }
+        ];
+        xlsx.utils.book_append_sheet(wb, wsHistoricas, 'HISTÓRICO Y BAJAS');
 
         const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
 
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-        res.setHeader('Content-Disposition', 'attachment; filename="Reporte_Clientes_Sin_Telefono_SEGUCar.xlsx"');
+        res.setHeader('Content-Disposition', 'attachment; filename="SEGUCar_Reporte_General.xlsx"');
         res.send(buffer);
-    } catch (e) {
-        console.error("Error al generar el reporte unificado de clientes sin teléfono:", e);
-        res.status(500).json({ error: 'Error al generar el reporte' });
+    } catch (error) {
+        console.error("Error al generar Excel estructurado:", error);
+        res.status(500).json({ error: error.message });
     }
-}
+});
 
-app.get('/api/reportes/telefonos-incompletos', generarReporteClientesSinTelefono);
+app.get('/api/reportes/telefonos-incompletos', (req, res) => res.redirect('/api/exportar/excel'));
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
