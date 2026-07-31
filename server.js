@@ -302,10 +302,14 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const todayDate = parseLocalDate(todayStr);
                     const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
 
-                    if (calDiffRen === 7) polizas_vencen_semana++;
+                    const saldo = parseFloat(p.saldo_pendiente || 0);
+                    const tieneDeuda = saldo > 0 || parseInt(p.cuotas_debe || 0) > 0;
+
+                    // Solo contar en "Aviso Renovación 7 Días" si: exactamente dia 7 Y sin deuda
+                    if (calDiffRen === 7 && !tieneDeuda) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     if (calDiffRen < 0) polizas_vencidas++;
-                    if (calDiffRen >= 0) polizas_vigentes++; // Any policy not expired is active/vigente
+                    if (calDiffRen >= 0) polizas_vigentes++;
                 }
             }
 
