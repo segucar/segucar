@@ -170,8 +170,6 @@ addColumn('fin_vigencia_poliza', 'DATE');
 addColumn('cuotas_historial', 'TEXT');
 addColumn('fecha_vencimiento_grucar', 'DATE');
 addColumn('grucar_activo', 'INTEGER DEFAULT 1');
-addColumn('grucar_pendiente_sync', 'INTEGER DEFAULT 0');
-addColumn('grucar_id_remoto', 'TEXT');
 
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
