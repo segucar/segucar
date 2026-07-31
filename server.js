@@ -1415,10 +1415,19 @@ app.get('/api/metricas/resumen', (req, res) => {
         const total_validos = Math.max(1, total_envios - reemplazadas);
         const tasa_conversion_global = total_envios > 0 ? ((total_exitosos / total_validos) * 100).toFixed(1) : '0';
 
-        let dinero_recuperado_total = 0;
-        for (const g of gestiones) {
+        function calcularMontoRecuperadoGestion(g) {
+            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica', 'renovacion_deuda'].includes(g.tipo_plantilla);
+            const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
+
+            if (isRenovacion) {
+                // En renovaciones: el valor comercial atribuido por renovar el contrato es la prima/cuota recuperada ($55.865 promedio).
+                // En 'renovacion_deuda': computa la cuota adeudada cobrada + la prima del nuevo período.
+                const valorPolizaRenovada = 55865;
+                return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
+            }
+
             if (g.estado_resultado === 'exitoso_total') {
-                dinero_recuperado_total += parseFloat(g.saldo_al_enviar || 0);
+                return saldoEnviar;
             } else if (g.estado_resultado === 'exitoso_parcial') {
                 let currentSaldo = 0;
                 if (g.poliza_id) {
@@ -1428,17 +1437,16 @@ app.get('/api/metricas/resumen', (req, res) => {
                     const saldoRes = db.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?").get(g.cliente_id);
                     currentSaldo = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
                 }
-                const rec = (g.saldo_al_enviar || 0) - currentSaldo;
-                if (rec > 0) dinero_recuperado_total += rec;
+                const rec = saldoEnviar - currentSaldo;
+                return rec > 0 ? rec : 0;
             }
+
+            return 0;
         }
 
-        const resolvedWithDays = gestiones.filter(g => g.dias_hasta_pago !== null && g.dias_hasta_pago !== undefined && (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial'));
-        const tiempo_promedio_dias = resolvedWithDays.length > 0
-            ? (resolvedWithDays.reduce((acc, g) => acc + g.dias_hasta_pago, 0) / resolvedWithDays.length).toFixed(1)
-            : '0';
-
+        let dinero_recuperado_total = 0;
         const plantillasMap = {};
+
         for (const g of gestiones) {
             const t = g.tipo_plantilla || 'desconocido';
             if (!plantillasMap[t]) {
@@ -1452,12 +1460,14 @@ app.get('/api/metricas/resumen', (req, res) => {
                     dinero_recuperado: 0
                 };
             }
+
             plantillasMap[t].total_envios += 1;
+
             if (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') {
                 plantillasMap[t].exitosos += 1;
-                if (g.estado_resultado === 'exitoso_total') {
-                    plantillasMap[t].dinero_recuperado += parseFloat(g.saldo_al_enviar || 0);
-                }
+                const recVal = calcularMontoRecuperadoGestion(g);
+                plantillasMap[t].dinero_recuperado += recVal;
+                dinero_recuperado_total += recVal;
             } else if (g.estado_resultado === 'pendiente') {
                 plantillasMap[t].pendientes += 1;
             } else if (g.estado_resultado === 'vencido_sin_pago') {
@@ -1466,6 +1476,11 @@ app.get('/api/metricas/resumen', (req, res) => {
                 plantillasMap[t].reemplazadas += 1;
             }
         }
+
+        const resolvedWithDays = gestiones.filter(g => g.dias_hasta_pago !== null && g.dias_hasta_pago !== undefined && (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial'));
+        const tiempo_promedio_dias = resolvedWithDays.length > 0
+            ? (resolvedWithDays.reduce((acc, g) => acc + g.dias_hasta_pago, 0) / resolvedWithDays.length).toFixed(1)
+            : '0';
 
         const plantillas_performance = Object.values(plantillasMap).map(p => {
             const validosPlantilla = Math.max(1, p.total_envios - p.reemplazadas);
