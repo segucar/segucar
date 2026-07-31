@@ -345,7 +345,7 @@ function filterByState(estadoVal) {
         summary.innerText = '— Propuesta de renovación / Vence en 7 días.';
       } else if (estadoVal === 'poliza_vencida') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚫ Póliza Vencida';
-        summary.innerText = '— Vencimiento anterior a la fecha actual.';
+        summary.innerText = '— Vencimiento en los últimos 30 días.';
       } else if (estadoVal === 'vigente') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 🟢 Contrato Vigente';
         summary.innerText = '— Vence en más de 7 días.';
