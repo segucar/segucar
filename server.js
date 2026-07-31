@@ -709,6 +709,48 @@ function renovarServicioGrucar(polizaId, fechaBaseInput = null) {
     }
 }
 
+async function registrarVehiculoGrucar(datos) {
+    try {
+        const hoyStr = new Date().toISOString().split('T')[0];
+        const payload = {
+            patente: datos.patente || '',
+            vehiculo: datos.vehiculo || '',
+            numero_poliza: datos.operacion || datos.numero_poliza || '',
+            nombre_apellido: datos.nombre || datos.nombre_apellido || '',
+            notas: datos.notas || 'Alta automatizada SEGUCar',
+            meses_pago: datos.meses_pago || 1,
+            inicio_servicio: datos.inicio_servicio || hoyStr,
+            operador: 'segucar.operador@grucar.com.ar'
+        };
+
+        // Async non-blocking push with 3-second timeout
+        if (typeof globalThis.fetch === 'function') {
+            const resp = await globalThis.fetch('https://segucar.grucar.com.ar/api/alta-vehiculo', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+                signal: AbortSignal.timeout(3000)
+            });
+
+            if (resp.ok) {
+                const resData = await resp.json().catch(() => ({}));
+                const remotoId = resData.id || resData.cupon_id || `GRUCAR-${payload.numero_poliza}`;
+                db.prepare('UPDATE polizas SET grucar_pendiente_sync = 0, grucar_id_remoto = ?, grucar_activo = 1 WHERE operacion = ? OR id = ?').run(remotoId, payload.numero_poliza, datos.poliza_id || 0);
+                console.log(`✅ Alta Grucar exitosa para patente ${payload.patente} (ID: ${remotoId})`);
+                return { success: true, id: remotoId };
+            } else {
+                db.prepare('UPDATE polizas SET grucar_pendiente_sync = 1 WHERE operacion = ? OR id = ?').run(payload.numero_poliza, datos.poliza_id || 0);
+                console.warn(`⚠️ Alta Grucar remota no disponible (HTTP ${resp.status}). Guardado local con grucar_pendiente_sync = 1.`);
+                return { success: false, pending: true };
+            }
+        }
+    } catch (err) {
+        db.prepare('UPDATE polizas SET grucar_pendiente_sync = 1 WHERE operacion = ? OR id = ?').run(datos.operacion || datos.numero_poliza || '', datos.poliza_id || 0);
+        console.warn(`⚠️ Grucar API timeout/error: ${err.message}. Guardado local sin bloquear.`);
+        return { success: false, pending: true };
+    }
+}
+
 app.get('/api/cliente/grucar-cupon', (req, res) => {
     try {
         const { poliza, dni } = req.query;
@@ -1223,11 +1265,25 @@ app.get('/api/polizas/vencimientos', (req, res) => {
 app.post('/api/clientes/:id/polizas', (req, res) => {
     try {
         const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion } = req.body;
+        const hoyStr = new Date().toISOString().split('T')[0];
         const info = db.prepare(`
-            INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'vigente')
+            INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'vigente', 1)
         `).run(req.params.id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion);
-        res.status(201).json({ id: info.lastInsertRowid, message: 'Póliza creada' });
+
+        const cli = db.prepare('SELECT nombre FROM clientes WHERE id = ?').get(req.params.id);
+
+        // Background non-blocking auto-registration in Grucar
+        registrarVehiculoGrucar({
+            poliza_id: info.lastInsertRowid,
+            operacion: operacion,
+            patente: patente,
+            vehiculo: vehiculo,
+            nombre: cli ? cli.nombre : '',
+            inicio_servicio: hoyStr
+        }).catch(() => {});
+
+        res.status(201).json({ id: info.lastInsertRowid, message: 'Póliza creada y servicio Grucar procesado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
