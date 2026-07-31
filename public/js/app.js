@@ -1663,11 +1663,21 @@ function showCuotasModal(polizaId, operacion) {
     `;
   });
 
+  let grucarBadge = '<span class="badge" style="background:rgba(255,71,87,0.15); border:1px solid #ff4757; color:#ff4757; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🔴 Sin Cobertura Grucar</span>';
+  if (targetPoliza && (targetPoliza.grucar_activo === 1 || targetPoliza.grucar_activo === '1' || targetPoliza.grucar_activo === true)) {
+    if (targetPoliza.grucar_pendiente_sync === 1) {
+      grucarBadge = '<span class="badge" style="background:rgba(255,165,2,0.15); border:1px solid #ffa502; color:#ffa502; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🟡 Pendiente Sync / Retry</span>';
+    } else {
+      grucarBadge = '<span class="badge" style="background:rgba(46,213,115,0.15); border:1px solid #2ed573; color:#2ed573; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🟢 Grucar Activo - OK</span>';
+    }
+  }
+
   content.innerHTML = `
     <div style="background:rgba(0,180,216,0.06); border:1px solid rgba(0,180,216,0.2); padding:12px 16px; border-radius:10px; margin-bottom:16px; font-size:0.88rem; display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
       <div><strong>Asegurado:</strong> ${escapeHtml(clienteName)}</div>
       <div><strong>Vehículo:</strong> ${escapeHtml(targetPoliza ? (targetPoliza.vehiculo || '-') : '-')}</div>
       <div><strong>Patente:</strong> <span style="font-family:monospace; font-weight:700;">${escapeHtml(targetPoliza ? (targetPoliza.patente || '-') : '-')}</span></div>
+      <div><strong>Estado Grucar API:</strong> ${grucarBadge}</div>
     </div>
     <div class="table-container" style="max-height: 320px; overflow-y: auto;">
       <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
@@ -1695,3 +1705,10 @@ function closeCuotasModal() {
   const modal = getEl('modalCuotasHistorial');
   if (modal) modal.style.display = 'none';
 }
+
+// REAL-TIME AUTO-SANITIZATION FOR ALL ADMIN PLATE INPUTS (MAYÚSCULAS, SIN ESPACIOS NI GUIONES)
+document.addEventListener('input', (e) => {
+  if (e.target && (e.target.id === 'clientPatente' || e.target.name === 'patente' || e.target.classList.contains('input-patente'))) {
+    e.target.value = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  }
+});
