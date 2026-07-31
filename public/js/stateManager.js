@@ -234,7 +234,7 @@ const SeguroStateManager = (function () {
   }
 
   function evaluarRenovacion(poliza) {
-    const fvRen = poliza ? (poliza.fin_vigencia_poliza || poliza.fecha_vencimiento) : null;
+    const fvRen = poliza ? (poliza.fecha_vencimiento || poliza.fin_vigencia_poliza) : null;
     if (!fvRen) return ESTADOS.CONTRATO_VIGENTE;
 
     const dias = calcularDiasVencimiento(fvRen);
@@ -242,7 +242,7 @@ const SeguroStateManager = (function () {
     const cuotas = parseInt(poliza ? (poliza.cuotas_debe || 0) : 0);
     const tieneDeuda = saldo > 0 || cuotas > 0;
 
-    if (dias < 0) {
+    if (dias < 0 && dias >= -30) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
