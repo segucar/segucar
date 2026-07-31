@@ -236,12 +236,8 @@ if (document.readyState === 'loading') {
 }
 
 function exportarExcel() {
-  const params = new URLSearchParams();
-  if (state.filters.search) params.set('search', state.filters.search);
-  if (state.filters.tipo) params.set('tipo_seguro', state.filters.tipo);
-  if (state.filters.estado) params.set('estado', state.filters.estado);
-  showToast('Generando reporte Excel...', 'info');
-  window.open(`/api/exportar?${params.toString()}`, '_blank');
+  showToast('Generando reporte Excel multi-solapa...', 'info');
+  window.open('/api/exportar-excel', '_blank');
 }
 
 function setupEventListeners() {
