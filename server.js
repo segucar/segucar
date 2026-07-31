@@ -656,6 +656,113 @@ app.get('/api/auditoria', (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  GRUCAR ACARREO — ASISTENCIA Y CUPONES TRANSACCIONALES
+// ═══════════════════════════════════════════════════════════════════════════
+
+function renovarServicioGrucar(polizaId, fechaBaseInput = null) {
+    try {
+        const pol = db.prepare('SELECT id, cliente_id, operacion, fecha_vencimiento_grucar, grucar_activo, estado, cuotas_debe FROM polizas WHERE id = ? OR operacion = ?').get(polizaId, polizaId);
+        if (!pol) return null;
+
+        const est = (pol.estado || '').toLowerCase();
+        const cuotas = parseInt(pol.cuotas_debe || 0);
+        if (est === 'anulada' || est === 'baja' || cuotas >= 2) {
+            db.prepare('UPDATE polizas SET grucar_activo = 0 WHERE id = ?').run(pol.id);
+            return { activo: false, motivo: 'Poliza inactiva o en mora critica' };
+        }
+
+        const hoyStr = new Date().toISOString().split('T')[0];
+        const base = fechaBaseInput || hoyStr;
+        let actualGrucar = pol.fecha_vencimiento_grucar || hoyStr;
+
+        // Formula acumulativa: MAX(COALESCE(fecha_vencimiento_grucar, HOY), HOY) + 30 DÍAS
+        let fechaRef = (actualGrucar > hoyStr) ? actualGrucar : hoyStr;
+        if (base > fechaRef) fechaRef = base;
+
+        const parts = fechaRef.split('-');
+        const d = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        d.setDate(d.getDate() + 30);
+        const nuevaFecha = d.toISOString().split('T')[0];
+
+        db.prepare('UPDATE polizas SET fecha_vencimiento_grucar = ?, grucar_activo = 1 WHERE id = ?').run(nuevaFecha, pol.id);
+
+        // Async non-blocking push attempt to segucar.grucar.com.ar API (timeout 3s)
+        if (typeof globalThis.fetch === 'function') {
+            globalThis.fetch('https://segucar.grucar.com.ar/api/push-cupon', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    poliza: pol.operacion,
+                    vencimiento_grucar: nuevaFecha,
+                    operador: 'segucar.operador@grucar.com.ar'
+                }),
+                signal: AbortSignal.timeout(3000)
+            }).catch(err => {
+                console.warn('⚡ Async Grucar API push notice:', err.message);
+            });
+        }
+
+        return { activo: true, nuevaFecha };
+    } catch (e) {
+        console.error('Error en renovarServicioGrucar:', e);
+        return null;
+    }
+}
+
+app.get('/api/cliente/grucar-cupon', (req, res) => {
+    try {
+        const { poliza, dni } = req.query;
+        if (!poliza && !dni) {
+            return res.status(400).json({ error: 'Falta parametro poliza o dni' });
+        }
+        const pol = db.prepare(`
+            SELECT p.*, c.nombre, c.dni, c.telefono
+            FROM polizas p
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE (p.operacion = ? OR c.dni = ?)
+              AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')
+            ORDER BY p.id DESC LIMIT 1
+        `).get(poliza || '', dni || '');
+
+        if (!pol) {
+            return res.status(404).json({ error: 'No se encontro poliza activa para el asegurado' });
+        }
+
+        const hoyStr = new Date().toISOString().split('T')[0];
+        let vtoGrucar = pol.fecha_vencimiento_grucar;
+        if (!vtoGrucar) {
+            renovarServicioGrucar(pol.id, hoyStr);
+            const polFresh = db.prepare('SELECT fecha_vencimiento_grucar, grucar_activo FROM polizas WHERE id = ?').get(pol.id);
+            vtoGrucar = polFresh ? polFresh.fecha_vencimiento_grucar : hoyStr;
+        }
+
+        const cuotas = parseInt(pol.cuotas_debe || 0);
+        const est = (pol.estado || '').toLowerCase();
+        const isActivo = pol.grucar_activo !== 0 && est !== 'anulada' && est !== 'baja' && cuotas < 2 && vtoGrucar >= hoyStr;
+
+        res.json({
+            success: true,
+            activo: isActivo,
+            cupon: {
+                nro_comprobante: `GRUCAR-SUA-${pol.operacion}`,
+                asegurado: pol.nombre,
+                dni: pol.dni,
+                vehiculo: pol.vehiculo || 'Vehículo Asegurado',
+                patente: pol.patente || '-',
+                operacion: pol.operacion,
+                vigencia_hasta: vtoGrucar,
+                telefonos_emergencia: ['223-511-4117', '223-516-4128'],
+                cobertura_zona: 'Mar del Plata, Batán, Sierra de los Padres y Accesos Ruta 2 / 11 / 226 / 88',
+                leyenda_carencia: 'Servicio de Remolque y mecánica ligera local. Total 1 servicio por mes de vigencia. Nuevos socios carencia de 48hs.',
+                url_portal_grucar: `https://segucar.grucar.com.ar/cupon/${pol.operacion}`
+            }
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
 // ═══════════════════════════════════════════════════════════════════════════
 

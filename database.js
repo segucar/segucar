@@ -168,6 +168,8 @@ addColumn('total_cuotas', 'INTEGER DEFAULT 3');
 addColumn('saldo_pendiente', 'REAL DEFAULT 0');
 addColumn('fin_vigencia_poliza', 'DATE');
 addColumn('cuotas_historial', 'TEXT');
+addColumn('fecha_vencimiento_grucar', 'DATE');
+addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
