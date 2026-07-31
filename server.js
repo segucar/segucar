@@ -421,7 +421,7 @@ async function generarExcelEstructuradoExcelJS(req, res) {
         sheet1.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
         sheet1.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF007ACC' } };
 
-        // 2. HOJA 2: SIN TELÉFONO (Pólizas activas con teléfonos faltantes/inválidos)
+        // 2. HOJA 2: SIN TELÉFONO (Pólizas activas con teléfonos faltantes/inválidos, ordenadas por vigentes primero y vencidas más abajo)
         const sheet2 = workbook.addWorksheet('SIN TELÉFONO');
         sheet2.columns = [
             { header: 'ID Cliente', key: 'id', width: 12 },
@@ -429,6 +429,8 @@ async function generarExcelEstructuradoExcelJS(req, res) {
             { header: 'DNI', key: 'dni', width: 15 },
             { header: 'Póliza', key: 'operacion', width: 20 },
             { header: 'Vehículo', key: 'vehiculo', width: 30 },
+            { header: 'Condición Póliza', key: 'condicion_poliza', width: 25 },
+            { header: 'Fin Vigencia / Vencimiento', key: 'fin_vigencia', width: 22 },
             { header: 'Teléfono Registrado', key: 'telefono_registrado', width: 22 },
             { header: 'Estado/Tipo de Error', key: 'tipo_error', width: 28 },
             { header: 'Dirección', key: 'direccion', width: 35 },
@@ -440,6 +442,11 @@ async function generarExcelEstructuradoExcelJS(req, res) {
                 c.id, c.nombre, c.dni,
                 COALESCE(p.operacion, '-') as operacion,
                 COALESCE(p.vehiculo, '-') as vehiculo,
+                CASE 
+                    WHEN CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 THEN '🟢 ACTIVA / VIGENTE'
+                    ELSE '🔴 VENCIDA'
+                END as condicion_poliza,
+                COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento, '-') as fin_vigencia,
                 COALESCE(ti.telefono, NULLIF(c.telefono, ''), 'Sin Registro') as telefono_registrado,
                 CASE 
                     WHEN ti.id IS NOT NULL THEN 'Inválido / Inexistente'
@@ -452,7 +459,12 @@ async function generarExcelEstructuradoExcelJS(req, res) {
             LEFT JOIN telefonos_invalidos ti ON c.id = ti.cliente_id
             WHERE (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10 OR ti.id IS NOT NULL)
               AND LOWER(COALESCE(p.estado, '')) NOT IN ('baja', 'anulada', 'historico', 'historica', 'cancelada')
-            ORDER BY c.nombre ASC
+            ORDER BY 
+                CASE 
+                    WHEN CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 THEN 1 
+                    ELSE 2 
+                END ASC, 
+                c.nombre ASC
         `;
         const rowsSinTel = db.prepare(qSinTel).all();
         rowsSinTel.forEach(r => sheet2.addRow(r));
