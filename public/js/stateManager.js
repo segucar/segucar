@@ -242,7 +242,7 @@ const SeguroStateManager = (function () {
     const cuotas = parseInt(poliza ? (poliza.cuotas_debe || 0) : 0);
     const tieneDeuda = saldo > 0 || cuotas > 0;
 
-    if (dias < 0 && dias >= -30) {
+    if (dias < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
