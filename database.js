@@ -177,103 +177,34 @@ addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 db.prepare("DELETE FROM plantillas WHERE tipo LIKE 'combinado%' OR nombre LIKE '%Combinado%'").run();
 
 // Clean up {nombre} variable from all existing templates in DB
+// Update default templates in DB to use poliza N° {operacion} (Patente {patente}) without marca/modelo
 try {
-    db.exec(`
-        UPDATE plantillas SET mensaje = REPLACE(mensaje, 'Hola {nombre},', 'Hola,') WHERE mensaje LIKE '%{nombre}%';
-        UPDATE plantillas SET mensaje = REPLACE(mensaje, 'Hola {nombre}', 'Hola') WHERE mensaje LIKE '%{nombre}%';
-        UPDATE plantillas SET mensaje = REPLACE(mensaje, '{nombre},', '') WHERE mensaje LIKE '%{nombre}%';
-        UPDATE plantillas SET mensaje = REPLACE(mensaje, '{nombre}', '') WHERE mensaje LIKE '%{nombre}%';
-    `);
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'recordatorio_48hs'").run(
+        'Hola, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu póliza N° {operacion} (Patente {patente}). Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'primer_aviso'").run(
+        'Hola, te recuerdo que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'segundo_aviso'").run(
+        'Hola, te informamos que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 96 hs y finaliza tu período de gracia. Escribinos para regularizar la cuota antes de perder la cobertura.'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'mora_critica'").run(
+        'Hola, te aviso que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_7_dias'").run(
+        'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_deuda'").run(
+        'Hola, te informamos que en 7 días vence la renovación de tu póliza N° {operacion} (Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'poliza_vencida'").run(
+        'Hola, te escribimos de SEGUCar para avisarte que tu póliza N° {operacion} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!'
+    );
+    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'recuperacion_historica'").run(
+        'Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu póliza N° {operacion} (Patente {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu seguro. ¡Consultanos sin compromiso!'
+    );
 } catch (e) {
-    console.error('Error limpiando {nombre} de plantillas:', e);
-}
-
-// Ensure renovacion_deuda template exists in DB
-try {
-    const existing = db.prepare("SELECT id FROM plantillas WHERE tipo = 'renovacion_deuda'").get();
-    if (!existing) {
-        db.prepare("INSERT INTO plantillas (nombre, tipo, mensaje) VALUES (?, ?, ?)").run(
-            '📄 Póliza: Renovación + Deuda Pendiente',
-            'renovacion_deuda',
-            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
-        );
-    } else {
-        db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_deuda'").run(
-            'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
-        );
-    }
-} catch (e) {}
-
-let appName = 'SEGUCar';
-try {
-    const configPath = path.join(__dirname, 'config.json');
-    if (fs.existsSync(configPath)) {
-        const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-        if (config.appName) appName = config.appName;
-    }
-} catch (e) {}
-
-const countPlantillas = db.prepare('SELECT COUNT(*) as count FROM plantillas').get().count;
-if (countPlantillas === 0) {
-    const insertPlantilla = db.prepare('INSERT INTO plantillas (nombre, tipo, mensaje) VALUES (?, ?, ?)');
-
-    // 1. 🟡 PREVENTIVO (0-48hs previo a vencer)
-    insertPlantilla.run(
-        '🟡 Cuota: Recordatorio Preventivo (Vence en 48 hs)',
-        'recordatorio_48hs',
-        'Hola, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu seguro ({vehiculo} - Patente {patente}). Escribinos si querés abonarla o si necesitás el cbu/link de pago. ¡Saludos!'
-    );
-
-    // 2. 🟠 PRIMER AVISO (Vencida hace 48 hs)
-    insertPlantilla.run(
-        '🟠 Cuota: Primer Aviso (Vencida hace 48 hs)',
-        'primer_aviso',
-        'Hola, te recuerdo que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
-    );
-
-    // 3. 🔴 SEGUNDO AVISO (Vencida hace 96 hs)
-    insertPlantilla.run(
-        '🔴 Cuota: Segundo Aviso (Vencida hace 96 hs)',
-        'segundo_aviso',
-        'Hola, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y finaliza tu período de gracia. Escribinos para regularizar la cuota antes de perder la cobertura.'
-    );
-
-    // 4. 🚨 MORA CRÍTICA (+96hs / Perdió Período de Gracia)
-    insertPlantilla.run(
-        '🚨 Cuota: Mora Crítica (+96 hs / Perdió Período de Gracia)',
-        'mora_critica',
-        'Hola, te aviso que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
-    );
-
-    // 5. 📄 AVISO RENOVACIÓN 7 DÍAS
-    insertPlantilla.run(
-        '📄 Póliza: Aviso Renovación (Vence en 7 Días)',
-        'renovacion_7_dias',
-        'Hola, ¿cómo estás? Te informamos que en 7 días vence la póliza de tu {vehiculo} (Patente {patente}). Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
-    );
-
-    // 5b. 📄 RENOVACIÓN CON DEUDA PENDIENTE
-    insertPlantilla.run(
-        '📄 Póliza: Renovación + Deuda Pendiente',
-        'renovacion_deuda',
-        'Hola, te informamos que en 7 días vence la renovación de tu seguro ({vehiculo} - Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago.'
-    );
-
-    // 6. ⚫ PÓLIZA VENCIDA
-    insertPlantilla.run(
-        '⚫ Póliza: Aviso Póliza Vencida',
-        'poliza_vencida',
-        `Hola, te escribimos de ${appName} para avisarte que la póliza de tu {vehiculo} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!`
-    );
-
-    // 7. 🔄 RECTIVACIÓN CARTERA HISTÓRICA
-    insertPlantilla.run(
-        '🔄 Recuperación: Propuesta Reactivación Cartera Histórica',
-        'recuperacion_historica',
-        `Hola, te saludamos de ${appName}. Queremos ponernos en contacto nuevamente por tu {vehiculo} (Dominio: {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`
-    );
-
-    console.log('✅ Plantillas exclusivas por variable creadas.');
+    console.error('Error actualizando plantillas sin vehiculo:', e);
 }
 
 db.guardarTelefonoMaestro = (cliente_id, nombre, telefono, origen = 'scraper') => {

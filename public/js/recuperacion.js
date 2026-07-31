@@ -149,9 +149,9 @@ function resetRecuperacionFilters() {
   fetchRecuperacionItems();
 }
 
-function sendWinBackWhatsApp(nombre, telefono, vehiculo, patente) {
+function sendWinBackWhatsApp(nombre, telefono, vehiculo, patente, operacion) {
   const clean = formatPhoneForWhatsApp(telefono);
-  const msg = `Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu ${vehiculo} (Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`;
+  const msg = `Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu póliza (Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu seguro. ¡Consultanos sin compromiso!`;
   window.open(`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`, '_blank');
 }
 
