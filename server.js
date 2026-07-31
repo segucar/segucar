@@ -1230,28 +1230,53 @@ app.get('/api/polizas/vencimientos', (req, res) => {
     }
 });
 
+function sanitizePatente(pat) {
+    if (!pat) return '';
+    return String(pat).toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+}
+
 app.post('/api/clientes/:id/polizas', (req, res) => {
     try {
-        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion } = req.body;
+        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, grucar_activo } = req.body;
+        const cleanPatente = sanitizePatente(patente);
+        const hasGrucar = (grucar_activo === 1 || grucar_activo === '1' || grucar_activo === true) ? 1 : 0;
+
         const info = db.prepare(`
-            INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado)
-            VALUES (?, ?, ?, ?, ?, ?, ?, 'vigente')
-        `).run(req.params.id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion);
-        res.status(201).json({ id: info.lastInsertRowid, message: 'Póliza creada' });
+            INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'vigente', ?)
+        `).run(req.params.id, operacion, tipo_vehiculo, cleanPatente, vehiculo, fecha_vencimiento, seccion, hasGrucar);
+
+        console.log(`[Admin Audit] Póliza creada. Operación=${operacion}, Patente=${cleanPatente}, grucar_activo=${hasGrucar}`);
+        res.status(201).json({ id: info.lastInsertRowid, message: 'Póliza creada con patente sanitizada', has_grucar: hasGrucar === 1 });
     } catch (error) {
+        console.error('[Admin Audit Exception] Error creando póliza:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
 app.put('/api/polizas/:id', (req, res) => {
     try {
-        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado } = req.body;
-        const info = db.prepare(`
-            UPDATE polizas SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=? WHERE id=?
-        `).run(operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, req.params.id);
+        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo } = req.body;
+        const cleanPatente = sanitizePatente(patente);
+        
+        let info;
+        if (grucar_activo !== undefined) {
+            const hasGrucar = (grucar_activo === 1 || grucar_activo === '1' || grucar_activo === true) ? 1 : 0;
+            info = db.prepare(`
+                UPDATE polizas SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=?, grucar_activo=? WHERE id=?
+            `).run(operacion, tipo_vehiculo, cleanPatente, vehiculo, fecha_vencimiento, seccion, estado, hasGrucar, req.params.id);
+        } else {
+            info = db.prepare(`
+                UPDATE polizas SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=? WHERE id=?
+            `).run(operacion, tipo_vehiculo, cleanPatente, vehiculo, fecha_vencimiento, seccion, estado, req.params.id);
+        }
+
         if (info.changes === 0) return res.status(404).json({ error: 'Póliza no encontrada' });
-        res.json({ message: 'Póliza actualizada' });
+        
+        console.log(`[Admin Audit] Póliza actualizada. ID=${req.params.id}, Patente=${cleanPatente}, GrucarActivo=${grucar_activo}`);
+        res.json({ message: 'Póliza actualizada', patente: cleanPatente, has_grucar: grucar_activo === 1 });
     } catch (error) {
+        console.error('[Admin Audit Exception] Error actualizando póliza:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
