@@ -75,6 +75,18 @@ const SeguroStateManager = (function () {
       tagClass: 'tag-cyan',
       badgeColor: '#00b4d8'
     },
+    VENCE_PRONTO: {
+      code: 'VENCE_PRONTO',
+      modulo: 'renovaciones',
+      label: '⚠️ Vence Pronto (0-5 días)',
+      accion: '⚠️ Vence Pronto (0-5 días)',
+      accionDetalle: '🚨 Renovación urgente — vence en menos de 6 días',
+      prioridadRank: 1,
+      prioridadLevel: 'critica',
+      tagClass: 'tag-orange',
+      badgeColor: '#f39c12',
+      plantilla: 'renovacion_7_dias'
+    },
     POLIZA_VENCIDA: {
       code: 'POLIZA_VENCIDA',
       modulo: 'renovaciones',
@@ -246,22 +258,30 @@ const SeguroStateManager = (function () {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
-    if (dias <= 7 && dias >= 0) {
-      if (tieneDeuda) {
-        return {
-          code: 'RENOVACION_DEUDA',
-          modulo: 'renovaciones',
-          label: '📄 Renovación + Deuda Pendiente',
-          accion: '📄 Renovación + Deuda Pendiente',
-          accionDetalle: 'Aviso de renovación condicionado a regularización de saldo impago',
-          prioridadRank: 2,
-          prioridadLevel: 'alta',
-          tagClass: 'tag-blue',
-          badgeColor: '#00b4d8',
-          plantilla: 'renovacion_deuda'
-        };
-      }
+    // Clientes CON deuda en cualquier ventana de aviso → RENOVACION_DEUDA (urgente)
+    if (tieneDeuda && dias <= 7 && dias >= 0) {
+      return {
+        code: 'RENOVACION_DEUDA',
+        modulo: 'renovaciones',
+        label: '📄 Renovación + Deuda Pendiente',
+        accion: '📄 Renovación + Deuda Pendiente',
+        accionDetalle: 'Aviso de renovación condicionado a regularización de saldo impago',
+        prioridadRank: 2,
+        prioridadLevel: 'alta',
+        tagClass: 'tag-blue',
+        badgeColor: '#00b4d8',
+        plantilla: 'renovacion_deuda'
+      };
+    }
+
+    // Clientes AL DÍA — vence en EXACTAMENTE 6 o 7 días → Aviso preventivo normal
+    if (!tieneDeuda && dias >= 6 && dias <= 7) {
       return ESTADOS.RENOVACION_7_DIAS;
+    }
+
+    // Clientes AL DÍA — vence en 0–5 días → Urgente, renovación inmediata
+    if (!tieneDeuda && dias >= 0 && dias <= 5) {
+      return ESTADOS.VENCE_PRONTO;
     }
 
     return ESTADOS.CONTRATO_VIGENTE;

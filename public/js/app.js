@@ -867,6 +867,7 @@ function getAccionPorVista(polizaInput, viewName) {
       const templateMap = {
         'RENOVACION_DEUDA': 'renovacion_deuda',
         'RENOVACION_7_DIAS': 'renovacion_7_dias',
+        'VENCE_PRONTO': 'renovacion_7_dias',
         'POLIZA_VENCIDA': 'poliza_vencida'
       };
       return {
