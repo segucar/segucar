@@ -274,13 +274,13 @@ const SeguroStateManager = (function () {
       };
     }
 
-    // Clientes AL DÍA — vence en EXACTAMENTE 6 o 7 días → Aviso preventivo normal
-    if (!tieneDeuda && dias >= 6 && dias <= 7) {
+    // Clientes AL DÍA — vence en EXACTAMENTE 7 días → Aviso preventivo normal
+    if (!tieneDeuda && dias === 7) {
       return ESTADOS.RENOVACION_7_DIAS;
     }
 
-    // Clientes AL DÍA — vence en 0–5 días → Urgente, renovación inmediata
-    if (!tieneDeuda && dias >= 0 && dias <= 5) {
+    // Clientes AL DÍA — vence en 0–6 días → Urgente, renovación inmediata
+    if (!tieneDeuda && dias >= 0 && dias <= 6) {
       return ESTADOS.VENCE_PRONTO;
     }
 
