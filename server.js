@@ -374,76 +374,8 @@ app.get('/api/dashboard/stats', (req, res) => {
 //  EXPORTAR A EXCEL
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.get('/api/exportar', (req, res) => {
+function generarExcelEstructurado(req, res) {
     try {
-        const search = req.query.search || '';
-        const tipo_vehiculo = req.query.tipo_seguro || '';
-        const estado = req.query.estado || '';
-
-        let where = 'WHERE 1=1';
-        const params = [];
-
-        if (search) {
-            where += ` AND (c.nombre LIKE ? OR c.dni LIKE ? OR c.telefono LIKE ? OR p.operacion LIKE ? OR p.patente LIKE ? OR p.vehiculo LIKE ?)`;
-            const s = `%${search}%`;
-            params.push(s, s, s, s, s, s);
-        }
-        if (tipo_vehiculo) {
-            where += ` AND p.tipo_vehiculo = ?`;
-            params.push(tipo_vehiculo);
-        }
-        if (estado) {
-            const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
-            const todayStr = toLocalISOString(new Date());
-            const lastSync = getLastSyncDate();
-            const todayDay = new Date().getDay();
-            const isMonday = (todayDay === 1);
-            const suppressAlerts = isMonday && (lastSync !== todayStr);
-
-            if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`;
-            } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0`;
-            } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`;
-            } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
-                if (suppressAlerts) where += ` AND 1=0`;
-                else where += ` AND (p.cuotas_debe IS NULL OR p.cuotas_debe = 0) AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
-            } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
-                if (suppressAlerts) where += ` AND 1=0`;
-                else where += ` AND p.cuotas_debe = 1 AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
-            } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
-                if (suppressAlerts) where += ` AND 1=0`;
-                else where += ` AND p.cuotas_debe = 1 AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
-            } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                if (suppressAlerts) where += ` AND p.cuotas_debe >= 2 AND p.saldo_pendiente > 0`;
-                else where += ` AND p.saldo_pendiente > 0 AND (p.cuotas_debe >= 2 OR (p.cuotas_debe > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) < -4))`;
-            } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
-                if (suppressAlerts) where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR p.cuotas_debe IS NULL OR p.cuotas_debe = 0)`;
-                else where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR ((p.cuotas_debe IS NULL OR p.cuotas_debe = 0) AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) != 2))`;
-            } else {
-                where += ` AND p.estado = ?`;
-                params.push(estado);
-            }
-        }
-
-        const query = `
-            SELECT c.nombre as "Nombre", c.telefono as "Teléfono", c.direccion as "Dirección",
-                   p.operacion as "Operación", p.patente as "Patente", p.vehiculo as "Vehículo",
-                   p.tipo_vehiculo as "Tipo", 
-                   ('Cuota ' || COALESCE(p.nro_cuota, 1) || '/' || COALESCE(p.total_cuotas, 3)) as "N° Cuota",
-                   p.fecha_vencimiento as "Venc. Cuota",
-                   p.saldo_pendiente as "Saldo Pendiente",
-                   p.fin_vigencia_poliza as "Fin Vigencia Póliza",
-                   p.cuotas_debe as "Cuotas Debe", p.estado as "Estado", p.cuenta as "Cuenta"
-            FROM clientes c 
-            LEFT JOIN polizas p ON c.id = p.cliente_id 
-            ${where} 
-            ORDER BY c.nombre ASC
-        `;
-
-        const rows = db.prepare(query).all(...params);
-
         const wb = xlsx.utils.book_new();
 
         // 1. HOJA 1 (Pestaña Principal - 'PÓLIZAS ACTIVAS')
@@ -544,9 +476,11 @@ app.get('/api/exportar', (req, res) => {
         console.error("Error al generar Excel estructurado:", error);
         res.status(500).json({ error: error.message });
     }
-});
+}
 
-app.get('/api/reportes/telefonos-incompletos', (req, res) => res.redirect('/api/exportar/excel'));
+app.get('/api/exportar', generarExcelEstructurado);
+app.get('/api/exportar/excel', generarExcelEstructurado);
+app.get('/api/reportes/telefonos-incompletos', generarExcelEstructurado);
 
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
