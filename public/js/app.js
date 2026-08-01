@@ -822,9 +822,9 @@ function createClientRow(client, poliza, isSecondary = false) {
           ${isPaid ? pdfNreBtn : ''}
           ${isPaid ? pdfGrucarBtn : ''}
           <button class="btn btn-sm btn-ghost" onclick="editClient(${client.id})" title="Editar Cliente" style="padding:4px 6px;">✏️</button>
-          <button class="btn btn-sm btn-danger" onclick="deleteClient(${client.id})" title="Eliminar Cliente" style="padding:4px 6px;">🗑️</button>
         </div>
       </td>
+    `;
     cells += actionsHtml;
   }
 
