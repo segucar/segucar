@@ -356,7 +356,77 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
 }
 
 /**
- * Sincronización General en Vivo (3 en 1: Vencimientos, Deudas vencidas y datos NRE)
+ * Verifica pólizas con deuda contra la pestaña Pagos/Cuotas de muestro-polizas.php.
+ * Si NRE muestra Saldo Cli = $0 en TODAS las cuotas → la póliza está saldada.
+ * Solo consulta pólizas que figuren con saldo_pendiente > 0 O cuotas_debe > 0 en la DB.
+ */
+async function syncPagosNRE(usuario = 'SUA', password = 'sua') {
+    const { baseUrl, getCookieString } = await loginNRE(usuario, password);
+
+    // Obtener todas las pólizas con deuda registrada en el sistema
+    const deudores = db.prepare('SELECT operacion, saldo_pendiente, cuotas_debe FROM polizas WHERE saldo_pendiente > 0 OR cuotas_debe > 0').all();
+
+    let saldadas = 0;
+    const actualizarSaldada = db.prepare(`
+        UPDATE polizas 
+        SET cuotas_debe = 0, saldo_pendiente = 0, cuotas_historial = ?
+        WHERE operacion = ?
+    `);
+
+    for (const pol of deudores) {
+        try {
+            const res = await fetch(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
+                headers: { 'Cookie': getCookieString() }
+            });
+            if (!res.ok) continue;
+            const html = await res.text();
+            const cheerio = require('cheerio');
+            const $ = cheerio.load(html);
+
+            let cuotasSaldoCli = [];
+            let historialActualizado = [];
+
+            $('table').each((i, t) => {
+                const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
+                // Buscar la tabla de Cuotas (tiene columna Saldo Cli)
+                if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
+                    $(t).find('tbody tr').each((i, tr) => {
+                        const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
+                        if (cols.length >= 4) {
+                            const nroCuota = parseInt(cols[0]) || (i + 1);
+                            const vtoCuota = parseFechaArg(cols[1]) || '';
+                            const saldoCliText = cols[3] || '0';
+                            const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+                            cuotasSaldoCli.push(saldoCli);
+                            historialActualizado.push({
+                                nro_cuota: nroCuota,
+                                vto_cuota: vtoCuota,
+                                saldo_cli: saldoCli,
+                                estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
+                                fecha_pago: null,
+                                lote: ''
+                            });
+                        }
+                    });
+                }
+            });
+
+            // Si todas las cuotas tienen Saldo Cli = 0 → póliza completamente saldada
+            if (cuotasSaldoCli.length > 0 && cuotasSaldoCli.every(s => s === 0)) {
+                actualizarSaldada.run(JSON.stringify(historialActualizado), pol.operacion);
+                saldadas++;
+                console.log(`✅ Póliza ${pol.operacion}: SALDADA (Saldo Cli = 0 en todas las cuotas de NRE)`);
+            }
+        } catch (e) {
+            console.error(`Error verificando pagos para op ${pol.operacion}:`, e.message);
+        }
+    }
+
+    return { verificadas: deudores.length, saldadas };
+}
+
+/**
+ * Sincronización General en Vivo (3 en 1: Vencimientos, Deudas vencidas + Verificación de Pagos NRE)
  */
 async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     const currentYear = new Date().getFullYear();
@@ -365,6 +435,10 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
 
     // 2. Sync Deudas Real NRE
     const deudasRes = await syncDeudasNRE(usuario, password, `01/01/${currentYear}`, `31/12/${currentYear}`);
+
+    // 3. 🆕 Verificar Pagos reales vía tab Pagos/Cuotas de muestro-polizas.php
+    //    Marca como saldadas las pólizas donde NRE reporta Saldo Cli = $0 en todas las cuotas
+    const pagosRes = await syncPagosNRE(usuario, password);
 
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
@@ -375,7 +449,9 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
 
     return {
         vencimientos_sincronizados: vtoRes.total || 0,
-        deudores_vencidos: deudasRes.actualizados || 0
+        deudores_vencidos: deudasRes.actualizados || 0,
+        polizas_saldadas_verificadas: pagosRes.saldadas || 0,
+        polizas_verificadas_pagos: pagosRes.verificadas || 0
     };
 }
 
@@ -429,4 +505,4 @@ function calcularDeudaRealConReglas(tipoVehiculo, totalPagado, cuotasArray, hoyS
     return cuotasImpagasReales;
 }
 
-module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, calcularDeudaRealConReglas };
+module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, calcularDeudaRealConReglas };

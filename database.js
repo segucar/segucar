@@ -210,7 +210,7 @@ try {
         'Hola, te recuerdo que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
     );
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'segundo_aviso'").run(
-        'Hola, te informamos que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 96 hs y finaliza tu período de gracia. Escribinos para regularizar la cuota antes de perder la cobertura.'
+        'Hola {nombre}, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y si no se regulariza antes de las 12hs de mañana se suspende la cobertura por falta de pago. Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
     );
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'mora_critica'").run(
         'Hola, te aviso que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
