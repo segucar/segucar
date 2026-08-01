@@ -1946,6 +1946,10 @@ function openModalNuevoClienteAdmin() {
     d.setDate(d.getDate() + 30);
     vtoInput.value = d.toISOString().split('T')[0];
   }
+  const polInput = getEl('addAdminMontoPoliza');
+  if (polInput) polInput.value = 30240;
+  const acaInput = getEl('addAdminMontoAcarreo');
+  if (acaInput) acaInput.value = 1760;
 }
 
 function closeModalNuevoClienteAdmin() {

@@ -376,28 +376,31 @@ db.inicializarCuotasAdmin = () => {
 
                 if (Array.isArray(cuotasList) && cuotasList.length > 0) {
                     for (const c of cuotasList) {
-                        const total = parseFloat(c.saldo_cli || c.saldo || 0);
+                        let total = parseFloat(c.saldo_cli || c.saldo || 0);
+                        if (total === 0 || total === 35000) total = 32000;
                         const nro = parseInt(c.nro_cuota || 1);
                         const vto = c.vto_cuota || p.fecha_vencimiento || new Date().toISOString().split('T')[0];
                         const estado = c.estado === 'PAGADA' ? 'PAGADO' : (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE');
 
-                        const montoPoliza = Math.round(total * 0.7 * 100) / 100;
-                        const montoAcarreo = Math.round((total - montoPoliza) * 100) / 100;
+                        const montoAcarreo = 1760; // Valor real servicio de remolque Grucar
+                        const montoPoliza = Math.max(0, Math.round((total - montoAcarreo) * 100) / 100);
 
                         insertStmt.run(p.id, nro, montoPoliza, montoAcarreo, total, vto, estado);
                     }
                 } else {
-                    const total = parseFloat(p.saldo_pendiente || 35000);
+                    let total = parseFloat(p.saldo_pendiente || 32000);
+                    if (total === 0 || total === 35000) total = 32000;
                     const vto = p.fecha_vencimiento || new Date().toISOString().split('T')[0];
                     const estado = p.cuotas_debe > 0 ? (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE') : 'PAGADO';
-                    const montoPoliza = Math.round(total * 0.7 * 100) / 100;
-                    const montoAcarreo = Math.round((total - montoPoliza) * 100) / 100;
+
+                    const montoAcarreo = 1760; // Valor real servicio de remolque Grucar
+                    const montoPoliza = Math.max(0, Math.round((total - montoAcarreo) * 100) / 100);
 
                     insertStmt.run(p.id, 1, montoPoliza, montoAcarreo, total, vto, estado);
                 }
             }
         })();
-        console.log('✅ Tabla cuotas_admin inicializada con cuotas preexistentes.');
+        console.log('✅ Tabla cuotas_admin inicializada con montos reales Emisión ($30.240) + Grucar ($1.760).');
     } catch (e) {
         console.error('Error inicializando cuotas_admin:', e);
     }

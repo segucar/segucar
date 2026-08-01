@@ -435,8 +435,8 @@
               <th style="padding: 10px 14px; text-align: left;">Cliente</th>
               <th style="padding: 10px 14px; text-align: left;">Patente / Vehículo</th>
               <th style="padding: 10px 14px; text-align: center;">N° Cuota</th>
-              <th style="padding: 10px 14px; text-align: right;">Costo Cobertura</th>
-              <th style="padding: 10px 14px; text-align: right;">Costo Acarreo</th>
+              <th style="padding: 10px 14px; text-align: right;">Costo Póliza (Emisión NRE)</th>
+              <th style="padding: 10px 14px; text-align: right;">Costo Remolque (Grucar)</th>
               <th style="padding: 10px 14px; text-align: right;">Monto Total</th>
               <th style="padding: 10px 14px; text-align: center;">Vencimiento</th>
               <th style="padding: 10px 14px; text-align: center;">Estado</th>
@@ -458,7 +458,7 @@
       <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 18px;">
         <h3 style="margin: 0; font-size: 1.15rem; color: #48cae4; font-weight: 800; display: flex; align-items: center; gap: 8px;">
           <span>✏️</span>
-          <span>Ajustar Montos de Cuota (Reajuste)</span>
+          <span>Ajustar Montos Reales (Emisión vs Grucar)</span>
         </h3>
         <button class="modal-close" onclick="closeModalEditarCuotaAdmin()" style="background:none; border:none; color:#a0a0b8; font-size:1.4rem; cursor:pointer;">&times;</button>
       </div>
@@ -474,17 +474,17 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
           <div>
-            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Póliza (Base)</label>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Póliza (Emisión NRE)</label>
             <input type="number" step="0.01" id="inputEditMontoPoliza" oninput="recalcularMontoTotalAdmin()" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;" required>
           </div>
           <div>
-            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Acarreo / Remolque</label>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Remolque (Grucar)</label>
             <input type="number" step="0.01" id="inputEditMontoAcarreo" oninput="recalcularMontoTotalAdmin()" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;" required>
           </div>
         </div>
 
         <div style="background: rgba(46, 213, 115, 0.1); border: 1px solid rgba(46, 213, 115, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 16px; text-align: center;">
-          <span style="font-size:0.82rem; color:var(--text-secondary); text-uppercase:uppercase; letter-spacing:0.5px; font-weight:700;">Monto Total Calculado (Póliza + Acarreo):</span>
+          <span style="font-size:0.82rem; color:var(--text-secondary); text-uppercase:uppercase; letter-spacing:0.5px; font-weight:700;">Monto Total Calculado (Emisión + Grucar):</span>
           <div id="displayMontoTotalCalculado" style="font-size: 1.4rem; font-weight: 800; color: #2ed573; margin-top: 2px;">$ 0,00</div>
         </div>
 
@@ -506,7 +506,7 @@
         <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; gap: 10px; flex-wrap: wrap;">
           <button type="button" class="btn btn-ghost btn-sm" onclick="closeModalEditarCuotaAdmin()">Cancelar</button>
           <div style="display: flex; gap: 8px;">
-            <button type="submit" class="btn btn-primary" style="font-weight:700;">💾 Guardar Ajuste</button>
+            <button type="submit" class="btn btn-primary" style="font-weight:700;">💾 Guardar Ajuste Real</button>
           </div>
         </div>
       </form>
@@ -565,12 +565,12 @@
 
         <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px;">
           <div>
-            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Póliza ($)</label>
-            <input type="number" step="0.01" id="addAdminMontoPoliza" value="24500" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Póliza Emisión NRE ($)</label>
+            <input type="number" step="0.01" id="addAdminMontoPoliza" value="30240" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
           </div>
           <div>
-            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Acarreo ($)</label>
-            <input type="number" step="0.01" id="addAdminMontoAcarreo" value="10500" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Acarreo Grucar ($)</label>
+            <input type="number" step="0.01" id="addAdminMontoAcarreo" value="1760" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
           </div>
           <div>
             <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Vencimiento</label>

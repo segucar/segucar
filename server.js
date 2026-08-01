@@ -1923,9 +1923,9 @@ app.post('/api/admin/polizas', (req, res) => {
         const frec = frecuencia_renovacion || 'TRIMESTRAL';
         const vto = fecha_vencimiento || new Date().toISOString().split('T')[0];
 
-        const mPoliza = parseFloat(monto_poliza) || 0;
-        const mAcarreo = parseFloat(monto_acarreo) || 0;
-        const mTotal = mPoliza + mAcarreo;
+        const mPoliza = monto_poliza !== undefined ? parseFloat(monto_poliza) : 30240;
+        const mAcarreo = monto_acarreo !== undefined ? parseFloat(monto_acarreo) : 1760;
+        const mTotal = Math.round((mPoliza + mAcarreo) * 100) / 100;
 
         const infoPol = db.prepare(`
             INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, suma_asegurada, fecha_vencimiento, cuotas_debe, saldo_pendiente, aseguradora, frecuencia_renovacion)
