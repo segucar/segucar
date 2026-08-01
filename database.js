@@ -364,6 +364,43 @@ db.sincronizarSaldosCuotasHistorial = () => {
     }
 };
 
+db.sincronizarEstadosCuotasMoraFechas = () => {
+    try {
+        const todayStr = new Date().toISOString().split('T')[0];
+        db.transaction(() => {
+            // 1. En cuotas_admin, corregir cualquier cuota que no esté PAGADA:
+            // Si fecha_vencimiento >= hoyStr => PENDIENTE
+            // Si fecha_vencimiento < hoyStr => VENCIDO
+            db.prepare("UPDATE cuotas_admin SET estado = 'PENDIENTE' WHERE estado != 'PAGADO' AND fecha_vencimiento >= ?").run(todayStr);
+            db.prepare("UPDATE cuotas_admin SET estado = 'VENCIDO' WHERE estado != 'PAGADO' AND fecha_vencimiento < ?").run(todayStr);
+
+            // 2. En polizas, cuotas_debe representa el conteo de cuotas VENCIDAS REALES (fecha_vencimiento < hoyStr)
+            const polizas = db.prepare('SELECT id, fecha_vencimiento, cuotas_historial FROM polizas').all();
+            const updatePolizaStmt = db.prepare('UPDATE polizas SET cuotas_debe = ? WHERE id = ?');
+
+            for (const p of polizas) {
+                let cuotasDebeCount = 0;
+                if (p.cuotas_historial) {
+                    try {
+                        const list = JSON.parse(p.cuotas_historial);
+                        if (Array.isArray(list)) {
+                            cuotasDebeCount = list.filter(c => c.estado !== 'PAGADA' && c.vto_cuota && c.vto_cuota < todayStr).length;
+                        }
+                    } catch(e){}
+                } else {
+                    if (p.fecha_vencimiento && p.fecha_vencimiento < todayStr) {
+                        cuotasDebeCount = 1;
+                    }
+                }
+                updatePolizaStmt.run(cuotasDebeCount, p.id);
+            }
+        })();
+        console.log('✅ Estados de cuotas y mora de clientes sincronizados según estricta comparación de fechas (fecha_vencimiento vs hoy).');
+    } catch (e) {
+        console.error('Error en sincronizarEstadosCuotasMoraFechas:', e);
+    }
+};
+
 db.inicializarCuotasAdmin = () => {
     try {
         const count = db.prepare('SELECT COUNT(*) as c FROM cuotas_admin').get().c;
