@@ -352,7 +352,7 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
         db.evaluarAtribucionMetricas();
     }
 
-    return { actualizados, deudores_totales: Object.keys(deudasPorOp).length };
+    return { actualizados, deudores_totales: Object.keys(deudasPorOp).length, opsEnDeudaSet: new Set(Object.keys(deudasPorOp)) };
 }
 
 /**
@@ -360,11 +360,17 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
  * Si NRE muestra Saldo Cli = $0 en TODAS las cuotas → la póliza está saldada.
  * Solo consulta pólizas que figuren con saldo_pendiente > 0 O cuotas_debe > 0 en la DB.
  */
-async function syncPagosNRE(usuario = 'SUA', password = 'sua') {
+async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = null) {
     const { baseUrl, getCookieString } = await loginNRE(usuario, password);
 
-    // Consultar pólizas con saldo pendiente y fecha de vencimiento alcanzada o pasada
-    const deudores = db.prepare("SELECT operacion, saldo_pendiente, cuotas_debe FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento <= date('now', 'localtime')").all();
+    // Consultar pólizas con saldo pendiente registradas en la DB
+    const deudoresDb = db.prepare("SELECT operacion, saldo_pendiente, cuotas_debe FROM polizas WHERE saldo_pendiente > 0").all();
+
+    // Filtrar candidatos inteligentes: pólizas que figuran con deuda en DB pero NRE ya NO las incluye en su lista de deudas (fueron saldadas o pagadas)
+    let candidatos = deudoresDb;
+    if (opsEnNreDeuda && opsEnNreDeuda instanceof Set && opsEnNreDeuda.size > 0) {
+        candidatos = deudoresDb.filter(p => !opsEnNreDeuda.has(p.operacion));
+    }
 
     let saldadas = 0;
     const actualizarSaldada = db.prepare(`
@@ -373,59 +379,55 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua') {
         WHERE operacion = ?
     `);
 
-    const BATCH_SIZE = 40;
     const cheerio = require('cheerio');
 
-    for (let i = 0; i < deudores.length; i += BATCH_SIZE) {
-        const batch = deudores.slice(i, i + BATCH_SIZE);
-        await Promise.all(batch.map(async (pol) => {
-            try {
-                const res = await fetch(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
-                    headers: { 'Cookie': getCookieString() },
-                    signal: AbortSignal.timeout(4000)
-                });
-                if (!res.ok) return;
-                const html = await res.text();
-                const $ = cheerio.load(html);
+    await Promise.all(candidatos.map(async (pol) => {
+        try {
+            const res = await fetch(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
+                headers: { 'Cookie': getCookieString() },
+                signal: AbortSignal.timeout(4000)
+            });
+            if (!res.ok) return;
+            const html = await res.text();
+            const $ = cheerio.load(html);
 
-                let cuotasSaldoCli = [];
-                let historialActualizado = [];
+            let cuotasSaldoCli = [];
+            let historialActualizado = [];
 
-                $('table').each((i, t) => {
-                    const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
-                    if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
-                        $(t).find('tbody tr').each((i, tr) => {
-                            const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
-                            if (cols.length >= 4) {
-                                const nroCuota = parseInt(cols[0]) || (i + 1);
-                                const vtoCuota = parseFechaArg(cols[1]) || '';
-                                const saldoCliText = cols[3] || '0';
-                                const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-                                cuotasSaldoCli.push(saldoCli);
-                                historialActualizado.push({
-                                    nro_cuota: nroCuota,
-                                    vto_cuota: vtoCuota,
-                                    saldo_cli: saldoCli,
-                                    estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
-                                    fecha_pago: null,
-                                    lote: ''
-                                });
-                            }
-                        });
-                    }
-                });
-
-                if (cuotasSaldoCli.length > 0 && cuotasSaldoCli.every(s => s === 0)) {
-                    actualizarSaldada.run(JSON.stringify(historialActualizado), pol.operacion);
-                    saldadas++;
+            $('table').each((i, t) => {
+                const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
+                if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
+                    $(t).find('tbody tr').each((i, tr) => {
+                        const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
+                        if (cols.length >= 4) {
+                            const nroCuota = parseInt(cols[0]) || (i + 1);
+                            const vtoCuota = parseFechaArg(cols[1]) || '';
+                            const saldoCliText = cols[3] || '0';
+                            const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+                            cuotasSaldoCli.push(saldoCli);
+                            historialActualizado.push({
+                                nro_cuota: nroCuota,
+                                vto_cuota: vtoCuota,
+                                saldo_cli: saldoCli,
+                                estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
+                                fecha_pago: null,
+                                lote: ''
+                            });
+                        }
+                    });
                 }
-            } catch (e) {
-                // Ignore individual timeouts/network blips
-            }
-        }));
-    }
+            });
 
-    return { verificadas: deudores.length, saldadas };
+            if (cuotasSaldoCli.length > 0 && cuotasSaldoCli.every(s => s === 0)) {
+                actualizarSaldada.run(JSON.stringify(historialActualizado), pol.operacion);
+                saldadas++;
+            }
+        } catch (e) {
+            // Ignore timeouts
+        }
+    }));
+
+    return { verificadas: candidatos.length, saldadas };
 }
 
 /**
@@ -439,9 +441,9 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     // 2. Sync Deudas Real NRE
     const deudasRes = await syncDeudasNRE(usuario, password, `01/01/${currentYear}`, `31/12/${currentYear}`);
 
-    // 3. 🆕 Verificar Pagos reales vía tab Pagos/Cuotas de muestro-polizas.php
-    //    Marca como saldadas las pólizas donde NRE reporta Saldo Cli = $0 en todas las cuotas
-    const pagosRes = await syncPagosNRE(usuario, password);
+    // 3. ⚡ Verificar Pagos instantáneamente solo para candidatos (pólizas que NRE ya no reporta como deudoras)
+    const opsEnDeuda = deudasRes.opsEnDeudaSet || null;
+    const pagosRes = await syncPagosNRE(usuario, password, opsEnDeuda);
 
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
