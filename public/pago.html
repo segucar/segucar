@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SEGUCar &mdash; Abonar Cuota de Seguro</title>
+  <meta name="description" content="Portal público de pago seguro y descarga de comprobantes de SEGUCar.">
+  <link rel="stylesheet" href="/css/styles.css">
+  <style>
+    body {
+      background: radial-gradient(circle at top, #0f172a 0%, #090d16 100%);
+      color: #e2e8f0;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      margin: 0;
+      padding: 0;
+    }
+    .pago-wrapper {
+      max-width: 680px;
+      margin: 40px auto;
+      padding: 0 16px;
+    }
+    .pago-card {
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 20px;
+      backdrop-filter: blur(16px);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+      overflow: hidden;
+      margin-bottom: 24px;
+    }
+    .pago-header {
+      background: linear-gradient(135deg, rgba(0, 180, 216, 0.15) 0%, rgba(15, 23, 42, 0.4) 100%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      padding: 24px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand-title {
+      font-size: 1.4rem;
+      font-weight: 900;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .brand-title em {
+      color: var(--accent-cyan-light, #48cae4);
+      font-style: normal;
+    }
+    .badge-secure {
+      background: rgba(46, 213, 115, 0.15);
+      color: #2ed573;
+      border: 1px solid rgba(46, 213, 115, 0.3);
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .vehicle-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 14px;
+      padding: 20px;
+      margin: 24px;
+    }
+    .vehicle-title {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+    .vehicle-info {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    .info-group label {
+      font-size: 0.75rem;
+      color: #64748b;
+      display: block;
+      margin-bottom: 2px;
+      font-weight: 600;
+    }
+    .info-group val {
+      font-size: 0.95rem;
+      color: #f8fafc;
+      font-weight: 700;
+    }
+    .patente-badge {
+      background: #1e293b;
+      color: #38bdf8;
+      font-family: monospace;
+      font-size: 1.1rem;
+      font-weight: 800;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(56, 189, 248, 0.3);
+      display: inline-block;
+    }
+    .breakdown-box {
+      margin: 0 24px 24px 24px;
+      background: rgba(0, 0, 0, 0.2);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 20px;
+    }
+    .breakdown-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 10px 0;
+      border-bottom: 1px dashed rgba(255, 255, 255, 0.08);
+      font-size: 0.92rem;
+    }
+    .breakdown-row:last-child {
+      border-bottom: none;
+    }
+    .breakdown-total {
+      background: rgba(0, 180, 216, 0.12);
+      border: 1px solid rgba(0, 180, 216, 0.3);
+      border-radius: 12px;
+      padding: 16px;
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .total-title {
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: #38bdf8;
+      text-transform: uppercase;
+    }
+    .total-num {
+      font-size: 1.6rem;
+      font-weight: 900;
+      color: #fff;
+    }
+    .btn-mp {
+      background: linear-gradient(135deg, #009ee3 0%, #007bbd 100%);
+      color: #fff;
+      font-weight: 800;
+      font-size: 1.05rem;
+      width: 100%;
+      padding: 16px;
+      border-radius: 12px;
+      border: none;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(0, 158, 227, 0.35);
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+    .btn-mp:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 12px 30px rgba(0, 158, 227, 0.5);
+    }
+    .btn-sim {
+      background: rgba(46, 213, 115, 0.12);
+      color: #2ed573;
+      border: 1px solid rgba(46, 213, 115, 0.4);
+      font-weight: 700;
+      font-size: 0.9rem;
+      width: 100%;
+      padding: 12px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    .btn-sim:hover {
+      background: rgba(46, 213, 115, 0.25);
+    }
+    .receipts-box {
+      margin: 20px 0;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .receipt-btn {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 10px;
+      padding: 12px;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 700;
+      font-size: 0.85rem;
+      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: background 0.2s;
+    }
+    .receipt-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+    }
+    .tabs-nav {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: #94a3b8;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      text-align: center;
+    }
+    .tab-btn.active {
+      background: rgba(0, 180, 216, 0.15);
+      border-color: rgba(0, 180, 216, 0.4);
+      color: #38bdf8;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="pago-wrapper">
+
+    <!-- Header Brand -->
+    <div style="text-align: center; margin-bottom: 24px;">
+      <h1 class="brand-title" style="justify-content: center;">
+        <svg width="32" height="32" viewBox="0 0 100 100" fill="currentColor">
+          <circle cx="50" cy="50" r="42" fill="none" stroke="#38bdf8" stroke-width="6" stroke-dasharray="210 50" stroke-linecap="round" transform="rotate(-40 50 50)"/>
+          <path d="M 30 52 L 34 40 C 35 37 38 35 42 35 L 58 35 C 62 35 65 37 66 40 L 70 52 C 73 53 75 55 75 59 L 75 66 C 75 68 73 70 71 70 L 69 70 C 67 70 65 68 65 66 L 65 64 L 35 64 L 35 66 C 35 68 33 70 31 70 L 29 70 C 27 70 25 68 25 66 L 25 59 C 25 55 27 53 30 52 Z M 37 43 L 63 43 L 60 48 L 40 48 Z M 34 57 C 36.2 57 38 55.2 38 53 C 38 50.8 36.2 49 34 49 C 31.8 49 30 50.8 30 53 C 30 55.2 31.8 57 34 57 Z M 66 57 C 68.2 57 70 55.2 70 53 C 70 50.8 68.2 49 66 49 C 63.8 49 62 50.8 62 53 C 62 55.2 63.8 57 66 57 Z" fill="#38bdf8"/>
+        </svg>
+        SEGU<em>Car</em> Portal de Pagos
+      </h1>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="tabs-nav">
+      <button class="tab-btn active" id="tabPago" onclick="switchPublicTab('pago')">💳 Abonar Cuota</button>
+      <button class="tab-btn" id="tabComprobantes" onclick="switchPublicTab('comprobantes')">📄 Mis Comprobantes</button>
+    </div>
+
+    <!-- SECTION 1: ABONAR CUOTA -->
+    <div id="sectionPago" class="pago-card">
+      <div class="pago-header">
+        <div>
+          <h2 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #fff;">Pagar Cuota de Seguro</h2>
+          <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #94a3b8;">GestiónSeguro &bull; Triunvirato / SEGUCar</p>
+        </div>
+        <div class="badge-secure">
+          🔒 Checkout Seguro 256-bit
+        </div>
+      </div>
+
+      <!-- Loading State -->
+      <div id="pagoLoading" style="padding: 60px; text-align: center;">
+        <div class="loading" style="margin: 0 auto 16px auto;"></div>
+        <p style="color: #94a3b8; font-weight: 600;">Cargando información de la cuota...</p>
+      </div>
+
+      <!-- Main Content -->
+      <div id="pagoContent" style="display: none;">
+        
+        <!-- Ficha del Vehículo -->
+        <div class="vehicle-card">
+          <div class="vehicle-title">🚗 Ficha del Vehículo y Cobertura</div>
+          <div class="vehicle-info">
+            <div class="info-group">
+              <label>Asegurado</label>
+              <val id="valClienteNombre">-</val>
+            </div>
+            <div class="info-group">
+              <label>Patente (Dominio)</label>
+              <val><span class="patente-badge" id="valPatente">-</span></val>
+            </div>
+            <div class="info-group">
+              <label>Vehículo / Modelo</label>
+              <val id="valVehiculo">-</val>
+            </div>
+            <div class="info-group">
+              <label>Fecha de Vencimiento</label>
+              <val id="valVencimiento" style="color: #f87171;">-</val>
+            </div>
+          </div>
+        </div>
+
+        <!-- Desglose Transparente de Costos -->
+        <div class="breakdown-box">
+          <div style="font-size: 0.8rem; font-weight: 800; color: #38bdf8; text-transform: uppercase; margin-bottom: 10px;">
+            📊 Desglose de Costos de la Cuota
+          </div>
+          
+          <div class="breakdown-row">
+            <div>
+              <strong>1. Cobertura Póliza de Seguro</strong><br>
+              <span style="font-size: 0.78rem; color: #94a3b8;">Emisión NRE Compañía de Seguros</span>
+            </div>
+            <div style="font-weight: 800; font-family: monospace;" id="valMontoPoliza">$ 0,00</div>
+          </div>
+
+          <div class="breakdown-row">
+            <div>
+              <strong>2. Servicio de Remolque / Acarreo 24h</strong><br>
+              <span style="font-size: 0.78rem; color: #94a3b8;">Grucar Suscripción Auxilio en Ruta</span>
+            </div>
+            <div style="font-weight: 800; font-family: monospace;" id="valMontoAcarreo">$ 0,00</div>
+          </div>
+
+          <div class="breakdown-total">
+            <div>
+              <div class="total-title">Total General a Abonar</div>
+              <span style="font-size: 0.75rem; color: #94a3b8;">Incluye Póliza + Servicio de Acarreo</span>
+            </div>
+            <div class="total-num" id="valMontoTotal">$ 0,00</div>
+          </div>
+        </div>
+
+        <!-- Payment Actions -->
+        <div style="padding: 0 24px 24px 24px;">
+          <div id="containerAccionesPago">
+            <button class="btn-mp" id="btnMercadoPago" onclick="pagarConMercadoPago()">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 14.5h-2v-2h2v2zm0-4h-2V7h2v5.5z"/></svg>
+              <span>Pagar con Mercado Pago</span>
+            </button>
+
+            <button class="btn-sim" id="btnSimularPago" onclick="simularPagoCliente()">
+              ⚡ Simular Pago Inmediato (Sandbox Test)
+            </button>
+          </div>
+
+          <!-- Paid State Box -->
+          <div id="containerCuotaPagada" style="display: none; background: rgba(46, 213, 115, 0.12); border: 1px solid rgba(46, 213, 115, 0.3); border-radius: 14px; padding: 20px; text-align: center;">
+            <div style="font-size: 2rem; margin-bottom: 6px;">✅</div>
+            <h3 style="margin: 0; color: #2ed573; font-weight: 900;">¡CUOTA ACREDITADA Y PAGADA!</h3>
+            <p style="margin: 6px 0 16px 0; font-size: 0.85rem; color: #94a3b8;">Sus 2 comprobantes permanentes ya se encuentran listos para descargar:</p>
+            
+            <div class="receipts-box">
+              <a href="#" id="linkPdfNre" target="_blank" class="receipt-btn">📄 Recibo Póliza NRE</a>
+              <a href="#" id="linkPdfGrucar" target="_blank" class="receipt-btn" style="border-color: rgba(46, 213, 115, 0.4); color: #2ed573;">🚗 Cupón Remolque Grucar</a>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- SECTION 2: MIS COMPROBANTES -->
+    <div id="sectionComprobantes" class="pago-card" style="display: none; padding: 24px;">
+      <h2 style="margin: 0 0 8px 0; font-size: 1.1rem; font-weight: 800; color: #fff;">🔎 Consulta de Comprobantes Pagados</h2>
+      <p style="margin: 0 0 20px 0; font-size: 0.85rem; color: #94a3b8;">Ingrese su dominio (patente) o DNI para descargar sus recibos y cupones de remolque.</p>
+
+      <div style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <input type="text" id="inputBuscarPatente" placeholder="Ej: RPQ899 o 35123456" style="flex: 1; padding: 12px 16px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.15); border-radius: 10px; color: #fff; font-weight: 700;">
+        <button class="btn btn-primary" onclick="buscarComprobantesCliente()" style="padding: 12px 20px; font-weight: 800;">Buscar</button>
+      </div>
+
+      <div id="comprobantesResultados">
+        <div style="text-align: center; color: #64748b; padding: 30px 0;">
+          Ingrese una patente arriba para consultar sus comprobantes pagados.
+        </div>
+      </div>
+    </div>
+
+    <div style="text-align: center; font-size: 0.78rem; color: #64748b; margin-top: 30px;">
+      SEGUCar Management System &bull; Cobertura Nacional Triunvirato / Grucar 24h
+    </div>
+
+  </div>
+
+  <script src="/js/pago.js"></script>
+</body>
+</html>

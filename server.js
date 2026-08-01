@@ -2270,6 +2270,133 @@ app.get('/api/pdf/grucar/:id', (req, res) => {
         res.status(500).send('Error generando cupón Grucar: ' + e.message);
     }
 });
+// ═══════════════════════════════════════════════════════════════════════════
+// 🌐 PUBLIC CLIENT WEBAPP ENDPOINTS (/pago/:cuota_id)
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.get('/pago/:cuota_id', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'pago.html'));
+});
+
+app.get('/api/public/cuotas/:id', (req, res) => {
+    try {
+        const cuota = db.prepare(`
+            SELECT ca.*, 
+                   c.nombre as cliente_nombre, 
+                   c.telefono as cliente_telefono,
+                   p.patente, 
+                   p.vehiculo, 
+                   p.operacion,
+                   p.aseguradora
+            FROM cuotas_admin ca
+            JOIN polizas p ON ca.poliza_id = p.id
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE ca.id = ?
+        `).get(req.params.id);
+
+        if (!cuota) {
+            return res.status(404).json({ error: 'Cuota no encontrada' });
+        }
+
+        res.json({
+            id: cuota.id,
+            numero_cuota: cuota.numero_cuota || 1,
+            total_cuotas: 3,
+            monto_poliza: cuota.monto_poliza || 30240,
+            monto_acarreo: cuota.monto_acarreo || 1760,
+            monto_total: cuota.monto_total || 32000,
+            fecha_vencimiento: cuota.fecha_vencimiento,
+            estado: cuota.estado || 'PENDIENTE',
+            cliente_nombre: cuota.cliente_nombre,
+            patente: cuota.patente,
+            vehiculo: cuota.vehiculo,
+            operacion: cuota.operacion,
+            aseguradora: cuota.aseguradora || 'SEGUCar / Triunvirato',
+            link_pago: cuota.link_pago || `https://mpago.la/simulated/MP-PREF-${Date.now()}-${cuota.id}`,
+            pdf_nre_url: cuota.pdf_nre_url || `/api/pdf/nre/${cuota.id}`,
+            pdf_grucar_url: cuota.pdf_grucar_url || `/api/pdf/grucar/${cuota.id}`
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/public/cuotas/:id/simular-pago', (req, res) => {
+    try {
+        const id = req.params.id;
+        const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        if (!cuota) return res.status(404).json({ error: 'Cuota no encontrada' });
+
+        const fechaPago = new Date().toISOString();
+        const pdfNre = `/api/pdf/nre/${id}`;
+        const pdfGrucar = `/api/pdf/grucar/${id}`;
+
+        db.prepare(`
+            UPDATE cuotas_admin 
+            SET estado = 'PAGADO', 
+                fecha_pago = ?, 
+                pdf_nre_url = ?, 
+                pdf_grucar_url = ? 
+            WHERE id = ?
+        `).run(fechaPago, pdfNre, pdfGrucar, id);
+
+        db.prepare(`
+            UPDATE polizas 
+            SET saldo_pendiente = 0, 
+                cuotas_debe = 0 
+            WHERE id = ?
+        `).run(cuota.poliza_id);
+
+        res.json({
+            success: true,
+            message: '¡Pago acreditado exitosamente!',
+            estado: 'PAGADO',
+            fecha_pago: fechaPago,
+            pdf_nre_url: pdfNre,
+            pdf_grucar_url: pdfGrucar
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.get('/api/public/comprobantes', (req, res) => {
+    try {
+        const { patente, dni } = req.query;
+        if (!patente && !dni) {
+            return res.status(400).json({ error: 'Debe ingresar una patente o DNI' });
+        }
+
+        let query = `
+            SELECT ca.*, 
+                   c.nombre as cliente_nombre, 
+                   p.patente, 
+                   p.vehiculo, 
+                   p.operacion
+            FROM cuotas_admin ca
+            JOIN polizas p ON ca.poliza_id = p.id
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE ca.estado = 'PAGADO'
+        `;
+        let params = [];
+
+        if (patente) {
+            query += ` AND (LOWER(p.patente) = LOWER(?) OR LOWER(p.operacion) = LOWER(?))`;
+            params.push(patente.trim(), patente.trim());
+        }
+        if (dni) {
+            query += ` AND c.dni = ?`;
+            params.push(dni.trim());
+        }
+
+        query += ` ORDER BY ca.fecha_vencimiento DESC`;
+
+        const items = db.prepare(query).all(...params);
+        res.json({ items });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {
