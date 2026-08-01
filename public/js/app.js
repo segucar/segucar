@@ -1818,6 +1818,9 @@ function renderAdminCobranzasTable() {
       badgeHtml = '<span class="badge" style="background:rgba(255,71,87,0.2); color:#ff4757; border:1px solid rgba(255,71,87,0.4); font-weight:700;">🔴 VENCIDO</span>';
     }
 
+    const pdfNreBtn = `<a href="${c.pdf_nre_url || '/api/pdf/nre/' + c.id}" target="_blank" class="btn btn-sm btn-ghost" title="Ver/Descargar Recibo NRE Emisión" style="padding:4px 8px; color:#48cae4; border:1px solid rgba(0,180,216,0.3); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">📄 Recibo NRE</a>`;
+    const pdfGrucarBtn = `<a href="${c.pdf_grucar_url || '/api/pdf/grucar/' + c.id}" target="_blank" class="btn btn-sm btn-ghost" title="Ver/Descargar Cupón Acarreo Grucar" style="padding:4px 8px; color:#2ed573; border:1px solid rgba(46,213,115,0.3); text-decoration:none; display:inline-flex; align-items:center; gap:4px;">🚗 Cupón Grucar</a>`;
+
     tr.innerHTML = `
       <td style="padding:10px 14px;">
         <strong style="color:#fff;">${escapeHtml(c.cliente_nombre || '-')}</strong>
@@ -1834,10 +1837,10 @@ function renderAdminCobranzasTable() {
       <td style="padding:10px 14px; text-align:center; font-weight:700;">${fechaVto}</td>
       <td style="padding:10px 14px; text-align:center;">${badgeHtml}</td>
       <td style="padding:10px 14px; text-align:center;">
-        <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
+        <div style="display:flex; align-items:center; justify-content:center; gap:6px; flex-wrap:wrap;">
           <button class="btn btn-sm btn-ghost" onclick="openModalEditarCuotaAdmin(${c.id})" title="Editar montos independientes de póliza y acarreo" style="padding:4px 8px;">✏️ Editar</button>
           <button class="btn btn-sm btn-ghost" onclick="generarLinkPagoAdmin(${c.id})" title="Generar link de MercadoPago" style="padding:4px 8px; color:var(--accent-cyan-light);">💳 Link</button>
-          ${c.estado !== 'PAGADO' ? `<button class="btn btn-sm btn-ghost" onclick="simularPagoAdmin(${c.id})" title="Simular pago webhook (Testeo)" style="padding:4px 8px; color:#2ed573; border:1px solid rgba(46,213,115,0.4);">⚡ Pagado</button>` : ''}
+          ${c.estado !== 'PAGADO' ? `<button class="btn btn-sm btn-ghost" onclick="simularPagoAdmin(${c.id})" title="Simular pago webhook (Testeo)" style="padding:4px 8px; color:#2ed573; border:1px solid rgba(46,213,115,0.4);">⚡ Pagado</button>` : `${pdfNreBtn} ${pdfGrucarBtn}`}
         </div>
       </td>
     `;

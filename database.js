@@ -177,7 +177,15 @@ const addColumn = (colName, colDef) => {
         // Ignorar si la columna ya existe
     }
 };
-addColumn('nro_cuota', 'INTEGER DEFAULT 1');
+const addColumnCuotas = (colName, colDef) => {
+    try {
+        db.exec(`ALTER TABLE cuotas_admin ADD COLUMN ${colName} ${colDef}`);
+    } catch (e) {
+        // Column exists
+    }
+};
+addColumnCuotas('pdf_nre_url', 'TEXT');
+addColumnCuotas('pdf_grucar_url', 'TEXT');
 addColumn('total_cuotas', 'INTEGER DEFAULT 3');
 addColumn('saldo_pendiente', 'REAL DEFAULT 0');
 addColumn('fin_vigencia_poliza', 'DATE');

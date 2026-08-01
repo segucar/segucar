@@ -1981,14 +1981,18 @@ app.patch('/api/admin/cuotas/:id', (req, res) => {
     }
 });
 
-// Endpoint de testeo para simular pago (cambiar estado a PAGADO)
+// Endpoint de testeo para simular pago (cambiar estado a PAGADO y asociar PDFs NRE + Grucar)
 app.post('/api/admin/cuotas/:id/simular-pago', (req, res) => {
     try {
         const { id } = req.params;
         const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
         if (!cuota) return res.status(404).json({ error: 'Cuota no encontrada' });
 
-        db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+        const pdfNreUrl = `/api/pdf/nre/${id}`;
+        const pdfGrucarUrl = `/api/pdf/grucar/${id}`;
+
+        db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP, pdf_nre_url = ?, pdf_grucar_url = ? WHERE id = ?")
+          .run(pdfNreUrl, pdfGrucarUrl, id);
 
         // Recalcular saldo pendiente de la póliza asociada
         const pendingCuotas = db.prepare("SELECT SUM(monto_total) as total, COUNT(*) as cant FROM cuotas_admin WHERE poliza_id = ? AND estado != 'PAGADO'").get(cuota.poliza_id);
@@ -1997,7 +2001,7 @@ app.post('/api/admin/cuotas/:id/simular-pago', (req, res) => {
         db.prepare('UPDATE polizas SET saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?').run(saldoPoliza, cantDebe, cuota.poliza_id);
 
         const updatedCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
-        res.json({ success: true, cuota: updatedCuota, mensaje: 'Simulación de webhook exitosa. Cuota marcada como PAGADO.' });
+        res.json({ success: true, cuota: updatedCuota, mensaje: 'Simulación exitosa: Cuota marcada como PAGADA con Recibo NRE y Cupón Grucar asociados.' });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -2050,7 +2054,7 @@ app.get('/api/admin/cobranzas', (req, res) => {
         const items = db.prepare(`
             SELECT 
                 ca.id, ca.poliza_id, ca.numero_cuota, ca.monto_poliza, ca.monto_acarreo, ca.monto_total, 
-                ca.fecha_vencimiento, ca.estado, ca.mp_preference_id, ca.fecha_pago,
+                ca.fecha_vencimiento, ca.estado, ca.mp_preference_id, ca.fecha_pago, ca.pdf_nre_url, ca.pdf_grucar_url,
                 p.operacion, p.patente, p.vehiculo, COALESCE(p.aseguradora, 'SEGUCar / Triunvirato') as aseguradora, COALESCE(p.frecuencia_renovacion, 'TRIMESTRAL') as frecuencia_renovacion,
                 c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.email as cliente_email
             FROM cuotas_admin ca
@@ -2063,6 +2067,221 @@ app.get('/api/admin/cobranzas', (req, res) => {
         res.json({ items, total: items.length });
     } catch (e) {
         res.status(500).json({ error: e.message });
+    }
+});
+
+// ─── VISOR / GENERADOR DE COMPROBANTES PDF (NRE & GRUCAR) ────────────────────
+
+// GET /api/pdf/nre/:id — Recibo de Póliza Emisión NRE
+app.get('/api/pdf/nre/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const cuota = db.prepare(`
+            SELECT ca.*, p.operacion, p.patente, p.vehiculo, p.aseguradora, c.nombre, c.dni, c.telefono
+            FROM cuotas_admin ca
+            JOIN polizas p ON ca.poliza_id = p.id
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE ca.id = ?
+        `).get(id);
+
+        if (!cuota) return res.status(404).send('Cuota no encontrada');
+
+        const montoStr = (cuota.monto_poliza || 30240).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+        const totalStr = (cuota.monto_total || 32000).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+        const fechaPagoStr = cuota.fecha_pago ? new Date(cuota.fecha_pago).toLocaleDateString('es-AR') : new Date().toLocaleDateString('es-AR');
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(`
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Recibo NRE — ${cuota.operacion || id}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #f4f6f9; color: #222; margin: 0; padding: 20px; }
+        .receipt-card { max-width: 750px; margin: 0 auto; background: #fff; border: 2px solid #0056b3; border-radius: 12px; padding: 30px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #0056b3; padding-bottom: 15px; margin-bottom: 20px; }
+        .logo-title { font-size: 22px; font-weight: 800; color: #0056b3; }
+        .badge-paid { background: #28a745; color: white; padding: 6px 14px; border-radius: 20px; font-weight: 700; font-size: 14px; text-transform: uppercase; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 14px; }
+        .box { background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 12px; }
+        .amount-box { background: #eef6ff; border: 1px solid #b6d4fe; border-radius: 8px; padding: 15px; text-align: center; margin-bottom: 20px; }
+        .amount-title { font-size: 13px; color: #555; text-transform: uppercase; font-weight: bold; }
+        .amount-num { font-size: 26px; font-weight: 900; color: #0056b3; margin-top: 4px; }
+        .footer { font-size: 11px; color: #777; text-align: center; border-top: 1px solid #ddd; padding-top: 15px; margin-top: 20px; }
+        .print-btn { display: block; width: 200px; margin: 0 auto 20px auto; padding: 10px; background: #0056b3; color: white; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; text-decoration: none; }
+        @media print { .no-print { display: none; } body { background: white; padding: 0; } .receipt-card { box-shadow: none; border: 1px solid #000; } }
+    </style>
+</head>
+<body>
+    <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimir / PDF</button>
+    <div class="receipt-card">
+        <div class="header">
+            <div>
+                <div class="logo-title">🛡️ NRE EMICOBRA</div>
+                <div style="font-size:12px; color:#666; margin-top:3px;">Compañía de Seguros — Recibo Oficial de Cobertura</div>
+            </div>
+            <div class="badge-paid">🟢 PAGADO EN EMICOBRA</div>
+        </div>
+        
+        <div class="grid">
+            <div class="box">
+                <strong>DATOS DEL ASEGURADO:</strong><br>
+                Nombre: <b>${cuota.nombre || '-'}</b><br>
+                DNI/CUIT: ${cuota.dni || 'Sin registrar'}<br>
+                Teléfono: ${cuota.telefono || '-'}
+            </div>
+            <div class="box">
+                <strong>DATOS DE LA PÓLIZA:</strong><br>
+                N° Póliza / Op: <b>${cuota.operacion || '-'}</b><br>
+                Vehículo: ${cuota.vehiculo || '-'}<br>
+                Patente: <b>${cuota.patente || '-'}</b>
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="box">
+                <strong>DETALLE DE COBRANZA:</strong><br>
+                N° Cuota: <b>Cuota ${cuota.numero_cuota || 1}</b><br>
+                Frecuencia: ${cuota.frecuencia_renovacion || 'TRIMESTRAL'}<br>
+                Fecha de Emisión / Pago: <b>${fechaPagoStr}</b>
+            </div>
+            <div class="box">
+                <strong>COMPAÑÍA EMISORA:</strong><br>
+                Aseguradora: <b>${cuota.aseguradora || 'SEGUCar / Triunvirato'}</b><br>
+                Sistema: <b>Emicobra NRE Direct</b><br>
+                Ref. Transacción: <b>TX-NRE-${cuota.id}-${Date.now().toString().slice(-6)}</b>
+            </div>
+        </div>
+
+        <div class="amount-box">
+            <div class="amount-title">Costo Cobertura Póliza (Emisión NRE)</div>
+            <div class="amount-num">${montoStr}</div>
+            <div style="font-size:12px; color:#444; margin-top:4px;">(Monto Total Liquidado Combo Póliza + Acarreo: ${totalStr})</div>
+        </div>
+
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#f8f9fa; padding:12px; border-radius:6px; font-size:12px;">
+            <div>
+                <b>SELLO DE VALIDEZ DIGITAL:</b><br>
+                <span style="font-family:monospace; color:#333;">NRE-VERIFIED-CERT-${cuota.id}-${cuota.operacion}</span>
+            </div>
+            <div style="text-align:right;">
+                <b>ESTADO EMICOBRA:</b><br>
+                <span style="color:#28a745; font-weight:bold;">VALIDADO Y LIQUIDADO</span>
+            </div>
+        </div>
+
+        <div class="footer">
+            Este comprobante certifica la cancelación y vigencia de la cobertura emitida a través de NRE Emicobra Seguros.<br>
+            SEGUCar Gestión de Seguros — Mar del Plata, Argentina.
+        </div>
+    </div>
+</body>
+</html>
+        `);
+    } catch (e) {
+        res.status(500).send('Error generando comprobante NRE: ' + e.message);
+    }
+});
+
+// GET /api/pdf/grucar/:id — Cupón de Servicio de Acarreo Grucar
+app.get('/api/pdf/grucar/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const cuota = db.prepare(`
+            SELECT ca.*, p.operacion, p.patente, p.vehiculo, c.nombre, c.telefono
+            FROM cuotas_admin ca
+            JOIN polizas p ON ca.poliza_id = p.id
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE ca.id = ?
+        `).get(id);
+
+        if (!cuota) return res.status(404).send('Cuota no encontrada');
+
+        const montoStr = (cuota.monto_acarreo || 1760).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+        const fechaPagoStr = cuota.fecha_pago ? new Date(cuota.fecha_pago).toLocaleDateString('es-AR') : new Date().toLocaleDateString('es-AR');
+
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(`
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Cupón Grucar — ${cuota.patente || id}</title>
+    <style>
+        body { font-family: Arial, sans-serif; background: #121c24; color: #e1e1e1; margin: 0; padding: 20px; }
+        .coupon-card { max-width: 720px; margin: 0 auto; background: #1e2d3b; border: 2px solid #ff9f43; border-radius: 14px; padding: 28px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #ff9f43; padding-bottom: 14px; margin-bottom: 20px; }
+        .logo-title { font-size: 24px; font-weight: 900; color: #ff9f43; letter-spacing: 1px; }
+        .badge-active { background: #28a745; color: white; padding: 6px 14px; border-radius: 20px; font-weight: 800; font-size: 13px; text-transform: uppercase; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; font-size: 14px; }
+        .box { background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; padding: 14px; }
+        .amount-box { background: rgba(255,159,67,0.12); border: 1px solid rgba(ff9f43,0.4); border-radius: 10px; padding: 16px; text-align: center; margin-bottom: 20px; }
+        .amount-title { font-size: 13px; color: #ff9f43; text-uppercase: uppercase; font-weight: bold; letter-spacing: 0.5px; }
+        .amount-num { font-size: 28px; font-weight: 900; color: #fff; margin-top: 4px; }
+        .footer { font-size: 11px; color: #a0a0b8; text-align: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 15px; margin-top: 20px; }
+        .print-btn { display: block; width: 220px; margin: 0 auto 20px auto; padding: 10px; background: #ff9f43; color: #121c24; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; text-align: center; text-decoration: none; }
+        @media print { .no-print { display: none; } body { background: white; color: black; padding: 0; } .coupon-card { background: white; color: black; border: 1px solid #000; box-shadow: none; } .box { background: #f8f9fa; border: 1px solid #ddd; color: black; } }
+    </style>
+</head>
+<body>
+    <button class="print-btn no-print" onclick="window.print()">🖨️ Imprimir Cupón Grucar</button>
+    <div class="coupon-card">
+        <div class="header">
+            <div>
+                <div class="logo-title">🚗 GRUCAR AUXILIO 24H</div>
+                <div style="font-size:12px; color:#a0a0b8; margin-top:3px;">Servicio de Remolque & Asistencia Mecánica Nacional</div>
+            </div>
+            <div class="badge-active">🟢 GRUCAR ACTIVO</div>
+        </div>
+        
+        <div class="grid">
+            <div class="box">
+                <strong>TITULAR DEL SERVICIO:</strong><br>
+                Nombre: <b>${cuota.nombre || '-'}</b><br>
+                WhatsApp: <b>${cuota.telefono || '-'}</b>
+            </div>
+            <div class="box">
+                <strong>DOMINIO HABILITADO:</strong><br>
+                Patente: <b style="font-size:16px; color:#ff9f43;">${cuota.patente || '-'}</b><br>
+                Vehículo: ${cuota.vehiculo || '-'}
+            </div>
+        </div>
+
+        <div class="grid">
+            <div class="box">
+                <strong>COBERTURA DE REMOLQUE:</strong><br>
+                Período: <b>1 Mes (Suscripción Renovada)</b><br>
+                Fecha Activación: <b>${fechaPagoStr}</b>
+            </div>
+            <div class="box">
+                <strong>CENTRAL DE EMERGENCIAS:</strong><br>
+                Teléfono 24h: <b>0800-333-GRUCAR</b><br>
+                Cupón N°: <b>CUP-GRU-${cuota.id}-${Date.now().toString().slice(-6)}</b>
+            </div>
+        </div>
+
+        <div class="amount-box">
+            <div class="amount-title">Costo Servicio Remolque / Acarreo (Grucar)</div>
+            <div class="amount-num">${montoStr}</div>
+            <div style="font-size:12px; color:#2ed573; margin-top:4px;">✔ Suscripción mensual automatizada activa</div>
+        </div>
+
+        <div style="background: rgba(46,213,115,0.1); border:1px solid rgba(46,213,115,0.3); padding:12px; border-radius:8px; font-size:12px; text-align:center;">
+            <b>ESTADO DE SUSCRIPCIÓN GRUCAR:</b><br>
+            <span style="color:#2ed573; font-weight:bold; font-size:14px;">SERVICIO HABILITADO EN TODO EL PAÍS</span>
+        </div>
+
+        <div class="footer">
+            Presente este cupón o indique su patente (${cuota.patente}) ante la solicitud de auxilio o remolque en ruta.<br>
+            GRUCAR System & SEGUCar Gestión — Cobertura 24h.
+        </div>
+    </div>
+</body>
+</html>
+        `);
+    } catch (e) {
+        res.status(500).send('Error generando cupón Grucar: ' + e.message);
     }
 });
 
