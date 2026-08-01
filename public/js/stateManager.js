@@ -222,30 +222,29 @@ const SeguroStateManager = (function () {
       return ESTADOS.AL_DIA;
     }
 
-    // 1. 🟡 Recordatorio 48 hs (Preventivo) -> Vencimiento próximo (calDiff >= 0)
-    // Para cuotas POR VENCER (en 2 días o en el futuro cercano), NUNCA es vencida ni Mora Crítica.
-    if (calDiff === 2 || (calDiff >= 0 && calDiff <= 2)) {
+    // 1. 🟡 Recordatorio 48 hs (Preventivo) -> Vencimiento próximo (0 a 2 días)
+    if (calDiff >= 0 && calDiff <= 2) {
       return ESTADOS.RECORDATORIO_48HS;
     }
 
-    // 2. 🟠 Primer Aviso -> Vencida hace 48 hs (calDiff === -2)
-    if (calDiff === -2) {
+    // 2. 🟠 Primer Aviso -> Vencida hace 1 a 2 días (48 hs)
+    if (calDiff === -1 || calDiff === -2) {
       return ESTADOS.CUOTA_VENCIDA_0_48HS;
     }
 
-    // 3. 🔴 Segundo Aviso -> Vencida hace 96 hs (calDiff === -4)
-    if (calDiff === -4) {
+    // 3. 🔴 Segundo Aviso -> Vencida hace 3 a 4 días (96 hs)
+    if (calDiff === -3 || calDiff === -4) {
       return ESTADOS.CUOTA_VENCIDA_48_96HS;
     }
 
-    // 4. 🚨 Mora Crítica -> SOLO si la cuota ya VENCIÓ (calDiff < 0) Y (venció hace > 96 hs [calDiff < -4] O cuotasAdeudadas >= 2)
-    if (calDiff < 0 && (calDiff < -4 || cuotasAdeudadas >= 2)) {
+    // 4. 🚨 Mora Crítica -> ÚNICAMENTE cuotas vencidas hace MÁS de 4 días (> 96 hs / 5 días o más)
+    if (calDiff < -4) {
       return ESTADOS.MORA_CRITICA_96HS;
     }
 
     // Si calDiff > 2 (vencimiento futuro)
-    if (calDiff > 0) {
-      return ESTADOS.RECORDATORIO_48HS;
+    if (calDiff > 2) {
+      return ESTADOS.AL_DIA;
     }
 
     return ESTADOS.AL_DIA;
