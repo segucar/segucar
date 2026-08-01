@@ -153,6 +153,20 @@ db.exec(`
         fecha_resolucion DATETIME NULL,
         dias_hasta_pago INTEGER NULL
     );
+    CREATE TABLE IF NOT EXISTS cuotas_admin (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poliza_id INTEGER REFERENCES polizas(id) ON DELETE CASCADE,
+        numero_cuota INTEGER NOT NULL DEFAULT 1,
+        monto_poliza REAL NOT NULL DEFAULT 0,
+        monto_acarreo REAL NOT NULL DEFAULT 0,
+        monto_total REAL NOT NULL DEFAULT 0,
+        fecha_vencimiento DATE NOT NULL,
+        estado TEXT DEFAULT 'PENDIENTE',
+        mp_preference_id TEXT,
+        comprobante_pdf_url TEXT,
+        fecha_pago DATETIME NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────
@@ -170,6 +184,8 @@ addColumn('fin_vigencia_poliza', 'DATE');
 addColumn('cuotas_historial', 'TEXT');
 addColumn('fecha_vencimiento_grucar', 'DATE');
 addColumn('grucar_activo', 'INTEGER DEFAULT 1');
+addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
+addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
@@ -340,7 +356,55 @@ db.sincronizarSaldosCuotasHistorial = () => {
     }
 };
 
+db.inicializarCuotasAdmin = () => {
+    try {
+        const count = db.prepare('SELECT COUNT(*) as c FROM cuotas_admin').get().c;
+        if (count > 0) return;
+
+        const polizas = db.prepare('SELECT id, saldo_pendiente, fecha_vencimiento, cuotas_debe, cuotas_historial FROM polizas').all();
+        const insertStmt = db.prepare(`
+            INSERT INTO cuotas_admin (poliza_id, numero_cuota, monto_poliza, monto_acarreo, monto_total, fecha_vencimiento, estado)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        db.transaction(() => {
+            for (const p of polizas) {
+                let cuotasList = [];
+                if (p.cuotas_historial) {
+                    try { cuotasList = JSON.parse(p.cuotas_historial); } catch(e){}
+                }
+
+                if (Array.isArray(cuotasList) && cuotasList.length > 0) {
+                    for (const c of cuotasList) {
+                        const total = parseFloat(c.saldo_cli || c.saldo || 0);
+                        const nro = parseInt(c.nro_cuota || 1);
+                        const vto = c.vto_cuota || p.fecha_vencimiento || new Date().toISOString().split('T')[0];
+                        const estado = c.estado === 'PAGADA' ? 'PAGADO' : (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE');
+
+                        const montoPoliza = Math.round(total * 0.7 * 100) / 100;
+                        const montoAcarreo = Math.round((total - montoPoliza) * 100) / 100;
+
+                        insertStmt.run(p.id, nro, montoPoliza, montoAcarreo, total, vto, estado);
+                    }
+                } else {
+                    const total = parseFloat(p.saldo_pendiente || 35000);
+                    const vto = p.fecha_vencimiento || new Date().toISOString().split('T')[0];
+                    const estado = p.cuotas_debe > 0 ? (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE') : 'PAGADO';
+                    const montoPoliza = Math.round(total * 0.7 * 100) / 100;
+                    const montoAcarreo = Math.round((total - montoPoliza) * 100) / 100;
+
+                    insertStmt.run(p.id, 1, montoPoliza, montoAcarreo, total, vto, estado);
+                }
+            }
+        })();
+        console.log('✅ Tabla cuotas_admin inicializada con cuotas preexistentes.');
+    } catch (e) {
+        console.error('Error inicializando cuotas_admin:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.sincronizarSaldosCuotasHistorial();
+db.inicializarCuotasAdmin();
 
 module.exports = db;

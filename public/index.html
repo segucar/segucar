@@ -27,6 +27,7 @@
         <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
         <a href="importar.html" class="nav-link">📥 Importar</a>
         <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
+        <a href="#" onclick="openModalAdminCobranzas(); return false;" class="nav-link" style="color: #48cae4; font-weight:700;">⚙️ Cuotas & Acarreo (Admin)</a>
         <a href="/api/exportar-excel" class="nav-link" style="color:var(--accent-cyan-light); font-weight:600; display:inline-flex; align-items:center; gap:6px;">📥 Exportar Excel</a>
         <button class="btn btn-sm btn-primary" id="btnSyncNRE" onclick="triggerSyncNRE()" style="gap:6px; margin-left:12px; display:inline-flex; align-items:center; font-weight:700; border-radius:8px; padding:6px 14px;">🔄 Sincronizar NRE</button>
       </div>
@@ -387,6 +388,201 @@
       <div style="margin-top: 20px; display: flex; justify-content: flex-end;">
         <button class="btn btn-ghost" onclick="closeCuotasModal()" style="font-weight: 700;">Cerrar</button>
       </div>
+    </div>
+  </div>
+
+  <!-- MODAL GESTIÓN ADMINISTRATIVA DE COBRANZAS Y CUOTAS DINÁMICAS -->
+  <div class="modal-overlay" id="modalAdminCobranzas" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10000; position: fixed; inset: 0;">
+    <div class="modal" style="max-width: 1080px; width: 94%; max-height: 90vh; overflow-y: auto; background: #0f172a; border: 1px solid rgba(0, 180, 216, 0.4); border-radius: 16px; padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+      
+      <!-- Modal Header -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 18px;">
+        <div>
+          <h3 style="margin: 0; font-size: 1.3rem; color: #48cae4; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+            <span>⚙️</span>
+            <span>Panel de Gestión Interna — Cuotas & Acarreo Trimestral</span>
+          </h3>
+          <p style="margin: 4px 0 0 0; font-size: 0.83rem; color: var(--text-secondary);">Ajuste de costos independientes de cobertura y servicio de remolque/acarreo con simulación de pagos.</p>
+        </div>
+        <div style="display:flex; align-items:center; gap:12px;">
+          <button class="btn btn-sm btn-primary" onclick="openModalNuevoClienteAdmin()" style="font-weight:700;">➕ Nuevo Cliente & Póliza</button>
+          <button class="modal-close" onclick="closeModalAdminCobranzas()" style="background:none; border:none; color:#a0a0b8; font-size:1.6rem; cursor:pointer;">&times;</button>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+        <!-- Status badges -->
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-sm btn-ghost admin-filter-btn active" id="btnFilterAdminTODOS" onclick="filterAdminCobranzas('TODOS')">🌐 Todos</button>
+          <button class="btn btn-sm btn-ghost admin-filter-btn" id="btnFilterAdminPENDIENTE" onclick="filterAdminCobranzas('PENDIENTE')" style="color:#ffa502;">🟡 Pendiente</button>
+          <button class="btn btn-sm btn-ghost admin-filter-btn" id="btnFilterAdminPAGADO" onclick="filterAdminCobranzas('PAGADO')" style="color:#2ed573;">🟢 Pagado</button>
+          <button class="btn btn-sm btn-ghost admin-filter-btn" id="btnFilterAdminVENCIDO" onclick="filterAdminCobranzas('VENCIDO')" style="color:#ff4757;">🔴 Vencido</button>
+        </div>
+
+        <!-- Search input -->
+        <div class="search-bar" style="max-width: 380px; flex: 1;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="adminSearchInput" oninput="debouncedSearchAdminCobranzas()" class="search-input" placeholder="Buscar por patente o cliente...">
+        </div>
+      </div>
+
+      <!-- Table Container -->
+      <div class="table-container" style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); background: rgba(0,180,216,0.05);">
+              <th style="padding: 10px 14px; text-align: left;">Cliente</th>
+              <th style="padding: 10px 14px; text-align: left;">Patente / Vehículo</th>
+              <th style="padding: 10px 14px; text-align: center;">N° Cuota</th>
+              <th style="padding: 10px 14px; text-align: right;">Costo Cobertura</th>
+              <th style="padding: 10px 14px; text-align: right;">Costo Acarreo</th>
+              <th style="padding: 10px 14px; text-align: right;">Monto Total</th>
+              <th style="padding: 10px 14px; text-align: center;">Vencimiento</th>
+              <th style="padding: 10px 14px; text-align: center;">Estado</th>
+              <th style="padding: 10px 14px; text-align: center;">Acciones Admin</th>
+            </tr>
+          </thead>
+          <tbody id="adminCobranzasTableBody">
+            <!-- Rendered by JS -->
+          </tbody>
+        </table>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL EDITAR MONTOS INDEPENDIENTES (CUOTA & ACARREO) -->
+  <div class="modal-overlay" id="modalEditarCuotaAdmin" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10001; position: fixed; inset: 0;">
+    <div class="modal" style="max-width: 520px; width: 92%; background: #0f172a; border: 1px solid rgba(0, 180, 216, 0.4); border-radius: 16px; padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 18px;">
+        <h3 style="margin: 0; font-size: 1.15rem; color: #48cae4; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+          <span>✏️</span>
+          <span>Ajustar Montos de Cuota (Reajuste)</span>
+        </h3>
+        <button class="modal-close" onclick="closeModalEditarCuotaAdmin()" style="background:none; border:none; color:#a0a0b8; font-size:1.4rem; cursor:pointer;">&times;</button>
+      </div>
+
+      <form id="formEditCuotaAdmin" onsubmit="guardarEdicionCuotaAdmin(event)">
+        <input type="hidden" id="editCuotaAdminId">
+        
+        <div style="background: rgba(255,255,255,0.04); border-radius: 10px; padding: 12px 16px; margin-bottom: 16px;">
+          <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 2px;">Cliente & Vehículo:</div>
+          <strong id="editCuotaAdminCliente" style="color: var(--text-primary); font-size: 0.95rem;">-</strong>
+          <div id="editCuotaAdminVehiculo" style="font-size: 0.85rem; color: var(--accent-cyan-light); font-weight: 700; margin-top: 2px;">-</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;">
+          <div>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Póliza (Base)</label>
+            <input type="number" step="0.01" id="inputEditMontoPoliza" oninput="recalcularMontoTotalAdmin()" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;" required>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Acarreo / Remolque</label>
+            <input type="number" step="0.01" id="inputEditMontoAcarreo" oninput="recalcularMontoTotalAdmin()" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;" required>
+          </div>
+        </div>
+
+        <div style="background: rgba(46, 213, 115, 0.1); border: 1px solid rgba(46, 213, 115, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 16px; text-align: center;">
+          <span style="font-size:0.82rem; color:var(--text-secondary); text-uppercase:uppercase; letter-spacing:0.5px; font-weight:700;">Monto Total Calculado (Póliza + Acarreo):</span>
+          <div id="displayMontoTotalCalculado" style="font-size: 1.4rem; font-weight: 800; color: #2ed573; margin-top: 2px;">$ 0,00</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 18px;">
+          <div>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Fecha Vencimiento</label>
+            <input type="date" id="inputEditFechaVencimiento" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;" required>
+          </div>
+          <div>
+            <label style="display:block; font-size:0.8rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Estado</label>
+            <select id="selectEditEstadoCuota" class="form-control" style="width:100%; padding:9px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+              <option value="PENDIENTE">🟡 PENDIENTE</option>
+              <option value="PAGADO">🟢 PAGADO</option>
+              <option value="VENCIDO">🔴 VENCIDO</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px; gap: 10px; flex-wrap: wrap;">
+          <button type="button" class="btn btn-ghost btn-sm" onclick="closeModalEditarCuotaAdmin()">Cancelar</button>
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn btn-primary" style="font-weight:700;">💾 Guardar Ajuste</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL NUEVO CLIENTE & PÓLIZA (ADMIN) -->
+  <div class="modal-overlay" id="modalNuevoClienteAdmin" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); z-index: 10002; position: fixed; inset: 0;">
+    <div class="modal" style="max-width: 580px; width: 92%; background: #0f172a; border: 1px solid rgba(0, 180, 216, 0.4); border-radius: 16px; padding: 24px; box-shadow: 0 20px 50px rgba(0,0,0,0.7);">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px; margin-bottom: 18px;">
+        <h3 style="margin: 0; font-size: 1.15rem; color: #48cae4; font-weight: 800; display: flex; align-items: center; gap: 8px;">
+          <span>➕</span>
+          <span>Alta de Cliente & Póliza (Admin)</span>
+        </h3>
+        <button class="modal-close" onclick="closeModalNuevoClienteAdmin()" style="background:none; border:none; color:#a0a0b8; font-size:1.4rem; cursor:pointer;">&times;</button>
+      </div>
+
+      <form id="formNuevoClienteAdmin" onsubmit="guardarNuevoClienteAdmin(event)">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Nombre Completo *</label>
+            <input type="text" id="addAdminNombre" class="form-control" placeholder="Ej: Juan Pérez" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff;">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Teléfono WhatsApp *</label>
+            <input type="text" id="addAdminTelefono" class="form-control" placeholder="Ej: 5492235110899" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Patente / Dominio *</label>
+            <input type="text" id="addAdminPatente" class="form-control" placeholder="Ej: AF123JK" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; text-transform:uppercase;">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Vehículo / Modelo *</label>
+            <input type="text" id="addAdminVehiculo" class="form-control" placeholder="Ej: TOYOTA HILUX 2.8" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff;">
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Aseguradora</label>
+            <input type="text" id="addAdminAseguradora" class="form-control" value="SEGUCar / Triunvirato" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff;">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Frecuencia Renovación</label>
+            <select id="addAdminFrecuencia" class="form-control" style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff;">
+              <option value="TRIMESTRAL">TRIMESTRAL</option>
+              <option value="MENSUAL">MENSUAL</option>
+              <option value="SEMESTRAL">SEMESTRAL</option>
+              <option value="ANUAL">ANUAL</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin-bottom: 16px;">
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Póliza ($)</label>
+            <input type="number" step="0.01" id="addAdminMontoPoliza" value="24500" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Costo Acarreo ($)</label>
+            <input type="number" step="0.01" id="addAdminMontoAcarreo" value="10500" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+          </div>
+          <div>
+            <label style="display:block; font-size:0.78rem; font-weight:700; color:var(--text-secondary); margin-bottom:4px;">Vencimiento</label>
+            <input type="date" id="addAdminVencimiento" required style="width:100%; padding:8px 12px; background:rgba(255,255,255,0.06); border:1px solid rgba(0,180,216,0.3); border-radius:8px; color:#fff; font-weight:700;">
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px; margin-top: 20px;">
+          <button type="button" class="btn btn-ghost" onclick="closeModalNuevoClienteAdmin()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="font-weight:700;">💾 Dar de Alta Cliente & Póliza</button>
+        </div>
+      </form>
     </div>
   </div>
 

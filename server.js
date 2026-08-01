@@ -1887,6 +1887,184 @@ app.post('/api/sync-nre/general', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+// ─── RUTAS ADMINISTRATIVAS DE GESTIÓN INTERNA (CLIENTES, PÓLIZAS, CUOTAS DINÁMICAS) ────
+
+// Alta de nuevos clientes
+app.post('/api/admin/clientes', (req, res) => {
+    try {
+        const { nombre_completo, telefono_whatsapp, email, dni, direccion } = req.body;
+        if (!nombre_completo || !telefono_whatsapp) {
+            return res.status(400).json({ error: 'nombre_completo y telefono_whatsapp son obligatorios' });
+        }
+        
+        const cleanPhone = String(telefono_whatsapp).replace(/[^0-9+]/g, '');
+        const info = db.prepare(`
+            INSERT INTO clientes (nombre, dni, direccion, telefono, email)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(nombre_completo, dni || '', direccion || '', cleanPhone, email || '');
+
+        const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(info.lastInsertRowid);
+        res.status(201).json(cliente);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Alta de pólizas asociadas a un cliente
+app.post('/api/admin/polizas', (req, res) => {
+    try {
+        const { cliente_id, patente_dominio, vehiculo_modelo, aseguradora, frecuencia_renovacion, suma_asegurada, monto_poliza, monto_acarreo, fecha_vencimiento } = req.body;
+        if (!cliente_id || !patente_dominio || !vehiculo_modelo) {
+            return res.status(400).json({ error: 'cliente_id, patente_dominio y vehiculo_modelo son obligatorios' });
+        }
+
+        const opGenerated = 'OP-' + Date.now().toString().slice(-8);
+        const asec = aseguradora || 'SEGUCar / Triunvirato';
+        const frec = frecuencia_renovacion || 'TRIMESTRAL';
+        const vto = fecha_vencimiento || new Date().toISOString().split('T')[0];
+
+        const mPoliza = parseFloat(monto_poliza) || 0;
+        const mAcarreo = parseFloat(monto_acarreo) || 0;
+        const mTotal = mPoliza + mAcarreo;
+
+        const infoPol = db.prepare(`
+            INSERT INTO polizas (cliente_id, operacion, tipo_vehiculo, patente, vehiculo, suma_asegurada, fecha_vencimiento, cuotas_debe, saldo_pendiente, aseguradora, frecuencia_renovacion)
+            VALUES (?, ?, 'Auto', ?, ?, ?, ?, 1, ?, ?, ?)
+        `).run(cliente_id, opGenerated, patente_dominio.toUpperCase(), vehiculo_modelo, suma_asegurada || '$ 0,00', vto, mTotal, asec, frec);
+
+        const polizaId = infoPol.lastInsertRowid;
+
+        // Crear primera cuota administrativa
+        const infoCuota = db.prepare(`
+            INSERT INTO cuotas_admin (poliza_id, numero_cuota, monto_poliza, monto_acarreo, monto_total, fecha_vencimiento, estado)
+            VALUES (?, 1, ?, ?, ?, ?, 'PENDIENTE')
+        `).run(polizaId, mPoliza, mAcarreo, mTotal, vto);
+
+        const poliza = db.prepare('SELECT * FROM polizas WHERE id = ?').get(polizaId);
+        const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(infoCuota.lastInsertRowid);
+
+        res.status(201).json({ poliza, cuota });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Edición de cuota (monto póliza, monto acarreo, fecha vencimiento, estado)
+app.patch('/api/admin/cuotas/:id', (req, res) => {
+    try {
+        const { id } = req.params;
+        const currentCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        if (!currentCuota) return res.status(404).json({ error: 'Cuota no encontrada' });
+
+        const mPoliza = req.body.monto_poliza !== undefined ? parseFloat(req.body.monto_poliza) : parseFloat(currentCuota.monto_poliza);
+        const mAcarreo = req.body.monto_acarreo !== undefined ? parseFloat(req.body.monto_acarreo) : parseFloat(currentCuota.monto_acarreo);
+        const mTotal = Math.round((mPoliza + mAcarreo) * 100) / 100;
+        const vto = req.body.fecha_vencimiento || currentCuota.fecha_vencimiento;
+        const estado = req.body.estado || currentCuota.estado;
+
+        db.prepare(`
+            UPDATE cuotas_admin 
+            SET monto_poliza = ?, monto_acarreo = ?, monto_total = ?, fecha_vencimiento = ?, estado = ?
+            WHERE id = ?
+        `).run(mPoliza, mAcarreo, mTotal, vto, estado, id);
+
+        // Recalcular saldo pendiente de la póliza asociada
+        const pendingCuotas = db.prepare("SELECT SUM(monto_total) as total, COUNT(*) as cant FROM cuotas_admin WHERE poliza_id = ? AND estado != 'PAGADO'").get(currentCuota.poliza_id);
+        const saldoPoliza = pendingCuotas ? parseFloat(pendingCuotas.total || 0) : 0;
+        const cantDebe = pendingCuotas ? parseInt(pendingCuotas.cant || 0) : 0;
+        db.prepare('UPDATE polizas SET saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?').run(saldoPoliza, cantDebe, currentCuota.poliza_id);
+
+        const updatedCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        res.json(updatedCuota);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Endpoint de testeo para simular pago (cambiar estado a PAGADO)
+app.post('/api/admin/cuotas/:id/simular-pago', (req, res) => {
+    try {
+        const { id } = req.params;
+        const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        if (!cuota) return res.status(404).json({ error: 'Cuota no encontrada' });
+
+        db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+
+        // Recalcular saldo pendiente de la póliza asociada
+        const pendingCuotas = db.prepare("SELECT SUM(monto_total) as total, COUNT(*) as cant FROM cuotas_admin WHERE poliza_id = ? AND estado != 'PAGADO'").get(cuota.poliza_id);
+        const saldoPoliza = pendingCuotas ? parseFloat(pendingCuotas.total || 0) : 0;
+        const cantDebe = pendingCuotas ? parseInt(pendingCuotas.cant || 0) : 0;
+        db.prepare('UPDATE polizas SET saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?').run(saldoPoliza, cantDebe, cuota.poliza_id);
+
+        const updatedCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        res.json({ success: true, cuota: updatedCuota, mensaje: 'Simulación de webhook exitosa. Cuota marcada como PAGADO.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Generar Link de Pago (Preferencia MercadoPago)
+app.post('/api/admin/cuotas/:id/link-pago', (req, res) => {
+    try {
+        const { id } = req.params;
+        const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
+        if (!cuota) return res.status(404).json({ error: 'Cuota no encontrada' });
+
+        const prefId = 'MP-PREF-' + Date.now() + '-' + id;
+        const linkPago = `https://mpago.la/simulated/${prefId}`;
+
+        db.prepare('UPDATE cuotas_admin SET mp_preference_id = ? WHERE id = ?').run(prefId, id);
+
+        res.json({
+            success: true,
+            cuota_id: id,
+            mp_preference_id: prefId,
+            monto_total: cuota.monto_total,
+            link_pago: linkPago
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Listado General de Cobranzas Administrativas
+app.get('/api/admin/cobranzas', (req, res) => {
+    try {
+        const estado = req.query.estado || 'TODOS';
+        const search = req.query.search || '';
+
+        let where = 'WHERE 1=1';
+        let params = [];
+
+        if (estado && estado !== 'TODOS') {
+            where += ' AND ca.estado = ?';
+            params.push(estado.toUpperCase());
+        }
+
+        if (search) {
+            where += ' AND (c.nombre LIKE ? OR p.patente LIKE ? OR p.vehiculo LIKE ? OR p.operacion LIKE ?)';
+            const term = `%${search}%`;
+            params.push(term, term, term, term);
+        }
+
+        const items = db.prepare(`
+            SELECT 
+                ca.id, ca.poliza_id, ca.numero_cuota, ca.monto_poliza, ca.monto_acarreo, ca.monto_total, 
+                ca.fecha_vencimiento, ca.estado, ca.mp_preference_id, ca.fecha_pago,
+                p.operacion, p.patente, p.vehiculo, COALESCE(p.aseguradora, 'SEGUCar / Triunvirato') as aseguradora, COALESCE(p.frecuencia_renovacion, 'TRIMESTRAL') as frecuencia_renovacion,
+                c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.email as cliente_email
+            FROM cuotas_admin ca
+            JOIN polizas p ON ca.poliza_id = p.id
+            JOIN clientes c ON p.cliente_id = c.id
+            ${where}
+            ORDER BY ca.fecha_vencimiento DESC, ca.id DESC
+        `).all(...params);
+
+        res.json({ items, total: items.length });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {

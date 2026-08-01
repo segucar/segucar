@@ -1731,7 +1731,274 @@ function closeCuotasModal() {
 
 // REAL-TIME AUTO-SANITIZATION FOR ALL ADMIN PLATE INPUTS (MAYÚSCULAS, SIN ESPACIOS NI GUIONES)
 document.addEventListener('input', (e) => {
-  if (e.target && (e.target.id === 'clientPatente' || e.target.name === 'patente' || e.target.classList.contains('input-patente'))) {
+  if (e.target && (e.target.id === 'clientPatente' || e.target.id === 'addAdminPatente' || e.target.name === 'patente' || e.target.classList.contains('input-patente'))) {
     e.target.value = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
   }
 });
+
+// ─── GESTIÓN ADMINISTRATIVA DE COBRANZAS, CUOTAS & ACARREO ─────────────────
+let adminCobranzasState = {
+  items: [],
+  filterEstado: 'TODOS',
+  search: ''
+};
+
+function openModalAdminCobranzas(estado = 'TODOS') {
+  adminCobranzasState.filterEstado = estado;
+  const modal = getEl('modalAdminCobranzas');
+  if (modal) modal.style.display = 'flex';
+  fetchAdminCobranzas();
+}
+
+function closeModalAdminCobranzas() {
+  const modal = getEl('modalAdminCobranzas');
+  if (modal) modal.style.display = 'none';
+}
+
+function filterAdminCobranzas(estado) {
+  adminCobranzasState.filterEstado = estado;
+  document.querySelectorAll('.admin-filter-btn').forEach(btn => btn.classList.remove('active'));
+  const activeBtn = getEl(`btnFilterAdmin${estado}`);
+  if (activeBtn) activeBtn.classList.add('active');
+  fetchAdminCobranzas();
+}
+
+let searchAdminTimeout;
+function debouncedSearchAdminCobranzas() {
+  clearTimeout(searchAdminTimeout);
+  searchAdminTimeout = setTimeout(() => {
+    adminCobranzasState.search = getEl('adminSearchInput')?.value.trim() || '';
+    fetchAdminCobranzas();
+  }, 300);
+}
+
+async function fetchAdminCobranzas() {
+  const tbody = getEl('adminCobranzasTableBody');
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding:2rem;"><div class="loading"></div></td></tr>';
+  }
+
+  try {
+    const url = `/api/admin/cobranzas?estado=${adminCobranzasState.filterEstado}&search=${encodeURIComponent(adminCobranzasState.search)}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    adminCobranzasState.items = data.items || [];
+    renderAdminCobranzasTable();
+  } catch (e) {
+    console.error('Error fetching admin cobranzas:', e);
+    if (tbody) {
+      tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="color:var(--danger); padding:2rem;">Error al cargar las cobranzas administrativas.</td></tr>';
+    }
+  }
+}
+
+function renderAdminCobranzasTable() {
+  const tbody = getEl('adminCobranzasTableBody');
+  if (!tbody) return;
+  tbody.innerHTML = '';
+
+  if (adminCobranzasState.items.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="9" class="text-center" style="padding:2rem; color:var(--text-secondary);">No se encontraron cuotas para el filtro seleccionado.</td></tr>';
+    return;
+  }
+
+  adminCobranzasState.items.forEach(c => {
+    const tr = document.createElement('tr');
+    tr.style.borderBottom = '1px solid rgba(255,255,255,0.05)';
+
+    const totalVal = (c.monto_total || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+    const polizaVal = (c.monto_poliza || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+    const acarreoVal = (c.monto_acarreo || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+    const fechaVto = c.fecha_vencimiento ? formatDate(c.fecha_vencimiento) : '-';
+
+    let badgeHtml = '<span class="badge" style="background:rgba(241,196,15,0.2); color:#f39c12; border:1px solid rgba(241,196,15,0.4); font-weight:700;">🟡 PENDIENTE</span>';
+    if (c.estado === 'PAGADO') {
+      badgeHtml = '<span class="badge" style="background:rgba(46,213,115,0.2); color:#2ed573; border:1px solid rgba(46,213,115,0.4); font-weight:700;">🟢 PAGADO</span>';
+    } else if (c.estado === 'VENCIDO') {
+      badgeHtml = '<span class="badge" style="background:rgba(255,71,87,0.2); color:#ff4757; border:1px solid rgba(255,71,87,0.4); font-weight:700;">🔴 VENCIDO</span>';
+    }
+
+    tr.innerHTML = `
+      <td style="padding:10px 14px;">
+        <strong style="color:#fff;">${escapeHtml(c.cliente_nombre || '-')}</strong>
+        <div style="font-size:0.78rem; color:var(--text-secondary);">📱 ${escapeHtml(c.cliente_telefono || '-')}</div>
+      </td>
+      <td style="padding:10px 14px;">
+        <span style="font-family:monospace; font-weight:800; color:var(--accent-cyan-light);">${escapeHtml(c.patente || '-')}</span>
+        <div style="font-size:0.78rem; color:var(--text-secondary); max-width:180px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(c.vehiculo || '-')}</div>
+      </td>
+      <td style="padding:10px 14px; text-align:center; font-weight:800;">Cuota ${c.numero_cuota || 1}</td>
+      <td style="padding:10px 14px; text-align:right; font-weight:600; color:#48cae4;">${polizaVal}</td>
+      <td style="padding:10px 14px; text-align:right; font-weight:600; color:#ffa502;">${acarreoVal}</td>
+      <td style="padding:10px 14px; text-align:right; font-weight:800; color:#2ed573; font-size:0.95rem;">${totalVal}</td>
+      <td style="padding:10px 14px; text-align:center; font-weight:700;">${fechaVto}</td>
+      <td style="padding:10px 14px; text-align:center;">${badgeHtml}</td>
+      <td style="padding:10px 14px; text-align:center;">
+        <div style="display:flex; align-items:center; justify-content:center; gap:6px;">
+          <button class="btn btn-sm btn-ghost" onclick="openModalEditarCuotaAdmin(${c.id})" title="Editar montos independientes de póliza y acarreo" style="padding:4px 8px;">✏️ Editar</button>
+          <button class="btn btn-sm btn-ghost" onclick="generarLinkPagoAdmin(${c.id})" title="Generar link de MercadoPago" style="padding:4px 8px; color:var(--accent-cyan-light);">💳 Link</button>
+          ${c.estado !== 'PAGADO' ? `<button class="btn btn-sm btn-ghost" onclick="simularPagoAdmin(${c.id})" title="Simular pago webhook (Testeo)" style="padding:4px 8px; color:#2ed573; border:1px solid rgba(46,213,115,0.4);">⚡ Pagado</button>` : ''}
+        </div>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function openModalEditarCuotaAdmin(id) {
+  const cuota = adminCobranzasState.items.find(c => c.id === id);
+  if (!cuota) return;
+
+  getEl('editCuotaAdminId').value = cuota.id;
+  getEl('editCuotaAdminCliente').innerText = `${cuota.cliente_nombre || '-'} (Póliza N° ${cuota.operacion || '-'})`;
+  getEl('editCuotaAdminVehiculo').innerText = `Patente ${cuota.patente || '-'} — ${cuota.vehiculo || '-'}`;
+  getEl('inputEditMontoPoliza').value = cuota.monto_poliza || 0;
+  getEl('inputEditMontoAcarreo').value = cuota.monto_acarreo || 0;
+  getEl('inputEditFechaVencimiento').value = cuota.fecha_vencimiento || '';
+  getEl('selectEditEstadoCuota').value = cuota.estado || 'PENDIENTE';
+
+  recalcularMontoTotalAdmin();
+
+  const modal = getEl('modalEditarCuotaAdmin');
+  if (modal) modal.style.display = 'flex';
+}
+
+function closeModalEditarCuotaAdmin() {
+  const modal = getEl('modalEditarCuotaAdmin');
+  if (modal) modal.style.display = 'none';
+}
+
+function recalcularMontoTotalAdmin() {
+  const pol = parseFloat(getEl('inputEditMontoPoliza')?.value || 0);
+  const aca = parseFloat(getEl('inputEditMontoAcarreo')?.value || 0);
+  const total = Math.round((pol + aca) * 100) / 100;
+  const display = getEl('displayMontoTotalCalculado');
+  if (display) {
+    display.innerText = total.toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
+  }
+}
+
+async function guardarEdicionCuotaAdmin(e) {
+  e.preventDefault();
+  const id = getEl('editCuotaAdminId')?.value;
+  const monto_poliza = parseFloat(getEl('inputEditMontoPoliza')?.value || 0);
+  const monto_acarreo = parseFloat(getEl('inputEditMontoAcarreo')?.value || 0);
+  const fecha_vencimiento = getEl('inputEditFechaVencimiento')?.value;
+  const estado = getEl('selectEditEstadoCuota')?.value;
+
+  if (!id) return;
+
+  try {
+    const res = await fetch(`/api/admin/cuotas/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ monto_poliza, monto_acarreo, fecha_vencimiento, estado })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error actualizando cuota');
+
+    closeModalEditarCuotaAdmin();
+    showToast('✏️ Montos de cuotas actualizados correctamente', 'success');
+    fetchAdminCobranzas();
+    fetchStats();
+    fetchClientes();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function simularPagoAdmin(id) {
+  if (!confirm('¿Simular webhook de pago y marcar esta cuota como PAGADA?')) return;
+  try {
+    const res = await fetch(`/api/admin/cuotas/${id}/simular-pago`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    showToast('⚡ Pago simulado correctamente (Estado: PAGADO)', 'success');
+    fetchAdminCobranzas();
+    fetchStats();
+    fetchClientes();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+async function generarLinkPagoAdmin(id) {
+  try {
+    const res = await fetch(`/api/admin/cuotas/${id}/link-pago`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+
+    prompt('💳 Link de MercadoPago generado (Copia para enviar al cliente):', data.link_pago);
+    showToast('💳 Link de MercadoPago generado', 'success');
+    fetchAdminCobranzas();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
+
+function openModalNuevoClienteAdmin() {
+  const modal = getEl('modalNuevoClienteAdmin');
+  if (modal) modal.style.display = 'flex';
+  const vtoInput = getEl('addAdminVencimiento');
+  if (vtoInput && !vtoInput.value) {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    vtoInput.value = d.toISOString().split('T')[0];
+  }
+}
+
+function closeModalNuevoClienteAdmin() {
+  const modal = getEl('modalNuevoClienteAdmin');
+  if (modal) modal.style.display = 'none';
+}
+
+async function guardarNuevoClienteAdmin(e) {
+  e.preventDefault();
+  const nombre_completo = getEl('addAdminNombre')?.value.trim();
+  const telefono_whatsapp = getEl('addAdminTelefono')?.value.trim();
+  const patente_dominio = getEl('addAdminPatente')?.value.trim();
+  const vehiculo_modelo = getEl('addAdminVehiculo')?.value.trim();
+  const aseguradora = getEl('addAdminAseguradora')?.value.trim();
+  const frecuencia_renovacion = getEl('addAdminFrecuencia')?.value;
+  const monto_poliza = parseFloat(getEl('addAdminMontoPoliza')?.value || 0);
+  const monto_acarreo = parseFloat(getEl('addAdminMontoAcarreo')?.value || 0);
+  const fecha_vencimiento = getEl('addAdminVencimiento')?.value;
+
+  try {
+    // 1. Alta cliente
+    const resCli = await fetch('/api/admin/clientes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre_completo, telefono_whatsapp })
+    });
+    const dataCli = await resCli.json();
+    if (!resCli.ok) throw new Error(dataCli.error);
+
+    // 2. Alta póliza
+    const resPol = await fetch('/api/admin/polizas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cliente_id: dataCli.id,
+        patente_dominio,
+        vehiculo_modelo,
+        aseguradora,
+        frecuencia_renovacion,
+        monto_poliza,
+        monto_acarreo,
+        fecha_vencimiento
+      })
+    });
+    const dataPol = await resPol.json();
+    if (!resPol.ok) throw new Error(dataPol.error);
+
+    closeModalNuevoClienteAdmin();
+    showToast('🎉 Cliente y Póliza dados de alta exitosamente', 'success');
+    fetchAdminCobranzas();
+    fetchStats();
+    fetchClientes();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
+}
