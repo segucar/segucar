@@ -102,8 +102,8 @@ function renderTable() {
     tr.className = 'client-row';
 
     const fechaStr = item.fecha_vencimiento ? formatDate(item.fecha_vencimiento) : '-';
-    const cleanPhone = item.telefono ? formatPhone(item.telefono) : null;
-    const hasValidPhone = cleanPhone && cleanPhone.length >= 7;
+    const cleanPhone = item.telefono ? formatPhoneForWhatsApp(item.telefono) : null;
+    const hasValidPhone = cleanPhone && cleanPhone.length >= 10;
 
     let prioridadBadge = '<span class="badge" style="background:rgba(255,71,87,0.15); color:#ff4757; border:1px solid rgba(255,71,87,0.3);">🔥 Prioridad Alta</span>';
     if (item.fecha_vencimiento && item.fecha_vencimiento > '2026-06-01') {
@@ -113,16 +113,16 @@ function renderTable() {
     }
 
     const phoneColHtml = hasValidPhone
-      ? `<span style="display:inline-flex; align-items:center; gap:6px;">📱 ${escapeHtml(cleanPhone)} <button class="btn btn-sm btn-ghost" onclick="openModalTelefono(${item.id}, '${escapeQuotes(item.nombre)}', '${escapeQuotes(item.telefono || '')}')" title="Editar celular" style="padding:2px 6px; font-size:0.75rem;">✏️</button></span>`
+      ? `<span style="display:inline-flex; align-items:center; gap:6px; font-family:monospace; font-weight:700; color:var(--text-primary);">📱 ${escapeHtml(cleanPhone)} <button class="btn btn-sm btn-ghost" onclick="openModalTelefono(${item.id}, '${escapeQuotes(item.nombre)}', '${escapeQuotes(cleanPhone)}')" title="Editar celular" style="padding:2px 6px; font-size:0.75rem;">✏️</button></span>`
       : `<span style="display:inline-flex; align-items:center; gap:6px;"><span class="text-muted">📵 Sin teléfono</span> <button class="btn btn-sm btn-ghost" onclick="openModalTelefono(${item.id}, '${escapeQuotes(item.nombre)}', '')" title="Cargar celular" style="padding:2px 6px; font-size:0.75rem;">✏️</button></span>`;
 
     const accionesColHtml = hasValidPhone
       ? `
         <div style="display:flex; align-items:center; gap:6px;">
-          <button class="btn btn-sm btn-whatsapp" onclick="sendWinBackWhatsApp('${escapeQuotes(item.nombre)}', '${escapeQuotes(cleanPhone)}', '${escapeQuotes(item.vehiculo || '')}', '${escapeQuotes(item.patente || '')}')" title="Enviar propuesta de reactivación por WhatsApp">
+          <button class="btn btn-sm btn-whatsapp" onclick="sendWinBackWhatsApp('${escapeQuotes(item.nombre)}', '${escapeQuotes(cleanPhone)}', '${escapeQuotes(item.vehiculo || '')}', '${escapeQuotes(item.patente || '')}')" title="Enviar propuesta de reactivación por WhatsApp" style="padding: 5px 12px; font-weight: 700; font-size: 0.78rem;">
             💬 Reactivar
           </button>
-          <button class="btn btn-sm btn-ghost" onclick="openModalTelefono(${item.id}, '${escapeQuotes(item.nombre)}', '${escapeQuotes(item.telefono || '')}')" title="Editar número de teléfono">✏️</button>
+          <button class="btn btn-sm btn-ghost" onclick="openModalTelefono(${item.id}, '${escapeQuotes(item.nombre)}', '${escapeQuotes(cleanPhone)}')" title="Editar número de teléfono">✏️</button>
         </div>
       `
       : `
@@ -226,10 +226,10 @@ function resetRecuperacionFilters() {
   fetchRecuperacionItems();
 }
 
-function sendWinBackWhatsApp(nombre, telefono, vehiculo, patente, operacion) {
+function sendWinBackWhatsApp(nombre, telefono, vehiculo, patente) {
   const clean = formatPhoneForWhatsApp(telefono);
-  const msg = `Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu póliza (Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu seguro. ¡Consultanos sin compromiso!`;
-  window.open(`https://web.whatsapp.com/send?phone=${clean}&text=${encodeURIComponent(msg)}`, '_blank');
+  const msg = `Hola ${nombre}, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu seguro (${vehiculo || ''} - Dominio: ${patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu póliza. ¡Consultanos sin compromiso!`;
+  window.open(`https://wa.me/${clean}?text=${encodeURIComponent(msg)}`, '_blank');
 }
 
 function formatDate(dateStr) {

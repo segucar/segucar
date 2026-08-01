@@ -401,6 +401,34 @@ db.sincronizarEstadosCuotasMoraFechas = () => {
     }
 };
 
+db.sincronizarTelefonosHistoricos = () => {
+    try {
+        const items = db.prepare("SELECT id, telefono FROM polizas_historicas WHERE telefono IS NOT NULL AND telefono != ''").all();
+        db.transaction(() => {
+            for (const item of items) {
+                let phone = String(item.telefono).replace(/[^\d]/g, '');
+                if (phone.startsWith('549')) phone = phone.substring(3);
+                else if (phone.startsWith('54')) phone = phone.substring(2);
+                while (phone.startsWith('0')) phone = phone.substring(1);
+                if (phone.startsWith('22315') && phone.length >= 12) phone = '223' + phone.substring(5);
+                else if (phone.startsWith('15') && phone.length === 9) phone = phone.substring(2);
+                if (phone.startsWith('2230') && phone.length > 10) phone = '223' + phone.substring(3).replace(/^0+/, '');
+                if (phone.length === 7 || phone.length === 8) phone = '223' + phone;
+
+                if (phone.length === 10) {
+                    const formatted = '549' + phone;
+                    if (formatted !== item.telefono) {
+                        db.prepare('UPDATE polizas_historicas SET telefono = ? WHERE id = ?').run(formatted, item.id);
+                    }
+                }
+            }
+        })();
+        console.log('✅ Teléfonos de Cartera de Recuperación sincronizados y estandarizados con formato 549.');
+    } catch (e) {
+        console.error('Error en sincronizarTelefonosHistoricos:', e);
+    }
+};
+
 db.inicializarCuotasAdmin = () => {
     try {
         const count = db.prepare('SELECT COUNT(*) as c FROM cuotas_admin').get().c;

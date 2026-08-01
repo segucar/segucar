@@ -1175,7 +1175,7 @@ app.put('/api/recuperacion/:id/telefono', (req, res) => {
         
         if (!id) return res.status(400).json({ error: 'ID de póliza requerida' });
         
-        const cleanTel = (telefono || '').trim().replace(/[^0-9]/g, '');
+        const cleanTel = sanitizeAndFixPhone(telefono);
         
         db.prepare('UPDATE polizas_historicas SET telefono = ? WHERE id = ?').run(cleanTel, id);
         
