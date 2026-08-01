@@ -33,10 +33,7 @@ const COLUMN_DEFAULTS = {
   vehiculo: true,
   nro_cuota: true,
   venc_cuota: true,
-  monto_poliza: true,
-  monto_acarreo: true,
-  monto_total: true,
-  importe: false,
+  importe: true,
   dias_mora: true,
   fin_vigencia: true,
   estado_poliza: true,
@@ -53,9 +50,6 @@ const COLUMN_LABELS = {
   vehiculo: 'Vehículo',
   nro_cuota: 'N° Cuota',
   venc_cuota: 'Vencimiento',
-  monto_poliza: 'Póliza (NRE)',
-  monto_acarreo: 'Acarreo (Grucar)',
-  monto_total: 'Monto Total',
   importe: 'Importe Pendiente',
   dias_mora: 'Días de Mora',
   fin_vigencia: 'Fin Vigencia Póliza',
@@ -100,7 +94,7 @@ function renderColumnCheckboxes() {
   const isCobranza = state.activeView === 'cobranza';
 
   const activeCols = isCobranza 
-    ? ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'nro_cuota', 'venc_cuota', 'monto_poliza', 'monto_acarreo', 'monto_total', 'dias_mora', 'fin_vigencia', 'accion_cobranza', 'acciones']
+    ? ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'nro_cuota', 'venc_cuota', 'importe', 'dias_mora', 'fin_vigencia', 'accion_cobranza', 'acciones']
     : ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'venc_cuota', 'estado_poliza', 'accion_poliza', 'acciones'];
 
   container.innerHTML = activeCols.map(key => `
@@ -157,23 +151,23 @@ function switchView(viewName) {
     tblSection.style.display = (viewName === 'dashboard' || viewName === 'metricas') ? 'none' : 'block';
   }
 
-  // Limpiar estado de filtro activo al cambiar entre pestañas principales para evitar descalces de tablas
-  state.filters.estado = '';
-  const filterSelect = getEl('filterEstado');
-  if (filterSelect) filterSelect.value = '';
-  if (typeof updateActiveFilterNotice === 'function') updateActiveFilterNotice();
-
   if (viewName === 'metricas') {
     if (typeof fetchMetricas === 'function') fetchMetricas();
     return;
   }
 
   if (viewName === 'cobranza') {
-    state.sort.by = 'vencimiento';
-    state.sort.dir = 'ASC';
+    // Default sort: prioridad urgente primero
+    if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
+      state.sort.by = 'vencimiento';
+      state.sort.dir = 'ASC';
+    }
   } else if (viewName === 'renovaciones') {
-    state.sort.by = 'vencimiento';
-    state.sort.dir = 'ASC';
+    // Default sort: pólizas vencidas primero
+    if (state.sort.by === 'nombre') {
+      state.sort.by = 'prioridad_poliza';
+      state.sort.dir = 'ASC';
+    }
   }
 
   if (viewName !== 'dashboard') {
@@ -575,13 +569,11 @@ function updateTableHeader() {
         ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="sort-icon">⇅</span></th>` : ''}
         ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="sort-icon">⇅</span></th>` : ''}
         ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.nro_cuota ? `<th onclick="handleSort('nro_cuota')" class="th-sortable" title="Número de cuota">N° CUOTA <span id="sort_icon_nro_cuota" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable" title="Fecha exacta de vencimiento">VENC. CUOTA <span id="sort_icon_vencimiento" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.monto_poliza ? `<th style="text-align:right;">PÓLIZA (NRE)</th>` : ''}
-        ${cols.monto_acarreo ? `<th style="text-align:right;">ACARREO (GRUCAR)</th>` : ''}
-        ${cols.monto_total ? `<th onclick="handleSort('importe')" class="th-sortable" style="text-align:right;" title="Monto Total (Póliza NRE + Acarreo Grucar)">MONTO TOTAL <span id="sort_icon_importe" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.dias_mora ? `<th onclick="handleSort('dias_mora')" class="th-sortable" title="Días transcurridos desde el vencimiento (+ / -)">DÍAS DE MORA <span id="sort_icon_dias_mora" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.fin_vigencia ? `<th onclick="handleSort('fin_vigencia')" class="th-sortable" title="Fecha de fin de vigencia del contrato">FIN VIGENCIA <span id="sort_icon_fin_vigencia" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.nro_cuota ? `<th onclick="handleSort('nro_cuota')" class="th-sortable" title="Número de cuota impaga (NRE)">N° CUOTA <span id="sort_icon_nro_cuota" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable" title="Fecha exacta de vencimiento de la cuota impaga">VENC. CUOTA <span id="sort_icon_vencimiento" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.importe ? `<th onclick="handleSort('importe')" class="th-sortable" title="Saldo Cli pendiente de pago en NRE">IMPORTE PENDIENTE <span id="sort_icon_importe" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.dias_mora ? `<th onclick="handleSort('dias_mora')" class="th-sortable" title="Días transcurridos desde el vencimiento de la cuota (+ / -)">DÍAS DE MORA <span id="sort_icon_dias_mora" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.fin_vigencia ? `<th onclick="handleSort('fin_vigencia')" class="th-sortable" title="Fecha de fin de vigencia del contrato de póliza">FIN VIGENCIA PÓLIZA <span id="sort_icon_fin_vigencia" class="sort-icon">⇅</span></th>` : ''}
         ${cols.accion_cobranza ? `<th onclick="handleSort('prioridad_cobranza')" class="th-sortable">Acción Cobranza <span id="sort_icon_prioridad_cobranza" class="sort-icon">⇅</span></th>` : ''}
         ${cols.acciones ? `<th>Acciones</th>` : ''}
       </tr>
@@ -769,9 +761,7 @@ function createClientRow(client, poliza, isSecondary = false) {
 
     if (cols.nro_cuota) cells += `<td><span class="badge" style="background:rgba(0,180,216,0.12); color:#48cae4; border:1px solid rgba(0,180,216,0.25); font-weight:700;">${cuotaStr}</span></td>`;
     if (cols.venc_cuota) cells += `<td><strong>${fechaStr}</strong></td>`;
-    if (cols.monto_poliza) cells += `<td style="text-align:right;"><span style="color:#48cae4; font-weight:600;">${polStr}</span></td>`;
-    if (cols.monto_acarreo) cells += `<td style="text-align:right;"><span style="color:#ffa502; font-weight:600;">${acaStr}</span></td>`;
-    if (cols.monto_total) cells += `<td style="text-align:right;"><strong style="color:${saldoVal > 0 ? '#ff4757' : '#2ed573'}; font-size:0.95rem;">${totStr}</strong></td>`;
+    if (cols.importe) cells += `<td><strong style="color:${saldoVal > 0 ? '#ff4757' : '#2ed573'};">${saldoStr}</strong></td>`;
     if (cols.dias_mora) cells += `<td>${diasMoraHtml}</td>`;
     if (cols.fin_vigencia) cells += `<td><span style="color:var(--text-secondary); font-size:0.83rem; font-family:monospace;">${finVigStr}</span></td>`;
     if (cols.accion_cobranza) cells += `<td>${actionCobranzaTagHtml}</td>`;
@@ -782,48 +772,35 @@ function createClientRow(client, poliza, isSecondary = false) {
   }
 
   if (cols.acciones) {
-    const cuotaId = poliza ? (poliza.cuota_admin_id || poliza.id) : null;
-    const isPaid = poliza && (poliza.cuota_admin_estado === 'PAGADO' || poliza.saldo_pendiente <= 0);
-
-    const editBtn = cuotaId ? `<button type="button" class="btn btn-sm btn-ghost" onclick="openModalEditarCuotaAdminFromRow(${cuotaId}, '${escapeQuotes(client.nombre || '')}', '${escapeQuotes(poliza ? poliza.operacion || '' : '')}', '${escapeQuotes(poliza ? poliza.patente || '' : '')}', '${escapeQuotes(poliza ? poliza.vehiculo || '' : '')}', ${poliza ? (poliza.monto_poliza_emision || 30240) : 30240}, ${poliza ? (poliza.monto_acarreo_grucar || 1760) : 1760}, '${poliza ? poliza.fecha_vencimiento || '' : ''}', '${poliza ? (poliza.cuota_admin_estado || 'PENDIENTE') : 'PENDIENTE'}')" title="Editar montos independientes de póliza y acarreo" style="padding:4px 6px;">✏️</button>` : '';
-
-    const linkBtn = cuotaId ? `<button type="button" class="btn btn-sm btn-ghost" onclick="generarLinkPagoAdmin(${cuotaId})" title="Generar / copiar link de MercadoPago" style="padding:4px 6px; color:#48cae4;">💳 Link</button>` : '';
-
-    const pdfNreBtn = cuotaId ? `<a href="${(poliza && poliza.pdf_nre_url) ? poliza.pdf_nre_url : '/api/pdf/nre/' + cuotaId}" target="_blank" class="btn btn-sm btn-ghost" title="Ver Recibo NRE Emisión" style="padding:4px 6px; color:#48cae4; text-decoration:none;">📄 NRE</a>` : '';
-
-    const pdfGrucarBtn = cuotaId ? `<a href="${(poliza && poliza.pdf_grucar_url) ? poliza.pdf_grucar_url : '/api/pdf/grucar/' + cuotaId}" target="_blank" class="btn btn-sm btn-ghost" title="Ver Cupón Grucar Acarreo" style="padding:4px 6px; color:#2ed573; text-decoration:none;">🚗 Grucar</a>` : '';
-
-    const simPagadoBtn = (cuotaId && !isPaid) ? `<button type="button" class="btn btn-sm btn-ghost" onclick="simularPagoAdmin(${cuotaId})" title="Simular Pago (Marcar como PAGADO)" style="padding:4px 6px; color:#2ed573; border:1px solid rgba(46,213,115,0.4);">⚡ Pagado</button>` : '';
-
     const actionsHtml = `
-      <td style="padding: 8px 10px;">
-        <div class="row-actions" style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-          ${(client.telefono && client.telefono.length >= 10) ? `
-            ${(() => {
-              const isWaSent = localStorage.getItem('segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '')) === 'true';
-              const btnClass = isWaSent ? 'btn-whatsapp-sent' : 'btn-whatsapp';
-              const btnLabel = isWaSent ? 'Enviado ✅' : 'Enviar';
-              return `
-                <button type="button" class="btn btn-sm ${btnClass} btn-smart-wa" data-cli="${client.id}" data-pol="${poliza ? poliza.operacion : ''}" style="padding: 5px 10px; font-weight: 700; font-size: 0.76rem; border-radius: 6px; display: inline-flex; align-items: center; gap: 4px; margin: 0; box-shadow: 0 4px 12px rgba(37,211,102,0.3);" onclick="triggerSmartWhatsApp(${client.id}, '${poliza ? poliza.operacion : ''}')" title="Enviar WhatsApp a ${escapeQuotes(formattedName)}">
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
-                  <span>${btnLabel}</span>
-                </button>
-              `;
-            })()}
-          ` : ''}
-          ${poliza ? `
-            <button type="button" class="btn btn-sm btn-ghost" onclick="showCuotasModal(${poliza.id}, '${escapeQuotes(poliza.operacion || '')}')" title="Ver Historial de Cuotas NRE" style="color: #48cae4; font-weight: 700; gap: 4px; padding: 4px 6px; border: 1px solid rgba(0, 180, 216, 0.3);">
-              🧾 Cuotas
-            </button>
-          ` : ''}
-          ${editBtn}
-          ${linkBtn}
-          ${simPagadoBtn}
-          ${isPaid ? pdfNreBtn : ''}
-          ${isPaid ? pdfGrucarBtn : ''}
-          <button class="btn btn-sm btn-ghost" onclick="editClient(${client.id})" title="Editar Cliente" style="padding:4px 6px;">✏️</button>
-        </div>
-      </td>
+      <div class="row-actions">
+        ${poliza ? `
+          <button type="button" class="btn btn-sm btn-ghost" onclick="showCuotasModal(${poliza.id}, '${escapeQuotes(poliza.operacion || '')}')" title="Ver Historial de Cuotas y Lote NRE" style="color: #48cae4; font-weight: 700; gap: 4px; padding: 4px 8px; border: 1px solid rgba(0, 180, 216, 0.3);">
+            🧾 Cuotas
+          </button>
+        ` : ''}
+        ${(client.telefono && client.telefono.length >= 10) ? `
+          ${(() => {
+            const isWaSent = localStorage.getItem('segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '')) === 'true';
+            const btnClass = isWaSent ? 'btn-whatsapp-sent' : 'btn-whatsapp';
+            const btnLabel = isWaSent ? 'Enviado ✅' : 'Enviar';
+            return `
+              <button type="button" class="btn btn-sm ${btnClass} btn-smart-wa" data-cli="${client.id}" data-pol="${poliza ? poliza.operacion : ''}" style="padding: 6px 14px; font-weight: 700; font-size: 0.78rem; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px; margin: 0; box-shadow: 0 4px 12px rgba(37,211,102,0.3);" onclick="triggerSmartWhatsApp(${client.id}, '${poliza ? poliza.operacion : ''}')" title="Enviar WhatsApp a ${escapeQuotes(formattedName)}">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                <span>${btnLabel}</span>
+              </button>
+            `;
+          })()}
+        ` : `
+          <button type="button" class="btn btn-sm" disabled style="padding: 6px 14px; font-weight: 700; font-size: 0.8rem; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.35); border: 1px solid rgba(255,255,255,0.1); cursor: not-allowed; opacity: 0.6;" title="${client.telefono ? `Teléfono incompleto / inválido (${client.telefono})` : 'Sin teléfono para enviar WhatsApp'}">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="rgba(255,255,255,0.3)"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+            <span>${client.telefono ? 'Inválido' : 'Sin Teléfono'}</span>
+          </button>
+        `}
+        <button class="btn btn-sm btn-ghost" onclick="editClient(${client.id})" title="Editar">✏️</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteClient(${client.id})" title="Eliminar">🗑️</button>
+      </div>
+    </td>
     `;
     cells += actionsHtml;
   }
@@ -1869,21 +1846,6 @@ function renderAdminCobranzasTable() {
     `;
     tbody.appendChild(tr);
   });
-}
-
-function openModalEditarCuotaAdminFromRow(id, clienteNombre, operacion, patente, vehiculo, montoPoliza, montoAcarreo, fechaVencimiento, estado) {
-  getEl('editCuotaAdminId').value = id;
-  getEl('editCuotaAdminCliente').innerText = `${clienteNombre || '-'} (Póliza N° ${operacion || '-'})`;
-  getEl('editCuotaAdminVehiculo').innerText = `Patente ${patente || '-'} — ${vehiculo || '-'}`;
-  getEl('inputEditMontoPoliza').value = montoPoliza || 30240;
-  getEl('inputEditMontoAcarreo').value = montoAcarreo || 1760;
-  getEl('inputEditFechaVencimiento').value = fechaVencimiento || '';
-  getEl('selectEditEstadoCuota').value = estado || 'PENDIENTE';
-
-  recalcularMontoTotalAdmin();
-
-  const modal = getEl('modalEditarCuotaAdmin');
-  if (modal) modal.style.display = 'flex';
 }
 
 function openModalEditarCuotaAdmin(id) {
