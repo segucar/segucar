@@ -326,21 +326,14 @@ app.get('/api/dashboard/stats', (req, res) => {
 
                 // Apply Monday suppression: if suppressed, these alerts are treated as Al Día
                 let actualCobState = 'AL_DIA';
-                if (!suppressAlerts) {
-                    if (calDiff === 2) {
-                        actualCobState = 'VENCE_48H';
-                    } else if (calDiff === -2) {
-                        actualCobState = 'VENCIO_48H';
-                    } else if (calDiff === -4) {
-                        actualCobState = 'VENCIO_96H';
-                    } else if (calDiff < 0 && (calDiff < -4 || cd >= 2)) {
-                        actualCobState = 'MORA_CRITICA';
-                    }
-                } else {
-                    // Suppressed alerts on Monday: Mora crítica triggers only if overdue (calDiff < 0) and cuotas_debe >= 2
-                    if (calDiff < 0 && cd >= 2) {
-                        actualCobState = 'MORA_CRITICA';
-                    }
+                if (calDiff === 2) {
+                    actualCobState = 'VENCE_48H';
+                } else if (calDiff === -2) {
+                    actualCobState = 'VENCIO_48H';
+                } else if (calDiff === -4) {
+                    actualCobState = 'VENCIO_96H';
+                } else if (calDiff < 0 && (calDiff < -4 || cd >= 2)) {
+                    actualCobState = 'MORA_CRITICA';
                 }
 
                 if (actualCobState === 'VENCE_48H') vence_48h++;
@@ -836,35 +829,15 @@ app.get('/api/clientes', (req, res) => {
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
-                if (suppressAlerts) {
-                    where += ` AND 1=0`;
-                } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
-                }
+                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
             } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
-                if (suppressAlerts) {
-                    where += ` AND 1=0`;
-                } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
-                }
+                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
             } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
-                if (suppressAlerts) {
-                    where += ` AND 1=0`;
-                } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
-                }
+                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
             } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                if (suppressAlerts) {
-                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento < date('now', 'localtime') AND p.cuotas_debe >= 2`;
-                } else {
-                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento < date('now', 'localtime') AND (p.cuotas_debe >= 2 OR CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) < -4)`;
-                }
+                where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento < date('now', 'localtime') AND (p.cuotas_debe >= 2 OR CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) < -4)`;
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
-                if (suppressAlerts) {
-                    where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR p.fecha_vencimiento >= date('now', 'localtime'))`;
-                } else {
-                    where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR (p.fecha_vencimiento >= date('now', 'localtime') AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) != 2))`;
-                }
+                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR (p.fecha_vencimiento >= date('now', 'localtime') AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) != 2))`;
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;
                 params.push(estado);
@@ -1049,16 +1022,15 @@ app.get('/api/clientes', (req, res) => {
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);
 
                     if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
-                        return !suppressAlerts && saldoVal > 0 && calDiff === 2;
+                        return saldoVal > 0 && calDiff === 2;
                     }
                     if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
-                        return !suppressAlerts && saldoVal > 0 && calDiff === -2;
+                        return saldoVal > 0 && calDiff === -2;
                     }
                     if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
-                        return !suppressAlerts && saldoVal > 0 && calDiff === -4;
+                        return saldoVal > 0 && calDiff === -4;
                     }
                     if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                        // REGLA STRICT: Una cuota SOLO puede estar en mora si fecha_vencimiento < HOY (calDiff < 0)
                         return saldoVal > 0 && calDiff < 0 && (cd >= 2 || calDiff < -4);
                     }
                     if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
