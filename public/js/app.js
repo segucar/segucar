@@ -1402,7 +1402,7 @@ function formatDate(dateStr) {
 
 // ─── CRUD ACTIONS ─────────────────────────────────────────────────────────
 
-function openModal(client = null) {
+async function openModal(client = null) {
   const modal = getEl('clientModal');
   if (!modal) return;
   modal.classList.add('active');
@@ -1411,13 +1411,34 @@ function openModal(client = null) {
   const idEl = getEl('clientId');
 
   if (client) {
+    const targetId = client.id || client.cliente_id;
     if (titleEl) titleEl.textContent = 'Editar Cliente';
-    if (idEl) idEl.value = client.id;
+    if (idEl) idEl.value = targetId || '';
+    
     getEl('clientName').value = client.nombre || '';
     getEl('clientDNI').value = client.dni || '';
     getEl('clientPhone').value = client.telefono || '';
     getEl('clientAddress').value = client.direccion || '';
     getEl('clientEmail').value = client.email || '';
+
+    // Auto-fetch full details from backend to pre-fill all fields (DNI, Teléfono, Dirección, Email)
+    if (targetId) {
+      try {
+        const res = await fetch(`/api/clientes/${targetId}`);
+        if (res.ok) {
+          const fullData = await res.json();
+          if (idEl && idEl.value == fullData.id) {
+            getEl('clientName').value = fullData.nombre || client.nombre || '';
+            getEl('clientDNI').value = fullData.dni || client.dni || '';
+            getEl('clientPhone').value = fullData.telefono || client.telefono || '';
+            getEl('clientAddress').value = fullData.direccion || client.direccion || '';
+            getEl('clientEmail').value = fullData.email || client.email || '';
+          }
+        }
+      } catch (err) {
+        console.error('Error auto-populating full client details:', err);
+      }
+    }
   } else {
     if (titleEl) titleEl.textContent = 'Agregar Cliente';
     const form = getEl('clientForm');
@@ -1432,9 +1453,15 @@ function closeModal() {
 }
 
 async function handleClientSubmit(e) {
-  e.preventDefault();
+  if (e) e.preventDefault();
 
   const id = getEl('clientId')?.value;
+  const submitBtn = getEl('clientForm')?.querySelector('button[type="submit"]');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Guardando...';
+  }
+
   const body = {
     nombre: getEl('clientName')?.value || '',
     dni: getEl('clientDNI')?.value || '',
@@ -1444,8 +1471,9 @@ async function handleClientSubmit(e) {
   };
 
   try {
-    const url = id ? `/api/clientes/${id}` : '/api/clientes';
-    const method = id ? 'PUT' : 'POST';
+    const isEdit = id && String(id).trim() !== '' && String(id) !== 'undefined';
+    const url = isEdit ? `/api/clientes/${id}` : '/api/clientes';
+    const method = isEdit ? 'PUT' : 'POST';
 
     const res = await fetch(url, {
       method,
@@ -1454,20 +1482,28 @@ async function handleClientSubmit(e) {
     });
 
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    if (!res.ok) throw new Error(data.error || 'Error al guardar cliente');
 
     closeModal();
-    showToast(id ? 'Cliente actualizado' : 'Cliente creado', 'success');
-    fetchStats();
-    fetchClientes();
+    showToast(isEdit ? 'Cliente actualizado con éxito' : 'Cliente creado con éxito', 'success');
+    if (typeof fetchStats === 'function') fetchStats();
+    if (typeof fetchClientes === 'function') fetchClientes();
   } catch (err) {
-    showToast('Error: ' + err.message, 'error');
+    showToast('Error al guardar: ' + err.message, 'error');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Guardar';
+    }
   }
 }
 
 function editClient(id) {
-  const client = state.clients.find(c => c.id === id);
-  if (client) openModal(client);
+  let client = state.clients ? state.clients.find(c => c.id == id || c.cliente_id == id) : null;
+  if (!client) {
+    client = { id };
+  }
+  openModal(client);
 }
 
 async function deleteClient(id) {

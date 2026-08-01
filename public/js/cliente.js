@@ -325,11 +325,33 @@ function openEditClientModal() {
     document.getElementById('editClientModal').classList.remove('hidden');
 }
 
-function handleEditClient(e) {
-    e.preventDefault();
-    // PUT /api/clientes/:id mock
-    showToast('Cliente actualizado', 'success');
-    closeModals();
+async function handleEditClient(e) {
+    if (e) e.preventDefault();
+    if (!currentClient || !currentClient.id) return;
+
+    const body = {
+        nombre: document.getElementById('editNombre')?.value || '',
+        dni: document.getElementById('editDni')?.value || '',
+        direccion: document.getElementById('editDireccion')?.value || '',
+        email: document.getElementById('editEmail')?.value || '',
+        telefono: document.getElementById('editTelefono')?.value || ''
+    };
+
+    try {
+        const res = await fetch(`/api/clientes/${currentClient.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Error al actualizar cliente');
+
+        showToast('Cliente actualizado con éxito', 'success');
+        closeModals();
+        if (typeof fetchClientData === 'function') fetchClientData();
+    } catch (err) {
+        showToast('Error: ' + err.message, 'error');
+    }
 }
 
 function openPolizaModal(id = null) {
