@@ -1358,6 +1358,7 @@ app.delete('/api/polizas/:id', (req, res) => {
 
 // Determinar tipo de vehículo según marca/modelo y descripción
 function detectarTipoVehiculo(seccion, vehiculo) {
+    if (String(seccion) === '36' || seccion === 36) return 'Moto';
     if (!vehiculo) return 'Auto';
     const v = String(vehiculo).toUpperCase();
 
@@ -1974,17 +1975,26 @@ app.post('/api/admin/cuotas/:id/simular-pago', (req, res) => {
         const cuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
         if (!cuota) return res.status(404).json({ error: 'Cuota no encontrada' });
 
+        const pol = db.prepare('SELECT * FROM polizas WHERE id = ?').get(cuota.poliza_id);
+        const isMoto = pol && (pol.tipo_vehiculo === 'Moto' || String(pol.seccion) === '36' || /\b(MOTO|MONDIAL|MOTOMEL|ZANELLA|GILERA|HONDA MOTOS|YAMAHA)\b/i.test(pol.vehiculo || ''));
+
         const pdfNreUrl = `/api/pdf/nre/${id}`;
         const pdfGrucarUrl = `/api/pdf/grucar/${id}`;
 
-        db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP, pdf_nre_url = ?, pdf_grucar_url = ? WHERE id = ?")
-          .run(pdfNreUrl, pdfGrucarUrl, id);
+        if (isMoto) {
+            // Regla de Negocio para Motos: Las 3 cuotas se pagan juntas en 1 movimiento global.
+            db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP, pdf_nre_url = ?, pdf_grucar_url = ? WHERE poliza_id = ?")
+              .run(pdfNreUrl, pdfGrucarUrl, cuota.poliza_id);
+            db.prepare("UPDATE polizas SET saldo_pendiente = 0, cuotas_debe = 0 WHERE id = ?").run(cuota.poliza_id);
+        } else {
+            db.prepare("UPDATE cuotas_admin SET estado = 'PAGADO', fecha_pago = CURRENT_TIMESTAMP, pdf_nre_url = ?, pdf_grucar_url = ? WHERE id = ?")
+              .run(pdfNreUrl, pdfGrucarUrl, id);
 
-        // Recalcular saldo pendiente de la póliza asociada
-        const pendingCuotas = db.prepare("SELECT SUM(monto_total) as total, COUNT(*) as cant FROM cuotas_admin WHERE poliza_id = ? AND estado != 'PAGADO'").get(cuota.poliza_id);
-        const saldoPoliza = pendingCuotas ? parseFloat(pendingCuotas.total || 0) : 0;
-        const cantDebe = pendingCuotas ? parseInt(pendingCuotas.cant || 0) : 0;
-        db.prepare('UPDATE polizas SET saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?').run(saldoPoliza, cantDebe, cuota.poliza_id);
+            const pendingCuotas = db.prepare("SELECT SUM(monto_total) as total, COUNT(*) as cant FROM cuotas_admin WHERE poliza_id = ? AND estado != 'PAGADO'").get(cuota.poliza_id);
+            const saldoPoliza = pendingCuotas ? parseFloat(pendingCuotas.total || 0) : 0;
+            const cantDebe = pendingCuotas ? parseInt(pendingCuotas.cant || 0) : 0;
+            db.prepare('UPDATE polizas SET saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?').run(saldoPoliza, cantDebe, cuota.poliza_id);
+        }
 
         const updatedCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
         res.json({ success: true, cuota: updatedCuota, mensaje: 'Simulación exitosa: Cuota marcada como PAGADA con Recibo NRE y Cupón Grucar asociados.' });

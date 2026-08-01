@@ -449,24 +449,30 @@ db.inicializarCuotasAdmin = () => {
 
                 if (Array.isArray(cuotasList) && cuotasList.length > 0) {
                     for (const c of cuotasList) {
-                        let total = parseFloat(c.saldo_cli || c.saldo || 0);
-                        if (total === 0 || total === 35000) total = 32000;
+                        let total = parseFloat(c.saldo_cli ?? c.saldo ?? 0);
                         const nro = parseInt(c.nro_cuota || 1);
                         const vto = c.vto_cuota || p.fecha_vencimiento || new Date().toISOString().split('T')[0];
-                        const estado = c.estado === 'PAGADA' ? 'PAGADO' : (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE');
+                        const isPagada = c.estado === 'PAGADA' || total === 0;
+                        const estado = isPagada ? 'PAGADO' : (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE');
 
-                        const montoAcarreo = 1760; // Valor real servicio de remolque Grucar
+                        if (total === 35000) total = 32000;
+                        if (!isPagada && total === 0) total = 32000;
+
+                        const montoAcarreo = isPagada ? 0 : 1760;
                         const montoPoliza = Math.max(0, Math.round((total - montoAcarreo) * 100) / 100);
 
                         insertStmt.run(p.id, nro, montoPoliza, montoAcarreo, total, vto, estado);
                     }
                 } else {
-                    let total = parseFloat(p.saldo_pendiente || 32000);
-                    if (total === 0 || total === 35000) total = 32000;
+                    let total = parseFloat(p.saldo_pendiente || 0);
                     const vto = p.fecha_vencimiento || new Date().toISOString().split('T')[0];
-                    const estado = p.cuotas_debe > 0 ? (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE') : 'PAGADO';
+                    const isPagada = (p.cuotas_debe === 0 || total === 0);
+                    const estado = isPagada ? 'PAGADO' : (vto < new Date().toISOString().split('T')[0] ? 'VENCIDO' : 'PENDIENTE');
 
-                    const montoAcarreo = 1760; // Valor real servicio de remolque Grucar
+                    if (!isPagada && total === 0) total = 32000;
+                    if (total === 35000) total = 32000;
+
+                    const montoAcarreo = isPagada ? 0 : 1760;
                     const montoPoliza = Math.max(0, Math.round((total - montoAcarreo) * 100) / 100);
 
                     insertStmt.run(p.id, 1, montoPoliza, montoAcarreo, total, vto, estado);
