@@ -837,21 +837,21 @@ app.get('/api/clientes', (req, res) => {
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
                 if (suppressAlerts) {
-                    where += ` AND 1=0`; // No alerts trigger on Monday until sync is completed
+                    where += ` AND 1=0`;
                 } else {
-                    where += ` AND (p.cuotas_debe IS NULL OR p.cuotas_debe = 0) AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
                 }
             } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
                 if (suppressAlerts) {
                     where += ` AND 1=0`;
                 } else {
-                    where += ` AND p.cuotas_debe = 1 AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
                 }
             } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
                 if (suppressAlerts) {
                     where += ` AND 1=0`;
                 } else {
-                    where += ` AND p.cuotas_debe = 1 AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
                 }
             } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
                 if (suppressAlerts) {
@@ -863,7 +863,7 @@ app.get('/api/clientes', (req, res) => {
                 if (suppressAlerts) {
                     where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR p.fecha_vencimiento >= date('now', 'localtime'))`;
                 } else {
-                    where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR p.fecha_vencimiento >= date('now', 'localtime'))`;
+                    where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR (p.fecha_vencimiento >= date('now', 'localtime') AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) != 2))`;
                 }
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;

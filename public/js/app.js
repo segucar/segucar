@@ -157,23 +157,23 @@ function switchView(viewName) {
     tblSection.style.display = (viewName === 'dashboard' || viewName === 'metricas') ? 'none' : 'block';
   }
 
+  // Limpiar estado de filtro activo al cambiar entre pestañas principales para evitar descalces de tablas
+  state.filters.estado = '';
+  const filterSelect = getEl('filterEstado');
+  if (filterSelect) filterSelect.value = '';
+  if (typeof updateActiveFilterNotice === 'function') updateActiveFilterNotice();
+
   if (viewName === 'metricas') {
     if (typeof fetchMetricas === 'function') fetchMetricas();
     return;
   }
 
   if (viewName === 'cobranza') {
-    // Default sort: prioridad urgente primero
-    if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
-      state.sort.by = 'vencimiento';
-      state.sort.dir = 'ASC';
-    }
+    state.sort.by = 'vencimiento';
+    state.sort.dir = 'ASC';
   } else if (viewName === 'renovaciones') {
-    // Default sort: pólizas vencidas primero
-    if (state.sort.by === 'nombre') {
-      state.sort.by = 'prioridad_poliza';
-      state.sort.dir = 'ASC';
-    }
+    state.sort.by = 'vencimiento';
+    state.sort.dir = 'ASC';
   }
 
   if (viewName !== 'dashboard') {
