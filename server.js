@@ -971,7 +971,20 @@ app.get('/api/clientes', (req, res) => {
         const hoyStr = toLocalISOString(new Date());
 
         for (let cliente of clientes) {
-            let rawPolizas = db.prepare(`SELECT * FROM polizas WHERE cliente_id = ? ORDER BY fecha_vencimiento ASC`).all(cliente.id);
+            let rawPolizas = db.prepare(`
+                SELECT p.*, 
+                       ca.id as cuota_admin_id, 
+                       COALESCE(ca.monto_poliza, 30240) as monto_poliza_emision, 
+                       COALESCE(ca.monto_acarreo, 1760) as monto_acarreo_grucar, 
+                       COALESCE(ca.monto_total, p.saldo_pendiente, 32000) as monto_total_cuota,
+                       ca.estado as cuota_admin_estado,
+                       ca.pdf_nre_url,
+                       ca.pdf_grucar_url
+                FROM polizas p
+                LEFT JOIN cuotas_admin ca ON p.id = ca.poliza_id
+                WHERE p.cliente_id = ? 
+                ORDER BY p.fecha_vencimiento ASC
+            `).all(cliente.id);
 
             if (estado) {
                 const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
