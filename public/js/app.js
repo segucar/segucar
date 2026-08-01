@@ -901,7 +901,16 @@ function getAccionPorVista(polizaInput, viewName) {
         plantilla: templateMap[resCob.code] || 'primer_aviso'
       };
     }
-    return { accion: 'Cobranza Cuota', prioridad: 'alta', tagClass: 'tag-amber', plantilla: 'primer_aviso' };
+    let fallbackPlantilla = 'primer_aviso';
+    if (polizaInput && polizaInput.fecha_vencimiento) {
+      const parts = polizaInput.fecha_vencimiento.split('-');
+      if (parts.length === 3) {
+        const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+        if (vtoDate >= todayDate) fallbackPlantilla = 'recordatorio_48hs';
+      }
+    }
+    return { accion: 'Cobranza Cuota', prioridad: 'alta', tagClass: 'tag-amber', plantilla: fallbackPlantilla };
   } else {
     if (typeof SeguroStateManager !== 'undefined') {
       return SeguroStateManager.evaluarProximaAccion(polizaInput, state.lastSyncDate);

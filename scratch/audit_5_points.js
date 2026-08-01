@@ -95,7 +95,7 @@ async function runFullAudit() {
         const moraData = await searchMora.json();
 
         if (searchPat.ok && searchMora.ok && patData.clientes.length >= 1 && moraData.total > 0) {
-            console.log(`✅ PUNTO 5 [FILTROS Y BÚSQUEDA]: PASSED -> Búsqueda por patente y filtro por estado (Mora Crítica = ${moraData.total}) respondieron 100% ok.`);
+            console.log(`✅ PUNTO 5 [FILTROS Y BÚSQUEDA]: PASSED -> Búsqueda por patente (RPQ899) y filtro por estado (Mora Crítica = ${moraData.total}) respondieron 100% ok.`);
             passedCount++;
         } else {
             console.error("❌ PUNTO 5 FAILED:", { patCount: patData.clientes ? patData.clientes.length : 0, moraTotal: moraData.total });

@@ -181,7 +181,7 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
             // Detect vehicle type
             let tipoVehiculo = 'Auto';
             const v = (item.vehiculo || '').toUpperCase();
-            if (String(item.seccion) === '36' || item.seccion === 36 || /\b(MOTO|MOTOS|MOTOCICLETA|CUATRICICLO|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|YBR|HONDA CG|MONDIAL|GILERA|MOTOMEL)\b/.test(v)) tipoVehiculo = 'Moto';
+            if (/\b(MOTO|MOTOS|MOTOCICLETA|CUATRICICLO|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|YBR|HONDA CG)\b/.test(v)) tipoVehiculo = 'Moto';
             else if (/\b(PICK|PICKUP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO)\b/.test(v)) tipoVehiculo = 'Pick Up';
             else if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|TRAILER|CARGO|1114|1215|608|7000)\b/.test(v)) tipoVehiculo = 'Camión';
 
