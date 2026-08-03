@@ -30,16 +30,16 @@ function _getFeriadosDelAnio(anio) {
  * Normaliza una fecha a medianoche local (sin horas) para comparaciones correctas.
  */
 function _normalizarFecha(fecha) {
+    if (!fecha) return new Date(NaN);
     const d = new Date(fecha);
+    if (isNaN(d.getTime())) return d;
     d.setHours(0, 0, 0, 0);
     return d;
 }
 
-/**
- * Formatea una fecha como 'YYYY-MM-DD' en zona horaria local.
- */
 function toLocalDateString(fecha) {
     const d = new Date(fecha);
+    if (isNaN(d.getTime())) return '';
     const yyyy = d.getFullYear();
     const mm = String(d.getMonth() + 1).padStart(2, '0');
     const dd = String(d.getDate()).padStart(2, '0');
@@ -53,10 +53,12 @@ function toLocalDateString(fecha) {
  */
 function esNoHabil(fecha) {
     const d = _normalizarFecha(fecha);
+    if (isNaN(d.getTime())) return false;
     const diaSemana = d.getDay(); // 0 = Domingo, 6 = Sábado
     if (diaSemana === 0 || diaSemana === 6) return true;
 
     const fechaStr = toLocalDateString(d);
+    if (!fechaStr) return false;
     const anio = d.getFullYear();
     const feriados = _getFeriadosDelAnio(anio);
     return feriados.has(fechaStr);
@@ -78,7 +80,9 @@ function esHabil(fecha) {
  */
 function obtenerSiguienteDiaHabil(fecha) {
     let f = _normalizarFecha(fecha);
-    while (esNoHabil(f)) {
+    if (isNaN(f.getTime())) return new Date();
+    let maxSafety = 30;
+    while (esNoHabil(f) && maxSafety-- > 0) {
         f = new Date(f);
         f.setDate(f.getDate() + 1);
     }
@@ -92,7 +96,9 @@ function obtenerSiguienteDiaHabil(fecha) {
  */
 function obtenerAnteriorDiaHabil(fecha) {
     let f = _normalizarFecha(fecha);
-    while (esNoHabil(f)) {
+    if (isNaN(f.getTime())) return new Date();
+    let maxSafety = 30;
+    while (esNoHabil(f) && maxSafety-- > 0) {
         f = new Date(f);
         f.setDate(f.getDate() - 1);
     }
@@ -108,11 +114,13 @@ function obtenerAnteriorDiaHabil(fecha) {
 function diasHabilesEntre(desde, hasta) {
     const d = _normalizarFecha(desde);
     const h = _normalizarFecha(hasta);
+    if (isNaN(d.getTime()) || isNaN(h.getTime())) return 0;
     const avanzar = h >= d ? 1 : -1;
     let actual = new Date(d);
     actual.setDate(actual.getDate() + avanzar);
     let contador = 0;
-    while (toLocalDateString(actual) !== toLocalDateString(h)) {
+    let maxSafety = 365;
+    while (toLocalDateString(actual) !== toLocalDateString(h) && maxSafety-- > 0) {
         if (esHabil(actual)) contador += avanzar;
         actual = new Date(actual);
         actual.setDate(actual.getDate() + avanzar);

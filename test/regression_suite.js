@@ -61,7 +61,8 @@ async function runRegressionSuite() {
             const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
             const calDiff = Math.round((vtoDate - today) / (1000 * 60 * 60 * 24));
 
-            const res = global.SeguroStateManager.evaluarCobranza(p);
+            const todayStr = today.toISOString().split('T')[0];
+            const res = global.SeguroStateManager.evaluarCobranza(p, todayStr);
 
             // Reglas de Igualdad Exacta:
             // 1. Recordatorio 48 hs (Preventivo): SOLO calDiff === 2
