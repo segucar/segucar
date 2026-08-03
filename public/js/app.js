@@ -127,10 +127,19 @@ function switchView(viewName) {
   state.activeView = viewName;
 
   // Reset state filter and pagination when switching navbar tabs
+  state.filters.search = '';
+  state.filters.tipo = '';
   state.filters.estado = '';
+  state.filters.fecha_desde = '';
+  state.filters.fecha_hasta = '';
   state.pagination.page = 1;
-  const filterSelect = getEl('estadoFilter');
-  if (filterSelect) filterSelect.value = '';
+
+  const searchInput = getEl('searchInput');
+  if (searchInput) searchInput.value = '';
+  const tipoSelect = getEl('filterTipoSeguro');
+  if (tipoSelect) tipoSelect.value = '';
+  const filterEstado = getEl('filterEstado');
+  if (filterEstado) filterEstado.value = '';
   const filterNotice = getEl('activeFilterNotice');
   if (filterNotice) filterNotice.style.display = 'none';
 
