@@ -142,6 +142,8 @@ function switchView(viewName) {
   const vMet = getEl('viewMetricas');
   const tblSection = getEl('mainTableSection');
 
+  console.log(`[SEGUCar ViewSwitch] Changing to view: '${viewName}' | vDash:${!!vDash} vCob:${!!vCob} vRen:${!!vRen} vMet:${!!vMet} tblSection:${!!tblSection}`);
+
   if (vDash) {
     vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
     if (viewName === 'dashboard') vDash.classList.remove('hidden');
