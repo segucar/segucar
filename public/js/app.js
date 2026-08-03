@@ -142,13 +142,29 @@ function switchView(viewName) {
   const vMet = getEl('viewMetricas');
   const tblSection = getEl('mainTableSection');
 
-  if (vDash) vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
-  if (vCob) vCob.style.display = viewName === 'cobranza' ? 'block' : 'none';
-  if (vRen) vRen.style.display = viewName === 'renovaciones' ? 'block' : 'none';
-  if (vMet) vMet.style.display = viewName === 'metricas' ? 'block' : 'none';
+  if (vDash) {
+    vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
+    if (viewName === 'dashboard') vDash.classList.remove('hidden');
+  }
+  if (vCob) {
+    vCob.style.display = viewName === 'cobranza' ? 'block' : 'none';
+    if (viewName === 'cobranza') vCob.classList.remove('hidden');
+  }
+  if (vRen) {
+    vRen.style.display = viewName === 'renovaciones' ? 'block' : 'none';
+    if (viewName === 'renovaciones') vRen.classList.remove('hidden');
+  }
+  if (vMet) {
+    vMet.style.display = viewName === 'metricas' ? 'block' : 'none';
+    if (viewName === 'metricas') vMet.classList.remove('hidden');
+  }
 
   if (tblSection) {
-    tblSection.style.display = (viewName === 'dashboard' || viewName === 'metricas') ? 'none' : 'block';
+    const showTable = (viewName === 'cobranza' || viewName === 'renovaciones');
+    tblSection.style.display = showTable ? 'block' : 'none';
+    if (showTable) {
+      tblSection.classList.remove('hidden');
+    }
   }
 
   if (viewName === 'metricas') {
@@ -645,6 +661,17 @@ function renderTable() {
   const tableBody = getEl('clientsTableBody');
   const emptyState = getEl('emptyState');
   if (!tableBody) return;
+
+  const clientsTable = getEl('clientsTable');
+  if (clientsTable) {
+    clientsTable.classList.remove('hidden');
+    clientsTable.style.display = 'table';
+  }
+  tableBody.classList.remove('hidden');
+  tableBody.style.display = 'table-row-group';
+
+  updateTableHeader();
+  tableBody.innerHTML = '';
 
   const items = [];
   state.clients.forEach(client => {
