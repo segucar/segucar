@@ -31,6 +31,18 @@ function _getFeriadosDelAnio(anio) {
  */
 function _normalizarFecha(fecha) {
     if (!fecha) return new Date(NaN);
+    if (typeof fecha === 'string') {
+        const str = fecha.trim().slice(0, 10);
+        const parts = str.split('-');
+        if (parts.length === 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+                return new Date(y, m, day, 0, 0, 0, 0);
+            }
+        }
+    }
     const d = new Date(fecha);
     if (isNaN(d.getTime())) return d;
     d.setHours(0, 0, 0, 0);
@@ -159,7 +171,7 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     if (esNoHabil(hoy)) return 'al_dia';
 
     // Fecha efectiva: primer día hábil desde el vencimiento nominal
-    const vtoNominal = _normalizarFecha(new Date(String(fechaVencimiento).includes('-') ? fechaVencimiento : fechaVencimiento));
+    const vtoNominal = _normalizarFecha(fechaVencimiento);
     const vtoEfectivo = obtenerSiguienteDiaHabil(vtoNominal);
 
     const calDiffHabil = diasHabilesEntre(hoy, vtoEfectivo);
