@@ -161,10 +161,24 @@ function switchView(viewName) {
 
   if (tblSection) {
     const showTable = (viewName === 'cobranza' || viewName === 'renovaciones');
-    tblSection.style.display = showTable ? 'block' : 'none';
     if (showTable) {
       tblSection.classList.remove('hidden');
+      tblSection.style.setProperty('display', 'block', 'important');
+    } else {
+      tblSection.style.setProperty('display', 'none', 'important');
     }
+  }
+
+  const clientsTable = getEl('clientsTable');
+  if (clientsTable) {
+    clientsTable.classList.remove('hidden');
+    clientsTable.style.setProperty('display', 'table', 'important');
+  }
+
+  const clientsTableBody = getEl('clientsTableBody');
+  if (clientsTableBody) {
+    clientsTableBody.classList.remove('hidden');
+    clientsTableBody.style.setProperty('display', 'table-row-group', 'important');
   }
 
   if (viewName === 'metricas') {
