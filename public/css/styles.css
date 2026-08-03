@@ -390,6 +390,21 @@ body {
   transition: var(--transition);
 }
 
+.view-section {
+  width: 100%;
+  min-height: auto;
+  opacity: 1;
+  visibility: visible;
+}
+
+#mainTableSection {
+  width: 100%;
+  min-height: 200px;
+  opacity: 1;
+  visibility: visible;
+  clear: both;
+}
+
 .table-container {
   background: var(--bg-card);
   backdrop-filter: var(--glass-blur);
@@ -400,6 +415,10 @@ body {
   box-shadow: var(--shadow-main);
   margin-top: 16px;
   margin-bottom: 24px;
+  width: 100%;
+  min-height: 150px;
+  opacity: 1;
+  visibility: visible;
 }
 
 table {

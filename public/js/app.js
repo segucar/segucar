@@ -139,14 +139,23 @@ function switchView(viewName) {
   // 1. Ocultar todas las vistas principales
   ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+    if (el) {
+      el.style.display = 'none';
+      el.classList.add('hidden');
+    }
   });
 
   // 2. Encender la vista seleccionada
-  const targetView = document.getElementById(viewName === 'cobranza' ? 'viewCobranza' : 
-                                             viewName === 'renovaciones' ? 'viewRenovaciones' : 
-                                             viewName === 'metricas' ? 'viewMetricas' : 'viewDashboard');
-  if (targetView) targetView.style.display = 'block';
+  const targetId = viewName === 'cobranza' ? 'viewCobranza' : 
+                   viewName === 'renovaciones' ? 'viewRenovaciones' : 
+                   viewName === 'metricas' ? 'viewMetricas' : 'viewDashboard';
+  const targetView = document.getElementById(targetId);
+  if (targetView) {
+    targetView.classList.remove('hidden');
+    targetView.style.display = 'block';
+    targetView.style.opacity = '1';
+    targetView.style.visibility = 'visible';
+  }
 
   // 3. Manejo de la tabla principal
   const mainTable = document.getElementById('mainTableSection');
@@ -154,6 +163,21 @@ function switchView(viewName) {
     if (viewName === 'cobranza' || viewName === 'renovaciones') {
       mainTable.classList.remove('hidden');
       mainTable.style.display = 'block';
+      mainTable.style.opacity = '1';
+      mainTable.style.visibility = 'visible';
+      
+      const tblContainer = mainTable.querySelector('.table-container');
+      if (tblContainer) {
+        tblContainer.style.display = 'block';
+        tblContainer.style.opacity = '1';
+        tblContainer.style.visibility = 'visible';
+      }
+      const clientsTable = document.getElementById('clientsTable');
+      if (clientsTable) {
+        clientsTable.style.display = 'table';
+        clientsTable.style.opacity = '1';
+        clientsTable.style.visibility = 'visible';
+      }
     } else {
       mainTable.style.display = 'none';
     }
