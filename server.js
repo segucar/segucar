@@ -96,50 +96,60 @@ function toLocalISOString(date) {
  *   - Si el dato no es un teléfono válido, retorna '' (vacío)
  *   - Los números inválidos deben quedar vacíos para el "Reporte de Teléfonos Incompletos"
  */
-function sanitizeAndFixPhone(phone) {
+function sanitizeAndFixPhone(phone, clientCity = '') {
     if (!phone) return '';
-    let cleaned = String(phone).replace(/[^\d]/g, '');
+    let s = String(phone).trim();
+    if (/inexistente|no tiene|sin|falso|invalido|error|baja|no posee|n\/a/i.test(s)) return '';
 
+    let cleaned = s.replace(/[^\d]/g, '');
     if (cleaned.length === 0) return '';
 
-    // Quitar prefijo internacional 549 o 54 si ya lo tiene
-    if (cleaned.startsWith('549')) {
+    if (cleaned.startsWith('549') && cleaned.length >= 13) {
         cleaned = cleaned.substring(3);
-    } else if (cleaned.startsWith('54')) {
+    } else if (cleaned.startsWith('54') && cleaned.length >= 12) {
         cleaned = cleaned.substring(2);
     }
 
-    // Quitar ceros iniciales (ej: 0223... -> 223...)
     while (cleaned.startsWith('0')) {
         cleaned = cleaned.substring(1);
     }
 
-    // Manejar 15 en Mar del Plata (223-15-xxxxxxx -> 223xxxxxxx)
-    if (cleaned.startsWith('22315') && cleaned.length >= 12) {
-        cleaned = '223' + cleaned.substring(5);
-    } else if (cleaned.startsWith('15') && cleaned.length === 9) {
-        cleaned = cleaned.substring(2);
+    // Quitar 15 según código de área
+    if (cleaned.startsWith('1115') && cleaned.length === 12) {
+        cleaned = '11' + cleaned.substring(4);
+    } else if (/^(221|223|249|291|341|351|261|299|381|387|342|264|266|379|376|362)15/.test(cleaned) && cleaned.length === 12) {
+        cleaned = cleaned.substring(0, 3) + cleaned.substring(5);
+    } else if (/^(2284|2254|2257|2262|2266|2268|2291|2983|2920|2966|2940|2972|2982)15/.test(cleaned) && cleaned.length === 12) {
+        cleaned = cleaned.substring(0, 4) + cleaned.substring(6);
+    } else if (cleaned.startsWith('15') && cleaned.length === 10) {
+        let defaultArea = '223';
+        const c = String(clientCity).toLowerCase();
+        if (c.includes('tandil')) defaultArea = '249';
+        else if (c.includes('la plata')) defaultArea = '221';
+        else if (c.includes('necochea')) defaultArea = '2262';
+        else if (c.includes('olavarria')) defaultArea = '2284';
+        else if (c.includes('bahia')) defaultArea = '291';
+        else if (c.includes('buenos aires') || c.includes('capital') || c.includes('caba')) defaultArea = '11';
+        cleaned = defaultArea + cleaned.substring(2);
     }
 
-    // Quitar ceros accidentales después del código de área 223 (ej: 22306002079 -> 2236002079)
-    if (cleaned.startsWith('2230') && cleaned.length > 10) {
-        cleaned = '223' + cleaned.substring(3).replace(/^0+/, '');
-    }
-
-    // Si tiene 7 u 8 dígitos locales, anteponer 223
     if (cleaned.length === 7 || cleaned.length === 8) {
-        cleaned = '223' + cleaned;
+        let defaultArea = '223';
+        const c = String(clientCity).toLowerCase();
+        if (c.includes('tandil')) defaultArea = '249';
+        else if (c.includes('la plata')) defaultArea = '221';
+        else if (c.includes('necochea')) defaultArea = '2262';
+        else if (c.includes('olavarria')) defaultArea = '2284';
+        else if (c.includes('bahia')) defaultArea = '291';
+        else if (c.includes('buenos aires') || c.includes('capital') || c.includes('caba')) defaultArea = '11';
+        cleaned = defaultArea + (cleaned.length === 8 ? cleaned.substring(1) : cleaned);
     }
 
     if (cleaned.length === 10) {
         return '549' + cleaned;
     }
-    if (cleaned.length > 10 && cleaned.startsWith('223')) {
-        const local = cleaned.substring(3).replace(/^0+/, '');
-        if (local.length === 7) return '549223' + local;
-    }
 
-    return cleaned.length >= 10 ? '549' + cleaned : '';
+    return (cleaned.length >= 10 && cleaned.length <= 11) ? '549' + cleaned : '';
 }
 
 // NOTE: Se eliminó la migración destructiva de arranque que re-sanitizaba
