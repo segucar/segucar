@@ -123,25 +123,8 @@ document.addEventListener('click', (e) => {
   }
 });
 
-function switchView(viewName, shouldFetch = true) {
+function switchView(viewName) {
   state.activeView = viewName;
-
-  // Reset state filter and pagination when switching navbar tabs
-  state.filters.search = '';
-  state.filters.tipo = '';
-  state.filters.estado = '';
-  state.filters.fecha_desde = '';
-  state.filters.fecha_hasta = '';
-  state.pagination.page = 1;
-
-  const searchInput = getEl('searchInput');
-  if (searchInput) searchInput.value = '';
-  const tipoSelect = getEl('filterTipo');
-  if (tipoSelect) tipoSelect.value = '';
-  const filterEstado = getEl('filterEstado');
-  if (filterEstado) filterEstado.value = '';
-  const filterNotice = getEl('activeFilterNotice');
-  if (filterNotice) filterNotice.style.display = 'none';
 
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
     const el = getEl(id);
@@ -187,13 +170,13 @@ function switchView(viewName, shouldFetch = true) {
     }
   }
 
-  if (shouldFetch && viewName !== 'dashboard') {
+  if (viewName !== 'dashboard') {
     fetchClientes();
   }
 }
 
 function openViewWithFilter(viewName, filterVal) {
-  switchView(viewName, false);
+  switchView(viewName);
   filterByState(filterVal);
 }
 
@@ -663,43 +646,17 @@ function renderTable() {
   const emptyState = getEl('emptyState');
   if (!tableBody) return;
 
-  updateTableHeader();
-  tableBody.innerHTML = '';
-
-  if (!state.clients || state.clients.length === 0) {
-    if (emptyState) emptyState.classList.remove('hidden');
-    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
-      ? 'No se encontraron pólizas vencidas'
-      : 'No se encontraron clientes para los filtros seleccionados';
-    tableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
-    return;
-  }
-
-  if (emptyState) emptyState.classList.add('hidden');
-
   const items = [];
   state.clients.forEach(client => {
     const polizas = client.polizas || [];
     if (polizas.length === 0) {
-      // Only render policy-less clients in full 'clientes' view without active filters
-      if (state.activeView === 'clientes' && !state.filters.estado && !state.filters.search && !state.filters.tipo) {
-        items.push({ client, poliza: null, isSecondary: false });
-      }
+      items.push({ client, poliza: null, isSecondary: false });
     } else {
       polizas.forEach((poliza, idx) => {
         items.push({ client, poliza, isSecondary: idx > 0 });
       });
     }
   });
-
-  if (items.length === 0) {
-    if (emptyState) emptyState.classList.remove('hidden');
-    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
-      ? 'No se encontraron pólizas vencidas'
-      : 'No se encontraron cuotas o pólizas para el filtro seleccionado';
-    tableBody.innerHTML = `<tr><td colspan="12" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
-    return;
-  }
 
   if (state.activeView === 'renovaciones') {
     items.sort((a, b) => {
