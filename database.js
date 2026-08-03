@@ -167,6 +167,15 @@ db.exec(`
         fecha_pago DATETIME NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE INDEX IF NOT EXISTS idx_polizas_cliente_id ON polizas(cliente_id);
+    CREATE INDEX IF NOT EXISTS idx_polizas_operacion ON polizas(operacion);
+    CREATE INDEX IF NOT EXISTS idx_polizas_patente ON polizas(patente);
+    CREATE INDEX IF NOT EXISTS idx_polizas_fecha_vto ON polizas(fecha_vencimiento);
+    CREATE INDEX IF NOT EXISTS idx_polizas_saldo ON polizas(saldo_pendiente);
+    CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
+    CREATE INDEX IF NOT EXISTS idx_clientes_telefono ON clientes(telefono);
+    CREATE INDEX IF NOT EXISTS idx_cuotas_admin_poliza ON cuotas_admin(poliza_id);
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────
