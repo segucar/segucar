@@ -123,7 +123,7 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     params.append('desde', desdeStr);
     params.append('hasta', hastaStr);
 
-    const res = await fetch(`${baseUrl}/lisvtopol.php`, {
+    const res = await fetchWithRetry(`${baseUrl}/lisvtopol.php`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -263,7 +263,7 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     params.append('desde', desdeStr);
     params.append('hasta', hastaStr);
 
-    const res = await fetch(`${baseUrl}/lisdeupmo.php`, {
+    const res = await fetchWithRetry(`${baseUrl}/lisdeupmo.php`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -399,7 +399,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     await Promise.all(candidatos.map(async (pol) => {
         try {
-            const res = await fetch(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
+            const res = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
                 headers: { 'Cookie': getCookieString() },
                 signal: AbortSignal.timeout(4000)
             });

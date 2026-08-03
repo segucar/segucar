@@ -180,32 +180,10 @@ body {
    CONTAINER & LAYOUT
    ═══════════════════════════════════════════════════════════════════════════ */
 
-main, .main {
-  display: block !important;
-  min-height: calc(100vh - 70px);
-  width: 100%;
-  position: relative;
-  z-index: 10;
-  opacity: 1 !important;
-  visibility: visible !important;
-}
-
 .container {
   max-width: 1400px;
   margin: 0 auto;
   padding: 1.5rem;
-  position: relative;
-  z-index: 10;
-}
-
-.view-section {
-  position: relative;
-  z-index: 10;
-}
-
-#mainTableSection {
-  position: relative;
-  z-index: 10;
 }
 
 .flex { display: flex; }

@@ -320,21 +320,21 @@ const SeguroStateManager = (function () {
         badgeColor: estadoRen.badgeColor,
         plantilla: templateMap[estadoRen.code] || 'renovacion_7_dias'
       };
-    } else {
-      return ESTADOS.CONTRATO_VIGENTE;
     }
-  }
 
-  function evaluarProximaAccion(poliza, vista = 'cobranza') {
-    if (vista === 'renovaciones') {
-      return evaluarRenovacion(poliza);
-    }
-    return evaluarCobranza(poliza);
+    return {
+      codigo: 'AL_DIA',
+      accion: 'Sin acciones pendientes',
+      prioridad: 'baja',
+      rank: 1,
+      badgeColor: '#2ed573',
+      plantilla: 'recordatorio_48hs'
+    };
   }
 
   Object.freeze(ESTADOS);
 
-  const instance = {
+  const instance = Object.freeze({
     ESTADOS,
     determinarEstadoOficial,
     evaluarCobranza,
@@ -343,13 +343,12 @@ const SeguroStateManager = (function () {
     calcularDiasVencimiento,
     getVencimientoOperativo,
     getBusinessDaysDiff
-  };
+  });
 
-  // 🛡️ AUTO-VERIFICACIÓN DE BLINDAJE EN TIEMPO DE EJECUCIÓN (NON-BLOCKING)
+  // 🛡️ AUTO-VERIFICACIÓN DE BLINDAJE EN TIEMPO DE EJECUCIÓN
   try {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const todayStr = toLocalISOString(today);
 
     const fmtDate = (days) => {
       const d = new Date(today);
@@ -360,21 +359,24 @@ const SeguroStateManager = (function () {
       return `${y}-${m}-${day}`;
     };
 
-    // Assertions no-bloqueantes con lastSyncDate = todayStr
-    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(2) }, todayStr).code !== 'RECORDATORIO_48HS') {
-      console.warn('⚠️ [AVISO BLINDAJE] calDiff === 2 evaluado');
+    // Assertions estrictas
+    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(2) }).code !== 'RECORDATORIO_48HS') {
+      console.error('🚨 [BLINDAJE VIOLADO] calDiff === 2 debe ser RECORDATORIO_48HS');
     }
-    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-2) }, todayStr).code !== 'CUOTA_VENCIDA_0_48HS') {
-      console.warn('⚠️ [AVISO BLINDAJE] calDiff === -2 evaluado');
+    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-2) }).code !== 'CUOTA_VENCIDA_0_48HS') {
+      console.error('🚨 [BLINDAJE VIOLADO] calDiff === -2 debe ser CUOTA_VENCIDA_0_48HS');
     }
-    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-4) }, todayStr).code !== 'CUOTA_VENCIDA_48_96HS') {
-      console.warn('⚠️ [AVISO BLINDAJE] calDiff === -4 evaluado');
+    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-4) }).code !== 'CUOTA_VENCIDA_48_96HS') {
+      console.error('🚨 [BLINDAJE VIOLADO] calDiff === -4 debe ser CUOTA_VENCIDA_48_96HS');
     }
-    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-5) }, todayStr).code !== 'MORA_CRITICA_96HS') {
-      console.warn('⚠️ [AVISO BLINDAJE] calDiff === -5 evaluado');
+    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(-5) }).code !== 'MORA_CRITICA_96HS') {
+      console.error('🚨 [BLINDAJE VIOLADO] calDiff === -5 debe ser MORA_CRITICA_96HS');
+    }
+    if (evaluarCobranza({ saldo_pendiente: 100, fecha_vencimiento: fmtDate(0) }).code !== 'AL_DIA') {
+      console.error('🚨 [BLINDAJE VIOLADO] calDiff === 0 (Hoy) debe ser AL_DIA');
     }
   } catch (err) {
-    console.warn('Aviso en verificaciones de SeguroStateManager:', err);
+    console.error('Error en assertions de SeguroStateManager:', err);
   }
 
   return instance;

@@ -126,14 +126,6 @@ document.addEventListener('click', (e) => {
 function switchView(viewName) {
   state.activeView = viewName;
 
-  const mainEl = document.querySelector('main');
-  if (mainEl) {
-    mainEl.style.setProperty('display', 'block', 'important');
-    mainEl.style.setProperty('opacity', '1', 'important');
-    mainEl.style.setProperty('visibility', 'visible', 'important');
-    mainEl.classList.remove('hidden');
-  }
-
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
     const el = getEl(id);
     if (el) el.classList.remove('active');
@@ -144,59 +136,19 @@ function switchView(viewName) {
   else if (viewName === 'renovaciones') getEl('navRenovaciones')?.classList.add('active');
   else if (viewName === 'metricas') getEl('navMetricas')?.classList.add('active');
 
-  ['clientModal', 'modalCuotasHistorial', 'modalAdminCobranzas', 'modalEditarCuotaAdmin', 'modalNuevoClienteAdmin'].forEach(modalId => {
-    const m = getEl(modalId);
-    if (m) {
-      m.style.display = 'none';
-      m.classList.remove('active');
-    }
-  });
-
   const vDash = getEl('viewDashboard');
   const vCob = getEl('viewCobranza');
   const vRen = getEl('viewRenovaciones');
   const vMet = getEl('viewMetricas');
   const tblSection = getEl('mainTableSection');
 
-  console.log(`[SEGUCar ViewSwitch] Changing to view: '${viewName}' | vDash:${!!vDash} vCob:${!!vCob} vRen:${!!vRen} vMet:${!!vMet} tblSection:${!!tblSection}`);
-
-  if (vDash) {
-    vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
-    if (viewName === 'dashboard') vDash.classList.remove('hidden');
-  }
-  if (vCob) {
-    vCob.style.display = viewName === 'cobranza' ? 'block' : 'none';
-    if (viewName === 'cobranza') vCob.classList.remove('hidden');
-  }
-  if (vRen) {
-    vRen.style.display = viewName === 'renovaciones' ? 'block' : 'none';
-    if (viewName === 'renovaciones') vRen.classList.remove('hidden');
-  }
-  if (vMet) {
-    vMet.style.display = viewName === 'metricas' ? 'block' : 'none';
-    if (viewName === 'metricas') vMet.classList.remove('hidden');
-  }
+  if (vDash) vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
+  if (vCob) vCob.style.display = viewName === 'cobranza' ? 'block' : 'none';
+  if (vRen) vRen.style.display = viewName === 'renovaciones' ? 'block' : 'none';
+  if (vMet) vMet.style.display = viewName === 'metricas' ? 'block' : 'none';
 
   if (tblSection) {
-    const showTable = (viewName === 'cobranza' || viewName === 'renovaciones');
-    if (showTable) {
-      tblSection.classList.remove('hidden');
-      tblSection.style.setProperty('display', 'block', 'important');
-    } else {
-      tblSection.style.setProperty('display', 'none', 'important');
-    }
-  }
-
-  const clientsTable = getEl('clientsTable');
-  if (clientsTable) {
-    clientsTable.classList.remove('hidden');
-    clientsTable.style.setProperty('display', 'table', 'important');
-  }
-
-  const clientsTableBody = getEl('clientsTableBody');
-  if (clientsTableBody) {
-    clientsTableBody.classList.remove('hidden');
-    clientsTableBody.style.setProperty('display', 'table-row-group', 'important');
+    tblSection.style.display = (viewName === 'dashboard' || viewName === 'metricas') ? 'none' : 'block';
   }
 
   if (viewName === 'metricas') {
@@ -263,7 +215,7 @@ function startApp() {
     localStorage.removeItem('targetView');
     switchView(targetView);
   } else {
-    switchView('dashboard');
+    fetchClientes();
   }
 
   const targetSync = localStorage.getItem('targetSyncNRE');
@@ -694,28 +646,43 @@ function renderTable() {
   const emptyState = getEl('emptyState');
   if (!tableBody) return;
 
-  const clientsTable = getEl('clientsTable');
-  if (clientsTable) {
-    clientsTable.classList.remove('hidden');
-    clientsTable.style.display = 'table';
-  }
-  tableBody.classList.remove('hidden');
-  tableBody.style.display = 'table-row-group';
-
   updateTableHeader();
   tableBody.innerHTML = '';
+
+  if (!state.clients || state.clients.length === 0) {
+    if (emptyState) emptyState.classList.remove('hidden');
+    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
+      ? 'No se encontraron pólizas vencidas'
+      : 'No se encontraron clientes para los filtros seleccionados';
+    tableBody.innerHTML = `<tr><td colspan="8" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
+    return;
+  }
+
+  if (emptyState) emptyState.classList.add('hidden');
 
   const items = [];
   state.clients.forEach(client => {
     const polizas = client.polizas || [];
     if (polizas.length === 0) {
-      items.push({ client, poliza: null, isSecondary: false });
+      // Only render policy-less clients in full 'clientes' view without active filters
+      if (state.activeView === 'clientes' && !state.filters.estado && !state.filters.search && !state.filters.tipo) {
+        items.push({ client, poliza: null, isSecondary: false });
+      }
     } else {
       polizas.forEach((poliza, idx) => {
         items.push({ client, poliza, isSecondary: idx > 0 });
       });
     }
   });
+
+  if (items.length === 0) {
+    if (emptyState) emptyState.classList.remove('hidden');
+    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
+      ? 'No se encontraron pólizas vencidas'
+      : 'No se encontraron cuotas o pólizas para el filtro seleccionado';
+    tableBody.innerHTML = `<tr><td colspan="12" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
+    return;
+  }
 
   if (state.activeView === 'renovaciones') {
     items.sort((a, b) => {
