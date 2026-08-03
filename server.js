@@ -8,6 +8,7 @@ const fs = require('fs');
 const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
+const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
 
 const app = express();
 const PORT = process.env.PORT || 3005;
@@ -269,12 +270,11 @@ app.get('/api/dashboard/stats', (req, res) => {
 
         const todayStr = toLocalISOString(new Date());
         const lastSync = getLastSyncDate();
-        
-        // Monday Sync check:
-        // "las alertas automáticas de 48 hs no deben dispararse hasta correr la primera sincronización del primer día hábil de la semana."
-        const todayDay = new Date().getDay();
-        const isMonday = (todayDay === 1);
-        const suppressAlerts = isMonday && (lastSync !== todayStr);
+        const hoy = new Date();
+
+        // ── Días hábiles: si hoy es finde o feriado, los contadores de cobranza muestran 0
+        //    El panel permanece visible pero no genera alertas falsas en días no laborables.
+        const esDiaNoHabil = esNoHabil(hoy);
 
         const allPolizas = db.prepare('SELECT id, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, estado, saldo_pendiente FROM polizas').all();
         
@@ -293,7 +293,7 @@ app.get('/api/dashboard/stats', (req, res) => {
             const fv = p.fecha_vencimiento;
             const cd = parseInt(p.cuotas_debe || 0);
 
-            // ── Renovaciones counters (Calendar days)
+            // ── Renovaciones counters (Calendar days — sin cambio)
             const fvRen = p.fin_vigencia_poliza || fv;
             if (fvRen) {
                 const parts = fvRen.split('-');
@@ -305,7 +305,6 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const saldo = parseFloat(p.saldo_pendiente || 0);
                     const tieneDeuda = saldo > 0 || parseInt(p.cuotas_debe || 0) > 0;
 
-                    // Solo contar en "Aviso Renovación 7 Días" si: exactamente dia 7 Y sin deuda
                     if (calDiffRen === 7 && !tieneDeuda) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     if (calDiffRen < 0) polizas_vencidas++;
@@ -313,37 +312,17 @@ app.get('/api/dashboard/stats', (req, res) => {
                 }
             }
 
-            // ── Cobranzas counters (Calendar days)
+            // ── Cobranzas counters (⚡ Días HÁBILES — holidays_ar)
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
-            if (saldoVal > 0) {
-                const parts = fv.split('-');
-                let calDiff = 999;
-                if (parts.length === 3) {
-                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                    const todayDate = parseLocalDate(todayStr);
-                    calDiff = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                }
+            if (saldoVal > 0 && !esDiaNoHabil) {
+                // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
+                const estadoHabil = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
 
-                // Apply Monday suppression: if suppressed, these alerts are treated as Al Día
-                let actualCobState = 'AL_DIA';
-                if (calDiff === 2) {
-                    actualCobState = 'VENCE_48H';
-                } else if (calDiff === -2) {
-                    actualCobState = 'VENCIO_48H';
-                } else if (calDiff === -4) {
-                    actualCobState = 'VENCIO_96H';
-                } else if (calDiff < -4) {
-                    actualCobState = 'MORA_CRITICA';
-                }
-
-                if (actualCobState === 'VENCE_48H') vence_48h++;
-                else if (actualCobState === 'VENCIO_48H') vencio_48h++;
-                else if (actualCobState === 'VENCIO_96H') vencio_96h++;
-                else if (actualCobState === 'MORA_CRITICA') {
-                    mora_critica++;
-                } else {
-                    al_dia++;
-                }
+                if (estadoHabil === 'recordatorio_48hs')     vence_48h++;
+                else if (estadoHabil === 'cuota_vencida_0_48hs')  vencio_48h++;
+                else if (estadoHabil === 'cuota_vencida_48_96hs') vencio_96h++;
+                else if (estadoHabil === 'mora_critica')           mora_critica++;
+                else                                               al_dia++;
             } else {
                 al_dia++;
             }
@@ -367,7 +346,8 @@ app.get('/api/dashboard/stats', (req, res) => {
             vencio_96h,
             mora_critica,
             total_recuperar,
-            last_sync_date: lastSync
+            last_sync_date: lastSync,
+            es_dia_no_habil: esDiaNoHabil
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -790,9 +770,8 @@ app.get('/api/clientes', (req, res) => {
 
         const todayStr = toLocalISOString(new Date());
         const lastSync = getLastSyncDate();
-        const todayDay = new Date().getDay();
-        const isMonday = (todayDay === 1);
-        const suppressAlerts = isMonday && (lastSync !== todayStr);
+        const hoyClientes = new Date();
+        const esDiaNoHabilClientes = esNoHabil(hoyClientes);
 
         const dateVence48h = addCalendarDays(todayStr, 2);
         const dateVencio48h = addCalendarDays(todayStr, -2);
@@ -1003,38 +982,40 @@ app.get('/api/clientes', (req, res) => {
                         return calDiffRen >= 0;
                     }
 
-                    const parts = fv.split('-');
-                    if (parts.length !== 3) return false;
-                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                    const todayDate = parseLocalDate(hoyStr);
-                    const calDiff = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-
-                    if (suppressAlerts) {
-                        if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                            return cd >= 2;
-                        }
-                        if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
-                            return cd === 0;
-                        }
-                        return false; // Suppress recordatorio_48hs, primer_aviso, segundo_aviso on Monday before sync
-                    }
-
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);
 
+                    // ⚡ Días hábiles — si hoy es no hábil, solo mora_critica sigue visible
+                    if (esDiaNoHabilClientes) {
+                        if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
+                            // Mora crítica: siempre visible (el cliente ya tiene cobertura suspendida)
+                            const parts2 = fv.split('-');
+                            if (parts2.length !== 3) return false;
+                            const vtoDate2 = new Date(parseInt(parts2[0]), parseInt(parts2[1]) - 1, parseInt(parts2[2]));
+                            const todayDate2 = parseLocalDate(hoyStr);
+                            const calDiff2 = Math.round((vtoDate2 - todayDate2) / (1000 * 60 * 60 * 24));
+                            return saldoVal > 0 && calDiff2 < -4;
+                        }
+                        if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') return saldoVal <= 0;
+                        return false; // Suprimir recordatorio/primer/segundo aviso en días no hábiles
+                    }
+
+                    // ⚡ Días hábiles — filtro con evaluarEstadoCobranzaHabil
+                    const estadoHabilP = evaluarEstadoCobranzaHabil(fv, saldoVal, hoyClientes);
+
                     if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
-                        return saldoVal > 0 && calDiff === 2;
+                        return estadoHabilP === 'recordatorio_48hs';
                     }
                     if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
-                        return saldoVal > 0 && calDiff === -2;
+                        return estadoHabilP === 'cuota_vencida_0_48hs';
                     }
                     if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
-                        return saldoVal > 0 && calDiff === -4;
+                        return estadoHabilP === 'cuota_vencida_48_96hs';
                     }
                     if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                        return saldoVal > 0 && calDiff < -4;
+                        return estadoHabilP === 'mora_critica';
                     }
                     if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
-                        return saldoVal <= 0 || calDiff !== 2;
+                        return saldoVal <= 0 || estadoHabilP === 'al_dia';
                     }
                     return true;
                 });
@@ -1052,6 +1033,13 @@ app.get('/api/clientes', (req, res) => {
             }
             for (let p of polizasDeduplicadas) {
                 p.saldo_exigible = getSaldoExigible(p);
+                // ⚡ Opción B: enriquecer cada póliza con estado hábil precalculado
+                const saldoP = parseFloat(p.saldo_pendiente || 0);
+                p.estado_habil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoP, hoyClientes);
+                p.fecha_vencimiento_efectiva = p.fecha_vencimiento
+                    ? toLocalDateString(obtenerSiguienteDiaHabil(new Date(p.fecha_vencimiento + 'T00:00:00')))
+                    : p.fecha_vencimiento;
+                p.es_dia_no_habil = esDiaNoHabilClientes;
             }
             cliente.polizas = polizasDeduplicadas;
         }
