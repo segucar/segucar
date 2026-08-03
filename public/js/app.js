@@ -136,6 +136,14 @@ function switchView(viewName) {
   else if (viewName === 'renovaciones') getEl('navRenovaciones')?.classList.add('active');
   else if (viewName === 'metricas') getEl('navMetricas')?.classList.add('active');
 
+  ['clientModal', 'modalCuotasHistorial', 'modalAdminCobranzas', 'modalEditarCuotaAdmin', 'modalNuevoClienteAdmin'].forEach(modalId => {
+    const m = getEl(modalId);
+    if (m) {
+      m.style.display = 'none';
+      m.classList.remove('active');
+    }
+  });
+
   const vDash = getEl('viewDashboard');
   const vCob = getEl('viewCobranza');
   const vRen = getEl('viewRenovaciones');
