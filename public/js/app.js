@@ -127,44 +127,39 @@ function switchView(viewName) {
   state.activeView = viewName;
 
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
-    const el = getEl(id);
+    const el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
 
-  if (viewName === 'dashboard') getEl('navDashboard')?.classList.add('active');
-  else if (viewName === 'cobranza') getEl('navCobranza')?.classList.add('active');
-  else if (viewName === 'renovaciones') getEl('navRenovaciones')?.classList.add('active');
-  else if (viewName === 'metricas') getEl('navMetricas')?.classList.add('active');
+  if (viewName === 'dashboard') document.getElementById('navDashboard')?.classList.add('active');
+  else if (viewName === 'cobranza') document.getElementById('navCobranza')?.classList.add('active');
+  else if (viewName === 'renovaciones') document.getElementById('navRenovaciones')?.classList.add('active');
+  else if (viewName === 'metricas') document.getElementById('navMetricas')?.classList.add('active');
 
-  const vDash = getEl('viewDashboard');
-  const vCob = getEl('viewCobranza');
-  const vRen = getEl('viewRenovaciones');
-  const vMet = getEl('viewMetricas');
-  const tblSection = getEl('mainTableSection');
-  const clientsTbl = getEl('clientsTable');
-  const clientsBody = getEl('clientsTableBody');
+  // 1. Ocultar todas las vistas principales
+  ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
 
-  if (vDash) { vDash.style.display = viewName === 'dashboard' ? 'block' : 'none'; }
-  if (vMet) { vMet.style.display = viewName === 'metricas' ? 'block' : 'none'; }
+  // 2. Encender la vista seleccionada
+  const targetView = document.getElementById(viewName === 'cobranza' ? 'viewCobranza' : 
+                                             viewName === 'renovaciones' ? 'viewRenovaciones' : 
+                                             viewName === 'metricas' ? 'viewMetricas' : 'viewDashboard');
+  if (targetView) targetView.style.display = 'block';
 
-  if (viewName === 'cobranza') {
-    if (vCob) { vCob.style.display = 'block'; vCob.removeAttribute('hidden'); }
-    if (vRen) { vRen.style.display = 'none'; }
-    if (tblSection) { tblSection.style.display = 'block'; tblSection.removeAttribute('hidden'); }
-    if (clientsTbl) { clientsTbl.style.display = 'table'; clientsTbl.removeAttribute('hidden'); }
-    if (clientsBody) { clientsBody.removeAttribute('hidden'); }
-  } else if (viewName === 'renovaciones') {
-    if (vRen) { vRen.style.display = 'block'; vRen.removeAttribute('hidden'); }
-    if (vCob) { vCob.style.display = 'none'; }
-    if (tblSection) { tblSection.style.display = 'block'; tblSection.removeAttribute('hidden'); }
-    if (clientsTbl) { clientsTbl.style.display = 'table'; clientsTbl.removeAttribute('hidden'); }
-    if (clientsBody) { clientsBody.removeAttribute('hidden'); }
-  } else {
-    if (vCob) vCob.style.display = 'none';
-    if (vRen) vRen.style.display = 'none';
-    if (tblSection) tblSection.style.display = 'none';
+  // 3. Manejo de la tabla principal
+  const mainTable = document.getElementById('mainTableSection');
+  if (mainTable) {
+    if (viewName === 'cobranza' || viewName === 'renovaciones') {
+      mainTable.classList.remove('hidden');
+      mainTable.style.display = 'block';
+    } else {
+      mainTable.style.display = 'none';
+    }
   }
 
+  // 4. Lógica por vista
   if (viewName === 'metricas') {
     if (typeof fetchMetricas === 'function') fetchMetricas();
     return;
@@ -182,8 +177,9 @@ function switchView(viewName) {
     }
   }
 
+  // 5. Volver a pedir los datos si es necesario
   if (viewName !== 'dashboard') {
-    fetchClientes();
+    if (typeof fetchClientes === 'function') fetchClientes();
   }
 }
 
