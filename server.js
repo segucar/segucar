@@ -10,6 +10,17 @@ const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
 
+function getFechasTargetCobranza(targetState, hoyDate = new Date()) {
+    const allPol = db.prepare("SELECT DISTINCT fecha_vencimiento FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento IS NOT NULL AND length(fecha_vencimiento) > 0").all();
+    const matchingVtos = [];
+    for (const row of allPol) {
+        if (evaluarEstadoCobranzaHabil(row.fecha_vencimiento, 100, hoyDate) === targetState) {
+            matchingVtos.push(row.fecha_vencimiento);
+        }
+    }
+    return matchingVtos;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3005;
 
@@ -807,28 +818,56 @@ app.get('/api/clientes', (req, res) => {
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
-            } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
+            } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio')) {
                 if (esDiaNoHabilClientes) {
                     where += ` AND 1=0`;
                 } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
+                    const vtos = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
+                    if (vtos.length > 0) {
+                        const placeholders = vtos.map(() => '?').join(',');
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        params.push(...vtos);
+                    } else {
+                        where += ` AND 1=0`;
+                    }
                 }
-            } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
+            } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso' || estadoNorm.includes('vencio_48h') || estadoNorm.includes('primer')) {
                 if (esDiaNoHabilClientes) {
                     where += ` AND 1=0`;
                 } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
+                    const vtos = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
+                    if (vtos.length > 0) {
+                        const placeholders = vtos.map(() => '?').join(',');
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        params.push(...vtos);
+                    } else {
+                        where += ` AND 1=0`;
+                    }
                 }
-            } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
+            } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso' || estadoNorm.includes('vencio_96h') || estadoNorm.includes('segundo')) {
                 if (esDiaNoHabilClientes) {
                     where += ` AND 1=0`;
                 } else {
-                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
+                    const vtos = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
+                    if (vtos.length > 0) {
+                        const placeholders = vtos.map(() => '?').join(',');
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        params.push(...vtos);
+                    } else {
+                        where += ` AND 1=0`;
+                    }
                 }
-            } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) < -4`;
-            } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
-                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0 OR CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) != 2)`;
+            } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica' || estadoNorm.includes('mora')) {
+                const vtos = getFechasTargetCobranza('mora_critica', hoyClientes);
+                if (vtos.length > 0) {
+                    const placeholders = vtos.map(() => '?').join(',');
+                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                    params.push(...vtos);
+                } else {
+                    where += ` AND 1=0`;
+                }
+            } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
+                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0)`;
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;
                 params.push(estado);
@@ -1014,19 +1053,25 @@ app.get('/api/clientes', (req, res) => {
                     // ⚡ Días hábiles — filtro con evaluarEstadoCobranzaHabil
                     const estadoHabilP = evaluarEstadoCobranzaHabil(fv, saldoVal, hoyClientes);
 
-                    if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
+                    const isRecordatorio48 = estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio');
+                    const isPrimerAviso = estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso' || estadoNorm.includes('vencio_48h') || estadoNorm.includes('primer');
+                    const isSegundoAviso = estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso' || estadoNorm.includes('vencio_96h') || estadoNorm.includes('segundo');
+                    const isMoraCritica = estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica' || estadoNorm.includes('mora');
+                    const isAlDia = estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia');
+
+                    if (isRecordatorio48) {
                         return estadoHabilP === 'recordatorio_48hs';
                     }
-                    if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
+                    if (isPrimerAviso) {
                         return estadoHabilP === 'cuota_vencida_0_48hs';
                     }
-                    if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
+                    if (isSegundoAviso) {
                         return estadoHabilP === 'cuota_vencida_48_96hs';
                     }
-                    if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
+                    if (isMoraCritica) {
                         return estadoHabilP === 'mora_critica';
                     }
-                    if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
+                    if (isAlDia) {
                         return saldoVal <= 0 || estadoHabilP === 'al_dia';
                     }
                     return true;
