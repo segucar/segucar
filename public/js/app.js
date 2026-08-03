@@ -123,7 +123,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-function switchView(viewName) {
+function switchView(viewName, shouldFetch = true) {
   state.activeView = viewName;
 
   // Reset state filter and pagination when switching navbar tabs
@@ -136,7 +136,7 @@ function switchView(viewName) {
 
   const searchInput = getEl('searchInput');
   if (searchInput) searchInput.value = '';
-  const tipoSelect = getEl('filterTipoSeguro');
+  const tipoSelect = getEl('filterTipo');
   if (tipoSelect) tipoSelect.value = '';
   const filterEstado = getEl('filterEstado');
   if (filterEstado) filterEstado.value = '';
@@ -187,13 +187,13 @@ function switchView(viewName) {
     }
   }
 
-  if (viewName !== 'dashboard') {
+  if (shouldFetch && viewName !== 'dashboard') {
     fetchClientes();
   }
 }
 
 function openViewWithFilter(viewName, filterVal) {
-  switchView(viewName);
+  switchView(viewName, false);
   filterByState(filterVal);
 }
 
