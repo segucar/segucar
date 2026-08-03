@@ -126,6 +126,14 @@ document.addEventListener('click', (e) => {
 function switchView(viewName) {
   state.activeView = viewName;
 
+  // Reset state filter and pagination when switching navbar tabs
+  state.filters.estado = '';
+  state.pagination.page = 1;
+  const filterSelect = getEl('estadoFilter');
+  if (filterSelect) filterSelect.value = '';
+  const filterNotice = getEl('activeFilterNotice');
+  if (filterNotice) filterNotice.style.display = 'none';
+
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
     const el = getEl(id);
     if (el) el.classList.remove('active');
