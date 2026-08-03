@@ -126,6 +126,14 @@ document.addEventListener('click', (e) => {
 function switchView(viewName) {
   state.activeView = viewName;
 
+  const mainEl = document.querySelector('main');
+  if (mainEl) {
+    mainEl.style.setProperty('display', 'block', 'important');
+    mainEl.style.setProperty('opacity', '1', 'important');
+    mainEl.style.setProperty('visibility', 'visible', 'important');
+    mainEl.classList.remove('hidden');
+  }
+
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
     const el = getEl(id);
     if (el) el.classList.remove('active');
