@@ -48,6 +48,22 @@ function sanitizeAndFixPhone(phone) {
     return cleaned.length >= 10 ? '549' + cleaned : '';
 }
 
+async function fetchWithRetry(url, options = {}, maxRetries = 2, delayMs = 800) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            const res = await fetch(url, options);
+            if (res.ok || res.status === 302) return res;
+            if (attempt < maxRetries) {
+                await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+            }
+        } catch (err) {
+            if (attempt === maxRetries) throw err;
+            await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+        }
+    }
+    return fetch(url, options);
+}
+
 async function loginNRE(usuario = 'SUA', password = 'sua') {
     const baseUrl = process.env.SISTEMA_URL || 'http://149.50.137.101/emision';
     let cookies = [];
@@ -63,14 +79,14 @@ async function loginNRE(usuario = 'SUA', password = 'sua') {
         });
     };
 
-    const loginPageRes = await fetch(`${baseUrl}/index.php`);
+    const loginPageRes = await fetchWithRetry(`${baseUrl}/index.php`);
     updateCookies(loginPageRes);
 
     const loginParams = new URLSearchParams();
     loginParams.append('useremi', usuario);
     loginParams.append('pasemi', password);
 
-    const loginRes = await fetch(`${baseUrl}/emivali.php`, {
+    const loginRes = await fetchWithRetry(`${baseUrl}/emivali.php`, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
@@ -85,12 +101,18 @@ async function loginNRE(usuario = 'SUA', password = 'sua') {
 }
 
 function parseFechaArg(dateStr) {
-    if (!dateStr) return null;
-    const parts = dateStr.trim().split('/');
+    if (!dateStr || typeof dateStr !== 'string') return null;
+    const trimmed = dateStr.trim();
+    if (!trimmed || trimmed === '-' || trimmed === 'null' || trimmed === 'undefined') return null;
+    const parts = trimmed.split('/');
     if (parts.length === 3) {
-        return `${parts[2]}-${parts[1].padStart(2, '0')}-${parts[0].padStart(2, '0')}`;
+        const [d, m, y] = parts;
+        if (/^\d{1,2}$/.test(d) && /^\d{1,2}$/.test(m) && /^\d{4}$/.test(y)) {
+            return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+        }
     }
-    return dateStr;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+    return null;
 }
 
 /**

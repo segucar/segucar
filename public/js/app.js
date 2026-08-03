@@ -664,13 +664,25 @@ function renderTable() {
   state.clients.forEach(client => {
     const polizas = client.polizas || [];
     if (polizas.length === 0) {
-      items.push({ client, poliza: null, isSecondary: false });
+      // Only render policy-less clients in full 'clientes' view without active filters
+      if (state.activeView === 'clientes' && !state.filters.estado && !state.filters.search && !state.filters.tipo) {
+        items.push({ client, poliza: null, isSecondary: false });
+      }
     } else {
       polizas.forEach((poliza, idx) => {
         items.push({ client, poliza, isSecondary: idx > 0 });
       });
     }
   });
+
+  if (items.length === 0) {
+    if (emptyState) emptyState.classList.remove('hidden');
+    const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
+      ? 'No se encontraron pólizas vencidas'
+      : 'No se encontraron cuotas o pólizas para el filtro seleccionado';
+    tableBody.innerHTML = `<tr><td colspan="12" class="text-center" style="padding:40px; color:#a0a0b8;"><div style="font-size:2rem; margin-bottom:10px;">🔍</div><strong style="color:var(--text-primary); font-size:1.05rem;">${emptyMsg}</strong></td></tr>`;
+    return;
+  }
 
   if (state.activeView === 'renovaciones') {
     items.sort((a, b) => {
