@@ -808,11 +808,23 @@ app.get('/api/clientes', (req, res) => {
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs') {
-                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
+                if (esDiaNoHabilClientes) {
+                    where += ` AND 1=0`;
+                } else {
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = 2`;
+                }
             } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso') {
-                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
+                if (esDiaNoHabilClientes) {
+                    where += ` AND 1=0`;
+                } else {
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -2`;
+                }
             } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso') {
-                where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
+                if (esDiaNoHabilClientes) {
+                    where += ` AND 1=0`;
+                } else {
+                    where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) = -4`;
+                }
             } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
                 where += ` AND p.saldo_pendiente > 0 AND CAST(julianday(p.fecha_vencimiento) - julianday(date('now', 'localtime')) AS INTEGER) < -4`;
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') {
@@ -1044,7 +1056,12 @@ app.get('/api/clientes', (req, res) => {
             cliente.polizas = polizasDeduplicadas;
         }
 
-        res.json({ clientes, total, page, pages: Math.ceil(total / limit) });
+        let finalClientes = clientes;
+        if (estado) {
+            finalClientes = clientes.filter(c => c.polizas && c.polizas.length > 0);
+        }
+
+        res.json({ clientes: finalClientes, total: finalClientes.length, page, pages: Math.ceil(finalClientes.length / limit) });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
