@@ -263,7 +263,7 @@ function startApp() {
     localStorage.removeItem('targetView');
     switchView(targetView);
   } else {
-    fetchClientes();
+    switchView('dashboard');
   }
 
   const targetSync = localStorage.getItem('targetSyncNRE');
