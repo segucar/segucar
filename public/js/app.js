@@ -141,14 +141,28 @@ function switchView(viewName) {
   const vRen = getEl('viewRenovaciones');
   const vMet = getEl('viewMetricas');
   const tblSection = getEl('mainTableSection');
+  const clientsTbl = getEl('clientsTable');
+  const clientsBody = getEl('clientsTableBody');
 
-  if (vDash) vDash.style.display = viewName === 'dashboard' ? 'block' : 'none';
-  if (vCob) vCob.style.display = viewName === 'cobranza' ? 'block' : 'none';
-  if (vRen) vRen.style.display = viewName === 'renovaciones' ? 'block' : 'none';
-  if (vMet) vMet.style.display = viewName === 'metricas' ? 'block' : 'none';
+  if (vDash) { vDash.style.display = viewName === 'dashboard' ? 'block' : 'none'; }
+  if (vMet) { vMet.style.display = viewName === 'metricas' ? 'block' : 'none'; }
 
-  if (tblSection) {
-    tblSection.style.display = (viewName === 'dashboard' || viewName === 'metricas') ? 'none' : 'block';
+  if (viewName === 'cobranza') {
+    if (vCob) { vCob.style.display = 'block'; vCob.removeAttribute('hidden'); }
+    if (vRen) { vRen.style.display = 'none'; }
+    if (tblSection) { tblSection.style.display = 'block'; tblSection.removeAttribute('hidden'); }
+    if (clientsTbl) { clientsTbl.style.display = 'table'; clientsTbl.removeAttribute('hidden'); }
+    if (clientsBody) { clientsBody.removeAttribute('hidden'); }
+  } else if (viewName === 'renovaciones') {
+    if (vRen) { vRen.style.display = 'block'; vRen.removeAttribute('hidden'); }
+    if (vCob) { vCob.style.display = 'none'; }
+    if (tblSection) { tblSection.style.display = 'block'; tblSection.removeAttribute('hidden'); }
+    if (clientsTbl) { clientsTbl.style.display = 'table'; clientsTbl.removeAttribute('hidden'); }
+    if (clientsBody) { clientsBody.removeAttribute('hidden'); }
+  } else {
+    if (vCob) vCob.style.display = 'none';
+    if (vRen) vRen.style.display = 'none';
+    if (tblSection) tblSection.style.display = 'none';
   }
 
   if (viewName === 'metricas') {
@@ -157,13 +171,11 @@ function switchView(viewName) {
   }
 
   if (viewName === 'cobranza') {
-    // Default sort: prioridad urgente primero
     if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
       state.sort.by = 'vencimiento';
       state.sort.dir = 'ASC';
     }
   } else if (viewName === 'renovaciones') {
-    // Default sort: pólizas vencidas primero
     if (state.sort.by === 'nombre') {
       state.sort.by = 'prioridad_poliza';
       state.sort.dir = 'ASC';
