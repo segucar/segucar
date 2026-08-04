@@ -1958,21 +1958,31 @@ app.get('/api/metricas/resumen', (req, res) => {
     try {
         evaluarAtribucionMetricas();
 
-        const rango = req.query.rango || 'este_mes'; // 'hoy', 'esta_semana', 'este_mes', '30_dias', 'anio_actual', 'todo'
+        const rango = req.query.rango || 'este_mes'; // 'hoy', 'esta_semana', 'este_mes', 'mes_anterior', '30_dias', 'anio_actual', 'custom', 'todo'
+        const desdeParam = req.query.desde;
+        const hastaParam = req.query.hasta;
+
         let whereRango = '';
+        const paramsRango = [];
+
         if (rango === 'hoy') {
             whereRango = "WHERE date(fecha_envio) = date('now', 'localtime')";
         } else if (rango === 'esta_semana') {
             whereRango = "WHERE fecha_envio >= date('now', '-7 days', 'localtime')";
         } else if (rango === 'este_mes') {
             whereRango = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime')";
+        } else if (rango === 'mes_anterior') {
+            whereRango = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')";
         } else if (rango === '30_dias') {
             whereRango = "WHERE fecha_envio >= date('now', '-30 days', 'localtime')";
         } else if (rango === 'anio_actual') {
             whereRango = "WHERE strftime('%Y', fecha_envio) = strftime('%Y', 'now', 'localtime')";
+        } else if (rango === 'custom' && desdeParam && hastaParam) {
+            whereRango = "WHERE date(fecha_envio) BETWEEN date(?) AND date(?)";
+            paramsRango.push(desdeParam, hastaParam);
         }
 
-        const gestiones = db.prepare(`SELECT * FROM historial_gestiones_whatsapp ${whereRango}`).all();
+        const gestiones = db.prepare(`SELECT * FROM historial_gestiones_whatsapp ${whereRango}`).all(...paramsRango);
 
         const total_envios = gestiones.length;
         const reemplazadas = gestiones.filter(g => g.estado_resultado === 'reemplazada').length;
@@ -1982,16 +1992,15 @@ app.get('/api/metricas/resumen', (req, res) => {
         const vencidos_sin_pago = gestiones.filter(g => g.estado_resultado === 'vencido_sin_pago').length;
 
         const total_exitosos = exitosos_totales + exitosos_parciales;
-        const total_validos = Math.max(1, total_envios - reemplazadas);
-        const tasa_conversion_global = total_envios > 0 ? ((total_exitosos / total_validos) * 100).toFixed(1) : '0';
+        const total_validos = Math.max(0, total_envios - reemplazadas);
+        const total_validos_calc = Math.max(1, total_validos);
+        const tasa_conversion_global = total_validos > 0 ? ((total_exitosos / total_validos_calc) * 100).toFixed(1) : '0';
 
         function calcularMontoRecuperadoGestion(g) {
             const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica', 'renovacion_deuda'].includes(g.tipo_plantilla);
             const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
 
             if (isRenovacion) {
-                // En renovaciones: el valor comercial atribuido por renovar el contrato es la prima/cuota recuperada ($55.865 promedio).
-                // En 'renovacion_deuda': computa la cuota adeudada cobrada + la prima del nuevo período.
                 const valorPolizaRenovada = 55865;
                 return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
             }
@@ -2060,9 +2069,50 @@ app.get('/api/metricas/resumen', (req, res) => {
             };
         }).sort((a, b) => b.total_envios - a.total_envios);
 
+        // ── COMPARATIVA PERÍODO ANTERIOR (MoM Comparison) ──────────────────────
+        const gestionesPrev = db.prepare(`
+            SELECT * FROM historial_gestiones_whatsapp 
+            WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')
+        `).all();
+
+        let dineroPrev = 0;
+        let exitososPrev = 0;
+        let reemplazadasPrev = 0;
+
+        for (const gp of gestionesPrev) {
+            if (gp.estado_resultado === 'exitoso_total' || gp.estado_resultado === 'exitoso_parcial') {
+                exitososPrev += 1;
+                dineroPrev += calcularMontoRecuperadoGestion(gp);
+            } else if (gp.estado_resultado === 'reemplazada') {
+                reemplazadasPrev += 1;
+            }
+        }
+
+        const validosPrev = Math.max(0, gestionesPrev.length - reemplazadasPrev);
+        const conversionPrev = validosPrev > 0 ? (exitososPrev / validosPrev) * 100 : 0;
+        const conversionCurr = parseFloat(tasa_conversion_global || 0);
+
+        let varDineroPct = 0;
+        if (dineroPrev > 0) {
+            varDineroPct = (((dinero_recuperado_total - dineroPrev) / dineroPrev) * 100).toFixed(1);
+        } else if (dinero_recuperado_total > 0) {
+            varDineroPct = 100;
+        }
+
+        const varConversionPts = (conversionCurr - conversionPrev).toFixed(1);
+
+        const comparativa = {
+            prev_mes_label: 'Mes Anterior',
+            prev_dinero: dineroPrev,
+            var_dinero_pct: parseFloat(varDineroPct),
+            prev_conversion: parseFloat(conversionPrev.toFixed(1)),
+            var_conversion_pts: parseFloat(varConversionPts)
+        };
+
         res.json({
             rango,
             total_envios,
+            total_validos,
             reemplazadas,
             pendientes,
             exitosos_totales,
@@ -2071,6 +2121,7 @@ app.get('/api/metricas/resumen', (req, res) => {
             tasa_conversion_global,
             dinero_recuperado_total,
             tiempo_promedio_dias,
+            comparativa,
             plantillas_performance
         });
     } catch (error) {

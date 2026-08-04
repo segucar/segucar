@@ -3,14 +3,23 @@
  */
 
 let currentRangoMetricas = 'este_mes';
+let currentCustomDesde = '';
+let currentCustomHasta = '';
 
-async function fetchMetricas(rango = currentRangoMetricas) {
+async function fetchMetricas(rango = currentRangoMetricas, desde = currentCustomDesde, hasta = currentCustomHasta) {
   currentRangoMetricas = rango;
+  currentCustomDesde = desde;
+  currentCustomHasta = hasta;
+
   const container = document.getElementById('viewMetricas');
   if (!container) return;
 
   try {
-    const res = await fetch(`/api/metricas/resumen?rango=${rango}`);
+    let url = `/api/metricas/resumen?rango=${rango}`;
+    if (rango === 'custom' && desde && hasta) {
+      url += `&desde=${desde}&hasta=${hasta}`;
+    }
+    const res = await fetch(url);
     const data = await res.json();
     renderMetricasUI(data);
   } catch (err) {
@@ -20,7 +29,25 @@ async function fetchMetricas(rango = currentRangoMetricas) {
 }
 
 function changeRangoMetricas(rangoVal) {
-  fetchMetricas(rangoVal);
+  if (rangoVal === 'custom') {
+    const customBox = document.getElementById('customDateRangeBox');
+    if (customBox) customBox.style.display = 'inline-flex';
+    currentRangoMetricas = 'custom';
+  } else {
+    const customBox = document.getElementById('customDateRangeBox');
+    if (customBox) customBox.style.display = 'none';
+    fetchMetricas(rangoVal);
+  }
+}
+
+function applyCustomDateMetricas() {
+  const d = document.getElementById('metricasDesde')?.value;
+  const h = document.getElementById('metricasHasta')?.value;
+  if (!d || !h) {
+    if (typeof showToast === 'function') showToast('Seleccioná ambas fechas (desde y hasta)', 'warning');
+    return;
+  }
+  fetchMetricas('custom', d, h);
 }
 
 function renderMetricasUI(data) {
@@ -75,25 +102,62 @@ function renderMetricasUI(data) {
     `;
   }
 
+  // MoM Comparison Badges
+  const comp = data.comparativa || {};
+  let badgeDinero = '';
+  let badgeConversion = '';
+
+  if (comp.var_dinero_pct !== undefined && comp.var_dinero_pct !== null) {
+    const isPos = comp.var_dinero_pct >= 0;
+    const sign = isPos ? '+' : '';
+    const color = isPos ? '#2ed573' : '#ff4757';
+    badgeDinero = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_dinero_pct}% vs mes anterior</span>`;
+  }
+
+  if (comp.var_conversion_pts !== undefined && comp.var_conversion_pts !== null) {
+    const isPos = comp.var_conversion_pts >= 0;
+    const sign = isPos ? '+' : '';
+    const color = isPos ? '#00b4d8' : '#ff4757';
+    badgeConversion = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_conversion_pts} pts vs mes anterior</span>`;
+  }
+
+  const exitososSum = (data.exitosos_totales || 0) + (data.exitosos_parciales || 0);
+  const validosNum = data.total_validos !== undefined ? data.total_validos : (data.total_envios - (data.reemplazadas || 0));
+
   container.innerHTML = `
-    <!-- HEADER TITLE -->
-    <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+    <!-- HEADER TITLE & CONTROLS TOOLBAR -->
+    <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
       <div>
         <h2 style="font-size: 1.6rem; font-weight: 800; color: var(--text-primary); margin: 0;">📊 Métricas y Conversión Comercial</h2>
         <p style="margin: 4px 0 0 0; color: var(--text-secondary); font-size: 0.88rem;">Medición en tiempo real del cobro de cuotas y renovación de pólizas atribuidos a envíos de WhatsApp.</p>
       </div>
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <select id="selectRangoMetricas" onchange="changeRangoMetricas(this.value)" style="background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 0.88rem; cursor: pointer;">
+      
+      <!-- TOOLBAR BAR (Clean Flex Spacing to Avoid Overlay) -->
+      <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; z-index: 100; position: relative;">
+        
+        <!-- CUSTOM DATE RANGE INPUTS -->
+        <div id="customDateRangeBox" style="display: ${currentRangoMetricas === 'custom' ? 'inline-flex' : 'none'}; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
+          <input type="date" id="metricasDesde" value="${currentCustomDesde}" style="background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 5px 8px; border-radius: 6px; font-size: 0.82rem;">
+          <span style="color: var(--text-secondary); font-size: 0.8rem;">a</span>
+          <input type="date" id="metricasHasta" value="${currentCustomHasta}" style="background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 5px 8px; border-radius: 6px; font-size: 0.82rem;">
+          <button class="btn btn-sm btn-primary" onclick="applyCustomDateMetricas()" style="padding: 5px 10px; font-size: 0.8rem; font-weight: 700;">Filtrar</button>
+        </div>
+
+        <select id="selectRangoMetricas" onchange="changeRangoMetricas(this.value)" style="background: rgba(15, 23, 42, 0.95); color: var(--text-primary); border: 1px solid rgba(0, 180, 216, 0.4); padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 0.88rem; cursor: pointer; position: relative; z-index: 10;">
           <option value="hoy" ${currentRangoMetricas === 'hoy' ? 'selected' : ''}>☀️ Hoy (Día Actual)</option>
           <option value="esta_semana" ${currentRangoMetricas === 'esta_semana' ? 'selected' : ''}>📆 Esta Semana</option>
           <option value="este_mes" ${currentRangoMetricas === 'este_mes' ? 'selected' : ''}>📅 Este Mes</option>
+          <option value="mes_anterior" ${currentRangoMetricas === 'mes_anterior' ? 'selected' : ''}>🗓️ Mes Anterior</option>
           <option value="30_dias" ${currentRangoMetricas === '30_dias' ? 'selected' : ''}>🗓️ Últimos 30 días</option>
           <option value="anio_actual" ${currentRangoMetricas === 'anio_actual' ? 'selected' : ''}>📆 Año Actual</option>
+          <option value="custom" ${currentRangoMetricas === 'custom' ? 'selected' : ''}>📅 Rango Personalizado...</option>
           <option value="todo" ${currentRangoMetricas === 'todo' ? 'selected' : ''}>🌐 Todo el Historial</option>
         </select>
-        <button class="btn btn-ghost" onclick="fetchMetricas()" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15);">
+
+        <button class="btn btn-ghost" onclick="fetchMetricas()" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15); padding: 8px 14px; border-radius: 8px;">
           🔄 Actualizar
         </button>
+
         <a href="/api/exportar-sin-telefono" class="btn btn-ghost" style="color: var(--accent-cyan-light); border: 1px solid rgba(0, 180, 216, 0.4); background: rgba(0, 180, 216, 0.1); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;" title="Descargar reporte Excel unificado con todos los clientes sin teléfono, incompletos o invalidados">
           📱 Exportar Clientes Sin Teléfono
         </a>
@@ -103,28 +167,43 @@ function renderMetricasUI(data) {
     <!-- KPI CARDS GRID -->
     <div class="stats-grid mb-3" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
       
+      <!-- CARD 1: DINERO RECUPERADO -->
       <div class="card" style="padding: 18px; border-top: 4px solid #2ed573;">
-        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">💰 Dinero Recuperado</div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">💰 Dinero Recuperado</div>
+        </div>
         <div style="font-size: 1.6rem; font-weight: 800; color: #2ed573; margin: 8px 0 4px 0;">${dineroFormatted}</div>
-        <div style="font-size: 0.75rem; color: var(--text-secondary);">Atribuido a envíos de WhatsApp</div>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); display: flex; align-items: center; flex-wrap: wrap;">
+          <span>Atribuido a envíos de WhatsApp</span>
+          ${badgeDinero}
+        </div>
       </div>
 
+      <!-- CARD 2: TASA DE CONVERSIÓN CON ESTRUCTURA EXACTA Y TOOLTIP -->
       <div class="card" style="padding: 18px; border-top: 4px solid #00b4d8;">
-        <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">🎯 Tasa de Conversión</div>
+        <div style="display: flex; align-items: center; justify-content: space-between;">
+          <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">🎯 Tasa de Conversión</div>
+        </div>
         <div style="font-size: 1.6rem; font-weight: 800; color: #00b4d8; margin: 8px 0 4px 0;">${data.tasa_conversion_global}%</div>
-        <div style="font-size: 0.75rem; color: var(--text-secondary);">${(data.exitosos_totales || 0) + (data.exitosos_parciales || 0)} cobros de ${data.total_envios || 0} envíos</div>
+        <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.4;">
+          <strong>${exitososSum}</strong> cobros de <strong>${validosNum}</strong> envíos únicos
+          ${data.reemplazadas > 0 ? `<span style="font-size:0.73rem; color:var(--text-secondary);" title="Total incluyendo reenvíos duplicados: ${data.total_envios}">(${data.total_envios} con reenvíos) <span style="cursor:help; border-bottom:1px dotted var(--text-secondary);" title="La tasa de conversión se calcula estrictamente sobre envíos únicos, sin contar reenvíos duplicados.">ⓘ</span></span>` : ''}
+          ${badgeConversion}
+        </div>
       </div>
 
+      <!-- CARD 3: TIEMPO PROMEDIO COBRO -->
       <div class="card" style="padding: 18px; border-top: 4px solid #f39c12;">
         <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">⏱️ Tiempo Promedio Cobro</div>
         <div style="font-size: 1.6rem; font-weight: 800; color: #f39c12; margin: 8px 0 4px 0;">${data.tiempo_promedio_dias} <span style="font-size: 0.9rem;">días</span></div>
         <div style="font-size: 0.75rem; color: var(--text-secondary);">Desde el mensaje hasta el pago NRE</div>
       </div>
 
+      <!-- CARD 4: ESTADO DE GESTIONES -->
       <div class="card" style="padding: 18px; border-top: 4px solid #9b59b6;">
         <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">📤 Estado de Gestiones</div>
         <div style="font-size: 1.4rem; font-weight: 800; color: var(--text-primary); margin: 8px 0 4px 0;">
-          <span style="color:#2ed573;">${(data.exitosos_totales || 0) + (data.exitosos_parciales || 0)}</span> / 
+          <span style="color:#2ed573;">${exitososSum}</span> / 
           <span style="color:#f1c40f;">${data.pendientes || 0}</span> / 
           <span style="color:#ff4757;">${data.vencidos_sin_pago || 0}</span>
         </div>
