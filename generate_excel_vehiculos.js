@@ -7,7 +7,91 @@ async function generateReport() {
   workbook.creator = 'SEGUCar';
   workbook.created = new Date();
 
-  const query = `
+  const dates = [
+    { mes: 'Junio 2026', date: '2026-06-04' },
+    { mes: 'Julio 2026', date: '2026-07-04' },
+    { mes: 'Agosto 2026 (Actual)', date: '2026-08-04' }
+  ];
+
+  // 1. Pestaña de Evolución y Crecimiento Histórico
+  const sheetEvol = workbook.addWorksheet('Comparativa e Historial');
+  sheetEvol.columns = [
+    { header: 'Tipo de Vehículo', key: 'tipo', width: 20 },
+    { header: 'Junio 2026 (Pólizas)', key: 'jun_p', width: 22 },
+    { header: 'Julio 2026 (Pólizas)', key: 'jul_p', width: 22 },
+    { header: 'Agosto 2026 (Pólizas)', key: 'ago_p', width: 22 },
+    { header: 'Crecimiento (Jul vs Jun)', key: 'crec_jul', width: 24 },
+    { header: 'Crecimiento (Ago vs Jul)', key: 'crec_ago', width: 24 },
+    { header: 'Crecimiento Total (2 Meses)', key: 'crec_tot', width: 26 }
+  ];
+
+  const categories = ['Auto', 'Pick Up', 'Moto', 'Camión'];
+  const histData = {};
+  categories.forEach(c => { histData[c] = { jun: 0, jul: 0, ago: 0 }; });
+
+  for (const d of dates) {
+    const key = d.date.includes('-06-') ? 'jun' : (d.date.includes('-07-') ? 'jul' : 'ago');
+    const rows = db.prepare(`
+      SELECT 
+        COALESCE(NULLIF(TRIM(tipo_vehiculo), ''), 'Auto') as tipo,
+        COUNT(*) as polizas
+      FROM polizas
+      WHERE LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja', 'historico', 'historica', 'cancelada')
+        AND date(COALESCE(fin_vigencia_poliza, fecha_vencimiento)) >= date(?)
+        AND date(COALESCE(fin_vigencia_poliza, fecha_vencimiento), '-90 days') <= date(?)
+      GROUP BY tipo
+    `).all(d.date, d.date);
+
+    rows.forEach(r => {
+      let t = r.tipo.trim();
+      t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+      if (t === 'Pick up') t = 'Pick Up';
+      if (t === 'Camion') t = 'Camión';
+      if (histData[t]) histData[t][key] = r.polizas;
+    });
+  }
+
+  let totJun = 0, totJul = 0, totAgo = 0;
+  for (const [tipo, val] of Object.entries(histData)) {
+    totJun += val.jun;
+    totJul += val.jul;
+    totAgo += val.ago;
+
+    const varJul = val.jun > 0 ? (((val.jul - val.jun) / val.jun) * 100).toFixed(1) + '%' : '+100%';
+    const varAgo = val.jul > 0 ? (((val.ago - val.jul) / val.jul) * 100).toFixed(1) + '%' : '+100%';
+    const varTot = val.jun > 0 ? (((val.ago - val.jun) / val.jun) * 100).toFixed(1) + '%' : '+100%';
+
+    sheetEvol.addRow({
+      tipo,
+      jun_p: val.jun,
+      jul_p: val.jul,
+      ago_p: val.ago,
+      crec_jul: '+' + varJul,
+      crec_ago: '+' + varAgo,
+      crec_tot: '+' + varTot
+    });
+  }
+
+  const varJulTot = (((totJul - totJun) / totJun) * 100).toFixed(1) + '%';
+  const varAgoTot = (((totAgo - totJul) / totJul) * 100).toFixed(1) + '%';
+  const varTotTot = (((totAgo - totJun) / totJun) * 100).toFixed(1) + '%';
+
+  const totalRow = sheetEvol.addRow({
+    tipo: 'TOTAL GENERAL',
+    jun_p: totJun,
+    jul_p: totJul,
+    ago_p: totAgo,
+    crec_jul: '+' + varJulTot,
+    crec_ago: '+' + varAgoTot,
+    crec_tot: '+' + varTotTot
+  });
+  totalRow.font = { bold: true };
+
+  sheetEvol.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+  sheetEvol.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8E44AD' } };
+
+  // 2. Master Current Active Sheet
+  const queryActive = `
     SELECT 
       c.id as cliente_id,
       c.nombre,
@@ -35,17 +119,9 @@ async function generateReport() {
     ORDER BY p.tipo_vehiculo ASC, c.nombre ASC
   `;
 
-  const rows = db.prepare(query).all();
-
-  // 1. Resumen Tab
-  const sheetResumen = workbook.addWorksheet('Resumen General');
-  sheetResumen.columns = [
-    { header: 'Tipo de Vehículo', key: 'tipo', width: 22 },
-    { header: 'Clientes Únicos', key: 'clientes', width: 20 },
-    { header: 'Pólizas Vigentes', key: 'polizas', width: 22 }
-  ];
-
+  const rows = db.prepare(queryActive).all();
   const grouped = {};
+
   rows.forEach(r => {
     let t = (r.tipo_vehiculo || 'Auto').trim();
     t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
@@ -57,19 +133,7 @@ async function generateReport() {
     grouped[t].push(r);
   });
 
-  let totalPol = 0;
-  for (const [tipo, list] of Object.entries(grouped)) {
-    const uniqueClients = new Set(list.map(x => x.cliente_id)).size;
-    sheetResumen.addRow({ tipo, clientes: uniqueClients, polizas: list.length });
-    totalPol += list.length;
-  }
-  sheetResumen.addRow({ tipo: 'TOTAL GENERAL', clientes: new Set(rows.map(x => x.cliente_id)).size, polizas: totalPol });
-
-  sheetResumen.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-  sheetResumen.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF007ACC' } };
-
-  // 2. Master Sheet
-  const sheetDetail = workbook.addWorksheet('Master Completo');
+  const sheetDetail = workbook.addWorksheet('Master Actual');
   sheetDetail.columns = [
     { header: 'Tipo Vehículo', key: 'tipo_vehiculo', width: 16 },
     { header: 'Cliente', key: 'nombre', width: 34 },
@@ -97,11 +161,10 @@ async function generateReport() {
       saldo: r.saldo_pendiente ? `$${r.saldo_pendiente}` : '$0'
     });
   });
-
   sheetDetail.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
   sheetDetail.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF107C41' } };
 
-  // 3. Individual Category Tabs
+  // 3. Category Tabs
   for (const [tipo, list] of Object.entries(grouped)) {
     const sheetCat = workbook.addWorksheet(tipo.toUpperCase());
     sheetCat.columns = [
@@ -134,7 +197,7 @@ async function generateReport() {
 
   const filePublic = path.join(__dirname, 'public', 'Clientes_Activos_Por_Vehiculo.xlsx');
   await workbook.xlsx.writeFile(filePublic);
-  console.log('✅ Archivo Excel generado con éxito en:', filePublic);
+  console.log('✅ Archivo Excel con comparativa generado en:', filePublic);
 }
 
 generateReport().catch(console.error);
