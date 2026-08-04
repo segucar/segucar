@@ -297,7 +297,26 @@ app.get('/api/dashboard/stats', (req, res) => {
         //    El panel permanece visible pero no genera alertas falsas en días no laborables.
         const esDiaNoHabil = esNoHabil(hoy);
 
-        const allPolizas = db.prepare('SELECT id, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, estado, saldo_pendiente FROM polizas').all();
+        const allPolizas = db.prepare('SELECT id, operacion, patente, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, estado, saldo_pendiente FROM polizas').all();
+
+        // Build set of poliza IDs that have been superseded by a newer operation for the same patente
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat of Object.keys(polizasByPatente)) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            // Sort by operacion descending (newest first)
+            group.sort((a, b) => parseInt(b.operacion || 0) - parseInt(a.operacion || 0));
+            // All except the first (newest) are superseded
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
         
         let vence_48h = 0;
         let vencio_48h = 0;
@@ -315,8 +334,10 @@ app.get('/api/dashboard/stats', (req, res) => {
             const cd = parseInt(p.cuotas_debe || 0);
 
             // ── Renovaciones counters (Calendar days — sin cambio)
+            // Skip policies that have been renewed (superseded by a newer operation for the same patente)
+            const isRenewed = renewedPolizaIds.has(p.id);
             const fvRen = p.fin_vigencia_poliza || fv;
-            if (fvRen) {
+            if (fvRen && !isRenewed) {
                 const parts = fvRen.split('-');
                 if (parts.length === 3) {
                     const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
@@ -817,15 +838,18 @@ app.get('/api/clientes', (req, res) => {
             const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
 
             // ── RENOVACIONES ────────────────────────────────────────────────
+            // Exclude policies that have been renewed (superseded by a newer operation for the same patente)
+            const notRenewedClause = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
+
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                 // AL DIA (sin deuda) Y vence en EXACTAMENTE 7 dias
-                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`;
+                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0`;
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0` + notRenewedClause;
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`;
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0` + notRenewedClause;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio')) {
@@ -1005,6 +1029,14 @@ app.get('/api/clientes', (req, res) => {
                     const fv = p.fecha_vencimiento || '';
                     const cd = parseInt(p.cuotas_debe || 0);
                     const fvRen = p.fin_vigencia_poliza || fv;
+
+                    // Check if this poliza has been superseded by a newer operation for the same patente
+                    const isRenovacionFilter = ['por_vencer', 'renovacion_7_dias', 'vencida', 'poliza_vencida', 'vigente', 'contrato_vigente'].includes(estadoNorm);
+                    if (isRenovacionFilter && p.patente) {
+                        const hasSuccessor = rawPolizas.some(p2 => p2.patente === p.patente && p2.id !== p.id && parseInt(p2.operacion || 0) > parseInt(p.operacion || 0));
+                        if (hasSuccessor) return false;
+                    }
+
                     if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                         const saldo = parseFloat(p.saldo_pendiente || 0);
                         const cuotas = parseInt(p.cuotas_debe || 0);
