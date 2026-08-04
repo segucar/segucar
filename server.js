@@ -1958,31 +1958,95 @@ app.get('/api/metricas/resumen', (req, res) => {
     try {
         evaluarAtribucionMetricas();
 
-        const rango = req.query.rango || 'este_mes'; // 'hoy', 'esta_semana', 'este_mes', 'mes_anterior', '30_dias', 'anio_actual', 'custom', 'todo'
+        const rango = req.query.rango || 'este_mes';
         const desdeParam = req.query.desde;
         const hastaParam = req.query.hasta;
 
-        let whereRango = '';
-        const paramsRango = [];
-
-        if (rango === 'hoy') {
-            whereRango = "WHERE date(fecha_envio) = date('now', 'localtime')";
-        } else if (rango === 'esta_semana') {
-            whereRango = "WHERE fecha_envio >= date('now', '-7 days', 'localtime')";
-        } else if (rango === 'este_mes') {
-            whereRango = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime')";
-        } else if (rango === 'mes_anterior') {
-            whereRango = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')";
-        } else if (rango === '30_dias') {
-            whereRango = "WHERE fecha_envio >= date('now', '-30 days', 'localtime')";
-        } else if (rango === 'anio_actual') {
-            whereRango = "WHERE strftime('%Y', fecha_envio) = strftime('%Y', 'now', 'localtime')";
-        } else if (rango === 'custom' && desdeParam && hastaParam) {
-            whereRango = "WHERE date(fecha_envio) BETWEEN date(?) AND date(?)";
-            paramsRango.push(desdeParam, hastaParam);
+        function toSqliteDateStr(d) {
+            if (!d) return null;
+            const year = d.getFullYear();
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const day = String(d.getDate()).padStart(2, '0');
+            const hours = String(d.getHours()).padStart(2, '0');
+            const mins = String(d.getMinutes()).padStart(2, '0');
+            const secs = String(d.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
         }
 
-        const gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp ${whereRango}`).all(...paramsRango);
+        const now = new Date();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+        let boundsStart = null;
+        let boundsEnd = null;
+        let prevStart = null;
+        let prevEnd = null;
+        let prevLabel = 'vs período anterior';
+
+        if (rango === 'hoy') {
+            boundsStart = todayStart;
+            boundsEnd = now;
+            prevStart = new Date(todayStart); prevStart.setDate(prevStart.getDate() - 1);
+            prevEnd = new Date(todayEnd); prevEnd.setDate(prevEnd.getDate() - 1);
+            prevLabel = 'vs ayer';
+        } else if (rango === 'esta_semana') {
+            const dayOfWeek = todayStart.getDay();
+            const diffToMon = (dayOfWeek + 6) % 7; // Monday = 0
+            boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - diffToMon);
+            boundsEnd = now;
+
+            prevStart = new Date(boundsStart); prevStart.setDate(prevStart.getDate() - 7);
+            prevEnd = new Date(boundsStart); prevEnd.setMilliseconds(-1);
+            prevLabel = 'vs semana anterior';
+        } else if (rango === 'este_mes') {
+            boundsStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+            boundsEnd = now;
+
+            prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+            prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+            prevLabel = 'vs mes anterior';
+        } else if (rango === 'mes_anterior') {
+            boundsStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+            boundsEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+
+            prevStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0);
+            prevEnd = new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59, 999);
+            prevLabel = 'vs mes previo';
+        } else if (rango === '30_dias') {
+            boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - 30);
+            boundsEnd = now;
+
+            prevStart = new Date(boundsStart); prevStart.setDate(prevStart.getDate() - 30);
+            prevEnd = new Date(boundsStart); prevEnd.setMilliseconds(-1);
+            prevLabel = 'vs 30 días anteriores';
+        } else if (rango === 'anio_actual') {
+            boundsStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+            boundsEnd = now;
+
+            prevStart = new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
+            prevEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
+            prevLabel = 'vs año anterior';
+        } else if (rango === 'custom' && desdeParam && hastaParam) {
+            const partsD = desdeParam.split('-');
+            const partsH = hastaParam.split('-');
+            boundsStart = new Date(parseInt(partsD[0]), parseInt(partsD[1]) - 1, parseInt(partsD[2]), 0, 0, 0, 0);
+            boundsEnd = new Date(parseInt(partsH[0]), parseInt(partsH[1]) - 1, parseInt(partsH[2]), 23, 59, 59, 999);
+
+            const days = Math.max(1, Math.round((boundsEnd - boundsStart) / (1000 * 60 * 60 * 24)));
+            prevStart = new Date(boundsStart); prevStart.setDate(prevStart.getDate() - days);
+            prevEnd = new Date(boundsStart); prevEnd.setMilliseconds(-1);
+            prevLabel = `vs ${days}d anteriores`;
+        }
+
+        let gestionesRaw = [];
+        if (boundsStart && boundsEnd) {
+            const sStr = toSqliteDateStr(boundsStart);
+            const eStr = toSqliteDateStr(boundsEnd);
+            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE fecha_envio >= ? AND fecha_envio <= ?`).all(sStr, eStr);
+        } else {
+            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp`).all();
+        }
+
         const gestiones = gestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
 
         const total_envios = gestiones.length;
@@ -2087,44 +2151,14 @@ app.get('/api/metricas/resumen', (req, res) => {
         }).sort((a, b) => b.total_envios - a.total_envios);
 
         // ── COMPARATIVA HOMÓLOGA PERÍODO ANTERIOR (Like-for-Like Comparison) ──
-        let prevWhere = "";
-        let prevLabel = "vs mes anterior";
-        const prevParams = [];
-
-        if (rango === 'hoy') {
-            prevWhere = "WHERE date(fecha_envio) = date('now', '-1 day', 'localtime')";
-            prevLabel = 'vs ayer';
-        } else if (rango === 'esta_semana') {
-            prevWhere = "WHERE fecha_envio >= date('now', '-14 days', 'localtime') AND fecha_envio < date('now', '-7 days', 'localtime')";
-            prevLabel = 'vs semana anterior';
-        } else if (rango === 'este_mes') {
-            prevWhere = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')";
-            prevLabel = 'vs mes anterior';
-        } else if (rango === 'mes_anterior') {
-            prevWhere = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-2 month')";
-            prevLabel = 'vs mes previo';
-        } else if (rango === '30_dias') {
-            prevWhere = "WHERE fecha_envio >= date('now', '-60 days', 'localtime') AND fecha_envio < date('now', '-30 days', 'localtime')";
-            prevLabel = 'vs 30 días anteriores';
-        } else if (rango === 'anio_actual') {
-            prevWhere = "WHERE strftime('%Y', fecha_envio) = strftime('%Y', 'now', 'localtime', '-1 year')";
-            prevLabel = 'vs año anterior';
-        } else if (rango === 'custom' && desdeParam && hastaParam) {
-            const d1 = new Date(desdeParam);
-            const d2 = new Date(hastaParam);
-            const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
-            
-            const prevStart = new Date(d1); prevStart.setDate(prevStart.getDate() - days);
-            const prevEnd = new Date(d1); prevEnd.setDate(prevEnd.getDate() - 1);
-            
-            prevWhere = "WHERE date(fecha_envio) BETWEEN date(?) AND date(?)";
-            prevParams.push(prevStart.toISOString().split('T')[0], prevEnd.toISOString().split('T')[0]);
-            prevLabel = `vs ${days}d anteriores`;
+        let gestionesPrevRaw = [];
+        if (prevStart && prevEnd) {
+            const psStr = toSqliteDateStr(prevStart);
+            const peStr = toSqliteDateStr(prevEnd);
+            gestionesPrevRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE fecha_envio >= ? AND fecha_envio <= ?`).all(psStr, peStr);
         }
 
-        const gestionesPrev = db.prepare(`
-            SELECT * FROM historial_gestiones_whatsapp ${prevWhere}
-        `).all(...prevParams).filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
+        const gestionesPrev = gestionesPrevRaw.filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
 
         let dineroPrev = 0;
         let exitososPrev = 0;
