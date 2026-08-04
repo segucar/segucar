@@ -775,6 +775,9 @@ app.get('/api/reportes/telefonos-incompletos', generarExcelSinTelefonoExcelJS);
 app.get('/api/reportes/sin-telefono', generarExcelSinTelefonoExcelJS);
 app.get('/api/exportar/vehiculos', generarExcelVehiculosExcelJS);
 app.get('/api/exportar-vehiculos', generarExcelVehiculosExcelJS);
+app.get('/api/exportar/nre-2026', (req, res) => {
+    res.download(require('path').join(__dirname, 'public', 'Reporte_NRE_Evolucion_2026.xlsx'));
+});
 
 app.get('/api/auditoria', (req, res) => {
     try {
