@@ -1331,9 +1331,10 @@ app.post('/api/clientes', (req, res) => {
 
 app.put('/api/clientes/:id', (req, res) => {
     try {
-        const { nombre, dni, direccion, telefono, email } = req.body;
+        const { nombre, dni, direccion, telefono, email, sin_whatsapp } = req.body;
         const sanitizedPhone = sanitizeAndFixPhone(telefono);
-        const info = db.prepare(`UPDATE clientes SET nombre=?, dni=?, direccion=?, telefono=?, email=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nombre, dni, direccion, sanitizedPhone, email, req.params.id);
+        const sinWa = (sin_whatsapp === 1 || sin_whatsapp === '1' || sin_whatsapp === true) ? 1 : 0;
+        const info = db.prepare(`UPDATE clientes SET nombre=?, dni=?, direccion=?, telefono=?, email=?, sin_whatsapp=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nombre, dni, direccion, sanitizedPhone, email, sinWa, req.params.id);
         if (info.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
         if (sanitizedPhone && sanitizedPhone.length >= 10) {

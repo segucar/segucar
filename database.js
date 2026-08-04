@@ -204,6 +204,16 @@ addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
 addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 
+// ─── Migraciones de Columnas para Clientes ──────────────────────────────────
+const addColumnClientes = (colName, colDef) => {
+    try {
+        db.exec(`ALTER TABLE clientes ADD COLUMN ${colName} ${colDef}`);
+    } catch (e) {
+        // Column exists
+    }
+};
+addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
+
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
 // Purge any old combined templates to guarantee clean single-variable templates

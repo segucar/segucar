@@ -830,7 +830,11 @@ function createClientRow(client, poliza, isSecondary = false) {
             🧾 Cuotas
           </button>
         ` : ''}
-        ${(client.telefono && client.telefono.length >= 10) ? `
+        ${client.sin_whatsapp ? `
+          <button type="button" class="btn btn-sm" disabled style="padding: 6px 14px; font-weight: 700; font-size: 0.8rem; background: rgba(255,71,87,0.1); color: #ff7675; border: 1px solid rgba(255,71,87,0.3); cursor: not-allowed; opacity: 0.7; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;" title="Este cliente fue marcado como Sin WhatsApp">
+            📵 <span>Sin WA</span>
+          </button>
+        ` : (client.telefono && client.telefono.length >= 10) ? `
           ${(() => {
             const isWaSent = localStorage.getItem('segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '')) === 'true';
             // ⚡ Opción B: deshabilitar botón WhatsApp en días no hábiles
@@ -1502,6 +1506,8 @@ async function openModal(client = null) {
             getEl('clientPhone').value = fullData.telefono || client.telefono || '';
             getEl('clientAddress').value = fullData.direccion || client.direccion || '';
             getEl('clientEmail').value = fullData.email || client.email || '';
+            const sinWaCb = getEl('clientSinWhatsapp');
+            if (sinWaCb) sinWaCb.checked = !!(fullData.sin_whatsapp);
           }
         }
       } catch (err) {
@@ -1513,6 +1519,8 @@ async function openModal(client = null) {
     const form = getEl('clientForm');
     if (form) form.reset();
     if (idEl) idEl.value = '';
+    const sinWaCbNew = getEl('clientSinWhatsapp');
+    if (sinWaCbNew) sinWaCbNew.checked = false;
   }
 }
 
@@ -1536,7 +1544,8 @@ async function handleClientSubmit(e) {
     dni: getEl('clientDNI')?.value || '',
     telefono: getEl('clientPhone')?.value || '',
     direccion: getEl('clientAddress')?.value || '',
-    email: getEl('clientEmail')?.value || ''
+    email: getEl('clientEmail')?.value || '',
+    sin_whatsapp: getEl('clientSinWhatsapp')?.checked ? 1 : 0
   };
 
   try {
