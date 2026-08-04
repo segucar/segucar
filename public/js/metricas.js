@@ -72,8 +72,10 @@ function renderMetricasUI(data) {
   };
 
   let plantillasRows = '';
-  if (data.plantillas_performance && data.plantillas_performance.length > 0) {
-    plantillasRows = data.plantillas_performance.map(p => {
+  const filteredPerformance = (data.plantillas_performance || []).filter(p => !['mora_critica', 'renovacion_deuda'].includes(p.tipo_plantilla));
+
+  if (filteredPerformance.length > 0) {
+    plantillasRows = filteredPerformance.map(p => {
       const nombreLabel = plantillaLabels[p.tipo_plantilla] || p.tipo_plantilla;
       const recFormatted = (p.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS' });
       return `

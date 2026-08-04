@@ -1982,7 +1982,8 @@ app.get('/api/metricas/resumen', (req, res) => {
             paramsRango.push(desdeParam, hastaParam);
         }
 
-        const gestiones = db.prepare(`SELECT * FROM historial_gestiones_whatsapp ${whereRango}`).all(...paramsRango);
+        const gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp ${whereRango}`).all(...paramsRango);
+        const gestiones = gestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
 
         const total_envios = gestiones.length;
         const reemplazadas = gestiones.filter(g => g.estado_resultado === 'reemplazada').length;
@@ -1997,7 +1998,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         const tasa_conversion_global = total_validos > 0 ? ((total_exitosos / total_validos_calc) * 100).toFixed(1) : '0';
 
         function calcularMontoRecuperadoGestion(g) {
-            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica', 'renovacion_deuda'].includes(g.tipo_plantilla);
+            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(g.tipo_plantilla);
             const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
 
             if (isRenovacion) {
@@ -2024,10 +2025,26 @@ app.get('/api/metricas/resumen', (req, res) => {
         }
 
         let dinero_recuperado_total = 0;
+        
+        // Pre-initialize active core templates so they are always rendered in the comparative table
+        const coreTemplates = ['recordatorio_48hs', 'primer_aviso', 'segundo_aviso', 'renovacion_7_dias'];
         const plantillasMap = {};
+        for (const ct of coreTemplates) {
+            plantillasMap[ct] = {
+                tipo_plantilla: ct,
+                total_envios: 0,
+                exitosos: 0,
+                pendientes: 0,
+                vencidos: 0,
+                reemplazadas: 0,
+                dinero_recuperado: 0
+            };
+        }
 
         for (const g of gestiones) {
-            const t = g.tipo_plantilla || 'desconocido';
+            let t = g.tipo_plantilla || 'desconocido';
+            if (t === 'por_vencer' || t === 'aviso_renovacion') t = 'renovacion_7_dias';
+
             if (!plantillasMap[t]) {
                 plantillasMap[t] = {
                     tipo_plantilla: t,
@@ -2073,7 +2090,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         const gestionesPrev = db.prepare(`
             SELECT * FROM historial_gestiones_whatsapp 
             WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')
-        `).all();
+        `).all().filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
 
         let dineroPrev = 0;
         let exitososPrev = 0;
