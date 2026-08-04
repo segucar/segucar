@@ -1136,13 +1136,22 @@ app.get('/api/clientes', (req, res) => {
             LIMIT 1
         )`;
 
+        let orderByClause = 'sort_fecha ASC, c.nombre ASC';
+        if (sortBy === 'telefono') {
+            orderByClause = `CASE WHEN (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10) THEN 0 ELSE 1 END ${sortDir === 'ASC' ? 'ASC' : 'DESC'}, c.telefono ${sortDir}, c.nombre ASC`;
+        } else if (sortBy === 'nombre') {
+            orderByClause = `c.nombre ${sortDir}`;
+        } else if (isSortByPolizaCol) {
+            orderByClause = `sort_val ${sortDir}, sort_fecha ASC, c.nombre ASC`;
+        }
+
         const query = `
             SELECT c.*, ${aggFn}(${isSortByPolizaCol ? sortCol : '1'}) as sort_val, ${sortFechaSubquery} as sort_fecha
             FROM clientes c 
             INNER JOIN polizas p ON c.id = p.cliente_id 
             ${where} 
             GROUP BY c.id 
-            ORDER BY ${isSortByPolizaCol ? `sort_val ${sortDir},` : ''} sort_fecha ASC, c.telefono ASC, c.nombre ASC
+            ORDER BY ${orderByClause}
             LIMIT ? OFFSET ?
         `;
         params.push(limit, offset);
