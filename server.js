@@ -2086,11 +2086,45 @@ app.get('/api/metricas/resumen', (req, res) => {
             };
         }).sort((a, b) => b.total_envios - a.total_envios);
 
-        // ── COMPARATIVA PERÍODO ANTERIOR (MoM Comparison) ──────────────────────
+        // ── COMPARATIVA HOMÓLOGA PERÍODO ANTERIOR (Like-for-Like Comparison) ──
+        let prevWhere = "";
+        let prevLabel = "vs mes anterior";
+        const prevParams = [];
+
+        if (rango === 'hoy') {
+            prevWhere = "WHERE date(fecha_envio) = date('now', '-1 day', 'localtime')";
+            prevLabel = 'vs ayer';
+        } else if (rango === 'esta_semana') {
+            prevWhere = "WHERE fecha_envio >= date('now', '-14 days', 'localtime') AND fecha_envio < date('now', '-7 days', 'localtime')";
+            prevLabel = 'vs semana anterior';
+        } else if (rango === 'este_mes') {
+            prevWhere = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')";
+            prevLabel = 'vs mes anterior';
+        } else if (rango === 'mes_anterior') {
+            prevWhere = "WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-2 month')";
+            prevLabel = 'vs mes previo';
+        } else if (rango === '30_dias') {
+            prevWhere = "WHERE fecha_envio >= date('now', '-60 days', 'localtime') AND fecha_envio < date('now', '-30 days', 'localtime')";
+            prevLabel = 'vs 30 días anteriores';
+        } else if (rango === 'anio_actual') {
+            prevWhere = "WHERE strftime('%Y', fecha_envio) = strftime('%Y', 'now', 'localtime', '-1 year')";
+            prevLabel = 'vs año anterior';
+        } else if (rango === 'custom' && desdeParam && hastaParam) {
+            const d1 = new Date(desdeParam);
+            const d2 = new Date(hastaParam);
+            const days = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+            
+            const prevStart = new Date(d1); prevStart.setDate(prevStart.getDate() - days);
+            const prevEnd = new Date(d1); prevEnd.setDate(prevEnd.getDate() - 1);
+            
+            prevWhere = "WHERE date(fecha_envio) BETWEEN date(?) AND date(?)";
+            prevParams.push(prevStart.toISOString().split('T')[0], prevEnd.toISOString().split('T')[0]);
+            prevLabel = `vs ${days}d anteriores`;
+        }
+
         const gestionesPrev = db.prepare(`
-            SELECT * FROM historial_gestiones_whatsapp 
-            WHERE strftime('%Y-%m', fecha_envio) = strftime('%Y-%m', 'now', 'localtime', 'start of month', '-1 month')
-        `).all().filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
+            SELECT * FROM historial_gestiones_whatsapp ${prevWhere}
+        `).all(...prevParams).filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
 
         let dineroPrev = 0;
         let exitososPrev = 0;
@@ -2119,7 +2153,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         const varConversionPts = (conversionCurr - conversionPrev).toFixed(1);
 
         const comparativa = {
-            prev_mes_label: 'Mes Anterior',
+            prev_mes_label: prevLabel,
             prev_dinero: dineroPrev,
             var_dinero_pct: parseFloat(varDineroPct),
             prev_conversion: parseFloat(conversionPrev.toFixed(1)),

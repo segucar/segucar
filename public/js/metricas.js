@@ -104,23 +104,24 @@ function renderMetricasUI(data) {
     `;
   }
 
-  // MoM Comparison Badges
+  // Like-for-Like Comparison Badges
   const comp = data.comparativa || {};
   let badgeDinero = '';
   let badgeConversion = '';
+  const labelComp = comp.prev_mes_label || 'vs período anterior';
 
   if (comp.var_dinero_pct !== undefined && comp.var_dinero_pct !== null) {
     const isPos = comp.var_dinero_pct >= 0;
     const sign = isPos ? '+' : '';
     const color = isPos ? '#2ed573' : '#ff4757';
-    badgeDinero = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_dinero_pct}% vs mes anterior</span>`;
+    badgeDinero = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_dinero_pct}% ${labelComp}</span>`;
   }
 
   if (comp.var_conversion_pts !== undefined && comp.var_conversion_pts !== null) {
     const isPos = comp.var_conversion_pts >= 0;
     const sign = isPos ? '+' : '';
     const color = isPos ? '#00b4d8' : '#ff4757';
-    badgeConversion = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_conversion_pts} pts vs mes anterior</span>`;
+    badgeConversion = `<span style="font-size: 0.76rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 2px 8px; border-radius: 6px; border: 1px solid ${color}40; display: inline-flex; align-items: center; margin-left: 8px;">${isPos ? '📈' : '📉'} ${sign}${comp.var_conversion_pts} pts ${labelComp}</span>`;
   }
 
   const exitososSum = (data.exitosos_totales || 0) + (data.exitosos_parciales || 0);
