@@ -179,10 +179,10 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     // calDiffHabil < 0 → ya venció
     // calDiffHabil === 0 → vence hoy
 
-    if (calDiffHabil >= 0 && calDiffHabil <= 2)  return 'recordatorio_48hs';      // 🟡 Vence hoy o en 1-2 días hábiles
-    if (calDiffHabil >= -2 && calDiffHabil <= -1) return 'cuota_vencida_0_48hs';  // 🟠 Venció hace 1-2 días hábiles (Primer Aviso)
-    if (calDiffHabil >= -4 && calDiffHabil <= -3) return 'cuota_vencida_48_96hs'; // 🔴 Venció hace 3-4 días hábiles (Segundo Aviso)
-    if (calDiffHabil < -4)  return 'mora_critica';            // 🚨 Mora Crítica (5+ días hábiles)
+    if (calDiffHabil === 2)  return 'recordatorio_48hs';      // 🟡 Vence en exactamente 48 hs (2 días hábiles)
+    if (calDiffHabil === -2) return 'cuota_vencida_0_48hs';   // 🟠 Venció hace exactamente 48 hs (2 días hábiles)
+    if (calDiffHabil === -4) return 'cuota_vencida_48_96hs';  // 🔴 Venció hace exactamente 96 hs (4 días hábiles)
+    if (calDiffHabil < -4)  return 'mora_critica';            // 🚨 Mora Crítica (+96 hs)
 
     return 'al_dia';
 }
