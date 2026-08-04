@@ -429,7 +429,7 @@ async function fetchStats() {
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio96', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-    setStatValue('dashMoraCritica', (stats.mora_critica || 0).toLocaleString('es-AR'));
+
 
     // Dashboard Executive Counters - Renovaciones
     setStatValue('dashPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
@@ -441,7 +441,7 @@ async function fetchStats() {
     setStatValue('statVence48hCob', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio48hCob', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio96hCob', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-    setStatValue('statCuotasDeudaCob', (stats.mora_critica || 0).toLocaleString('es-AR'));
+
 
     // Modular View Counters - Renovaciones
     setStatValue('statPolizasVigentesRen', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));

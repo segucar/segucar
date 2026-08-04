@@ -98,14 +98,7 @@
               <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Segundo Aviso (Vencida hace 96 hs)</div>
               <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">1 cuota impaga (96 hs / Período de gracia) →</div>
             </button>
-            <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'cuota_deuda')" style="background: rgba(255,71,87,0.12); border: 1px solid rgba(255,71,87,0.45); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.8rem;">🚨</span>
-                <span style="font-size: 1.6rem; font-weight: 800; color: #ff4757;" id="dashMoraCritica">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Mora Crítica (+96 hs / Perdió Período de Gracia)</div>
-              <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">Cobertura suspendida / 2+ cuotas o &gt;96 hs →</div>
-            </button>
+
           </div>
         </div>
 
@@ -176,12 +169,7 @@
                 <span id="statVencio96hCob" style="background:rgba(231,76,60,0.3); color:#e74c3c; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
               </div>
             </button>
-            <button class="action-card-btn" onclick="filterByState('cuota_deuda')" style="background: rgba(255,71,87,0.15); border: 1px solid rgba(255,71,87,0.45); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:800; color:#ff4757;">🚨 Mora Crítica (+96 hs)</span>
-                <span id="statCuotasDeudaCob" style="background:rgba(255,71,87,0.3); color:#ff4757; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
-              </div>
-            </button>
+
           </div>
         </div>
       </div>
@@ -281,7 +269,7 @@
               <option value="vence_48h">🟡 Recordatorio 48 hs (Preventivo)</option>
               <option value="vencio_48h">🟠 Primer Aviso (Vencida hace 48 hs)</option>
               <option value="vencio_96h">🔴 Segundo Aviso (Vencida hace 96 hs)</option>
-              <option value="cuota_deuda">🚨 Mora Crítica (+96 hs / Perdió Período de Gracia)</option>
+
             </optgroup>
             <optgroup label="🛡️ MÓDULO RENOVACIONES">
               <option value="por_vencer">📄 Aviso Renovación (7 Días)</option>
