@@ -349,7 +349,8 @@ app.get('/api/dashboard/stats', (req, res) => {
 
                     if (calDiffRen === 7 && !tieneDeuda) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
-                    if (calDiffRen < 0) polizas_vencidas++;
+                    // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
+                    if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
                     if (calDiffRen >= 0) polizas_vigentes++;
                 }
             }
