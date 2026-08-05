@@ -1452,11 +1452,26 @@ function formatDate(dateStr) {
   const parts = clean.split('-');
   if (parts.length === 3) {
     const rawFormatted = `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
-    
+
     const targetDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const diffDays = Math.round((targetDate - today) / (1000 * 60 * 60 * 24));
+    const diaSemana = targetDate.getDay(); // 0=Dom,1=Lun,...,6=Sáb
+
+    // Abbreviated day name
+    const diasAbrev = ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'];
+    const diaAbrev = diasAbrev[diaSemana];
+    const esFinDeSemana = diaSemana === 0 || diaSemana === 6;
+
+    // Weekend indicator badge (amber) — explains why a Sat/Sun cuota appears in a filter
+    const finDeSemanaBadge = esFinDeSemana
+      ? `<span title="Vencimiento en ${diaSemana === 6 ? 'sábado' : 'domingo'} — el aviso se envía el siguiente día hábil"
+              style="display:inline-block;margin-left:5px;padding:1px 6px;border-radius:5px;
+                     font-size:0.68rem;font-weight:700;letter-spacing:0.02em;
+                     background:rgba(243,156,18,0.18);color:#f39c12;
+                     border:1px solid rgba(243,156,18,0.35);">⚠ ${diaAbrev}</span>`
+      : '';
 
     let relativeLabel = '';
     if (diffDays === 0) relativeLabel = 'Hoy';
@@ -1466,12 +1481,14 @@ function formatDate(dateStr) {
     else if (diffDays < -1) relativeLabel = `Hace ${Math.abs(diffDays)} días`;
 
     if (relativeLabel) {
-      return `<strong style="color:var(--accent-cyan-light); font-size:0.84rem;">${relativeLabel}</strong> <span style="font-size:0.75rem; color:var(--text-secondary);">(${rawFormatted})</span>`;
+      return `<strong style="color:var(--accent-cyan-light); font-size:0.84rem;">${relativeLabel}</strong> <span style="font-size:0.75rem; color:var(--text-secondary);">(${diaAbrev} ${rawFormatted})</span>${finDeSemanaBadge}`;
     }
-    return rawFormatted;
+    // Non-relative: still show day abbrev, and weekend badge if applicable
+    return `<span style="font-size:0.82rem; color:var(--text-secondary);">${diaAbrev} ${rawFormatted}</span>${finDeSemanaBadge}`;
   }
   return dateStr;
 }
+
 
 // ─── CRUD ACTIONS ─────────────────────────────────────────────────────────
 
