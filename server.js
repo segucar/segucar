@@ -1320,8 +1320,10 @@ app.get('/api/recuperacion', (req, res) => {
 
         let where = `WHERE (fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
             SELECT 1 FROM polizas p 
-            WHERE (p.patente = polizas_historicas.patente AND p.patente IS NOT NULL AND p.patente != '')
+            INNER JOIN clientes c ON p.cliente_id = c.id
+            WHERE (UPPER(TRIM(p.patente)) = UPPER(TRIM(polizas_historicas.patente)) AND p.patente IS NOT NULL AND p.patente != '')
                OR (p.operacion = polizas_historicas.operacion AND p.operacion IS NOT NULL AND p.operacion != '')
+               OR (UPPER(TRIM(c.nombre)) = UPPER(TRIM(polizas_historicas.nombre)) AND polizas_historicas.nombre IS NOT NULL AND polizas_historicas.nombre != '')
         )`;
         let params = [];
 
@@ -1357,8 +1359,10 @@ app.get('/api/recuperacion', (req, res) => {
         // Base counts without phone filter for stats UI
         let baseWhere = `WHERE (fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
             SELECT 1 FROM polizas p 
-            WHERE (p.patente = polizas_historicas.patente AND p.patente IS NOT NULL AND p.patente != '')
+            INNER JOIN clientes c ON p.cliente_id = c.id
+            WHERE (UPPER(TRIM(p.patente)) = UPPER(TRIM(polizas_historicas.patente)) AND p.patente IS NOT NULL AND p.patente != '')
                OR (p.operacion = polizas_historicas.operacion AND p.operacion IS NOT NULL AND p.operacion != '')
+               OR (UPPER(TRIM(c.nombre)) = UPPER(TRIM(polizas_historicas.nombre)) AND polizas_historicas.nombre IS NOT NULL AND polizas_historicas.nombre != '')
         )`;
         let baseParams = [];
         if (search) {
