@@ -320,7 +320,7 @@ db.evaluarAtribucionMetricas = () => {
 
         if (activas.length === 0) return;
 
-        const checkPolizaSaldo = db.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo FROM polizas WHERE id = ?");
+        const checkPolizaDetails = db.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo, patente, operacion FROM polizas WHERE id = ?");
         const checkClienteSaldo = db.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?");
 
         const updateGestion = db.prepare(`
@@ -333,9 +333,38 @@ db.evaluarAtribucionMetricas = () => {
 
         db.transaction(() => {
             for (const g of activas) {
+                const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(g.tipo_plantilla);
+
+                if (isRenovacion) {
+                    let hasNewOp = false;
+                    if (g.poliza_id) {
+                        const origPol = checkPolizaDetails.get(g.poliza_id);
+                        if (origPol && origPol.patente) {
+                            const newOp = db.prepare(`
+                                SELECT 1 FROM polizas 
+                                WHERE patente = ? AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
+                            `).get(origPol.patente, origPol.operacion);
+                            if (newOp) hasNewOp = true;
+                        }
+                    }
+                    if (!hasNewOp && g.cliente_id) {
+                        const newOpCli = db.prepare(`
+                            SELECT 1 FROM polizas p1
+                            INNER JOIN polizas p2 ON p1.patente = p2.patente
+                            WHERE p1.cliente_id = ? AND CAST(p2.operacion AS INTEGER) > CAST(p1.operacion AS INTEGER)
+                        `).get(g.cliente_id);
+                        if (newOpCli) hasNewOp = true;
+                    }
+
+                    if (hasNewOp) {
+                        updateGestion.run('exitoso_total', g.id);
+                        continue;
+                    }
+                }
+
                 let currentSaldo = 0;
                 if (g.poliza_id) {
-                    const polRes = checkPolizaSaldo.get(g.poliza_id);
+                    const polRes = checkPolizaDetails.get(g.poliza_id);
                     currentSaldo = polRes ? parseFloat(polRes.saldo || 0) : 0;
                 } else {
                     const saldoRes = checkClienteSaldo.get(g.cliente_id);
@@ -357,6 +386,7 @@ db.evaluarAtribucionMetricas = () => {
         console.error('Error evaluando atribución de métricas:', e);
     }
 };
+
 
 db.sincronizarSaldosCuotasHistorial = () => {
     try {
