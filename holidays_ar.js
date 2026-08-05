@@ -170,22 +170,38 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     // Si hoy no es hábil → no se notifica nada
     if (esNoHabil(hoy)) return 'al_dia';
 
-    // Fecha efectiva: primer día hábil desde el vencimiento nominal
     const vtoNominal = _normalizarFecha(fechaVencimiento);
-    const vtoEfectivo = obtenerSiguienteDiaHabil(vtoNominal);
 
-    const calDiffHabil = diasHabilesEntre(hoy, vtoEfectivo);
-    // calDiffHabil > 0 → vence en el futuro
-    // calDiffHabil < 0 → ya venció
-    // calDiffHabil === 0 → vence hoy
+    // Días calendario: negativo = ya venció, positivo = vence en el futuro
+    const calDiff = Math.round((vtoNominal - hoy) / (1000 * 60 * 60 * 24));
+    const diaSemana = hoy.getDay(); // 0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb
+    const esLunes = diaSemana === 1;
+    const esViernes = diaSemana === 5;
 
-    if (calDiffHabil === 2)  return 'recordatorio_48hs';      // 🟡 Vence en exactamente 48 hs (2 días hábiles)
-    if (calDiffHabil === -2) return 'cuota_vencida_0_48hs';   // 🟠 Venció hace exactamente 48 hs (2 días hábiles)
-    if (calDiffHabil === -4) return 'cuota_vencida_48_96hs';  // 🔴 Venció hace exactamente 96 hs (4 días hábiles)
-    if (calDiffHabil < -4)  return 'mora_critica';            // 🚨 Mora Crítica (+96 hs)
+    // ── RECORDATORIO PREVENTIVO: vence en 2 días calendario ──────────────────
+    // 🟡 Ej: hoy=Mié → recordatorio para cuotas del Vie
+    // 🟡 Lunes catch-up: recordatorio para cuotas del Lun siguiente (calDiff=3 el Vie)
+    if (calDiff === 2) return 'recordatorio_48hs';
+    if (esViernes && calDiff === 3) return 'recordatorio_48hs'; // Viernes notifica para el lunes
+
+    // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días calendario ───────
+    // 🟠 Ej: hoy=Mié → cuotas del Lun (Hace 2 días)
+    if (calDiff === -2) return 'cuota_vencida_0_48hs';
+    // Lunes catch-up: agrega el Viernes anterior (calDiff=-3) ya que Vie+2=Dom no es hábil
+    if (esLunes && calDiff === -3) return 'cuota_vencida_0_48hs';
+
+    // ── SEGUNDO AVISO (96 hs): venció hace EXACTAMENTE 4 días calendario ──────
+    // 🔴 Ej: hoy=Mié → cuotas del Sáb anterior (Hace 4 días)
+    if (calDiff === -4) return 'cuota_vencida_48_96hs';
+    // Lunes catch-up: agrega el Miércoles anterior (calDiff=-5) ya que Mié+4=Dom no es hábil
+    if (esLunes && calDiff === -5) return 'cuota_vencida_48_96hs';
+
+    // ── MORA CRÍTICA: venció hace más de 4 días ────────────────────────────────
+    if (calDiff < -4) return 'mora_critica';
 
     return 'al_dia';
 }
+
 
 /**
  * Filtra una lista de cuotas y devuelve solo las que corresponde notificar HOY.
