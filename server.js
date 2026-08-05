@@ -992,7 +992,8 @@ app.get('/api/clientes', (req, res) => {
                 // AL DIA (sin deuda) Y vence en EXACTAMENTE 7 dias
                 where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < 0` + notRenewedClause;
+                // Vencida = expiró hace entre 1 y 30 días. Más de 30 días → Recuperación.
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1` + notRenewedClause;
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
@@ -1210,7 +1211,8 @@ app.get('/api/clientes', (req, res) => {
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen < 0;
+                        // Vencida = expiró hace entre 1 y 30 días
+                        return calDiffRen < 0 && calDiffRen >= -30;
                     }
                     if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                         const est = (p.estado || '').toLowerCase();
