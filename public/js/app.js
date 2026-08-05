@@ -836,7 +836,12 @@ function createClientRow(client, poliza, isSecondary = false) {
           </button>
         ` : (client.telefono && client.telefono.length >= 10) ? `
           ${(() => {
-            const isWaSent = localStorage.getItem('segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '')) === 'true';
+            const _waSentKey = 'segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '');
+            const _waSentVal = localStorage.getItem(_waSentKey);
+            const _todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
+            // "Enviado" solo vale para HOY — si es de otro día, se resetea automáticamente
+            const isWaSent = _waSentVal === _todayStr;
+
             // ⚡ Opción B: deshabilitar botón WhatsApp en días no hábiles
             const isDiaNoHabil = poliza && poliza.es_dia_no_habil;
             const btnClass = isWaSent ? 'btn-whatsapp-sent' : 'btn-whatsapp';
@@ -1332,7 +1337,8 @@ async function reportInvalidPhone(clientId) {
 
 function markWhatsAppAsSent(clientId, operacion) {
   const key = 'segucar_wa_sent_' + clientId + '_' + (operacion || '');
-  localStorage.setItem(key, 'true');
+  localStorage.setItem(key, new Date().toISOString().slice(0, 10)); // guarda "YYYY-MM-DD" — expira al día siguiente
+
 
   const btns = document.querySelectorAll(`.btn-smart-wa[data-cli="${clientId}"][data-pol="${operacion || ''}"]`);
   btns.forEach(btn => {
