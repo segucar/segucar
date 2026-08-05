@@ -981,6 +981,7 @@ app.get('/api/clientes', (req, res) => {
             where += ` AND p.tipo_vehiculo = ?`;
             params.push(tipo_vehiculo);
         }
+        let orderOverride = null;
         if (estado) {
             const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
 
@@ -993,7 +994,15 @@ app.get('/api/clientes', (req, res) => {
                 where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                 // Vencida = expiró hace entre 1 y 30 días. Más de 30 días → Recuperación.
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1` + notRenewedClause;
+                // Solo muestra los que tienen 0 o 1 cuota pendiente:
+                //   0 cuotas → al dia, candidatos prime (arriba)
+                //   1 cuota  → parcial, candidatos secundarios (abajo)
+                //   2+ cuotas → ya están en mora, no son candidatos de renovación, se excluyen
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1`
+                       + ` AND COALESCE(p.cuotas_debe, 0) <= 1`
+                       + notRenewedClause;
+                // Ensure al-dia rows come first, 1-cuota-pending rows last
+                orderOverride = `COALESCE(p.cuotas_debe, 0) ASC, COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) DESC`;
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
@@ -1144,6 +1153,10 @@ app.get('/api/clientes', (req, res) => {
             orderByClause = `c.nombre ${sortDir}`;
         } else if (isSortByPolizaCol) {
             orderByClause = `sort_val ${sortDir}, sort_fecha ASC, c.nombre ASC`;
+        }
+        // State-specific override (e.g. poliza_vencida: al-dia primero, 1-cuota al final)
+        if (typeof orderOverride !== 'undefined' && orderOverride) {
+            orderByClause = orderOverride + ', c.nombre ASC';
         }
 
         const query = `
