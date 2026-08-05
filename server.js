@@ -2026,7 +2026,7 @@ app.get('/api/metricas/resumen', (req, res) => {
 
         if (rango === 'hoy') {
             boundsStart = todayStart;
-            boundsEnd = now;
+            boundsEnd = todayEnd;
             prevStart = new Date(todayStart); prevStart.setDate(prevStart.getDate() - 1);
             prevEnd = new Date(todayEnd); prevEnd.setDate(prevEnd.getDate() - 1);
             prevLabel = 'vs ayer';
@@ -2034,14 +2034,14 @@ app.get('/api/metricas/resumen', (req, res) => {
             const dayOfWeek = todayStart.getDay();
             const diffToMon = (dayOfWeek + 6) % 7; // Monday = 0
             boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - diffToMon);
-            boundsEnd = now;
+            boundsEnd = todayEnd;
 
             prevStart = new Date(boundsStart); prevStart.setDate(prevStart.getDate() - 7);
             prevEnd = new Date(boundsStart); prevEnd.setMilliseconds(-1);
             prevLabel = 'vs semana anterior';
         } else if (rango === 'este_mes') {
             boundsStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
-            boundsEnd = now;
+            boundsEnd = todayEnd;
 
             prevStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
             prevEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
@@ -2055,14 +2055,14 @@ app.get('/api/metricas/resumen', (req, res) => {
             prevLabel = 'vs mes previo';
         } else if (rango === '30_dias') {
             boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - 30);
-            boundsEnd = now;
+            boundsEnd = todayEnd;
 
             prevStart = new Date(boundsStart); prevStart.setDate(prevStart.getDate() - 30);
             prevEnd = new Date(boundsStart); prevEnd.setMilliseconds(-1);
             prevLabel = 'vs 30 días anteriores';
         } else if (rango === 'anio_actual') {
             boundsStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
-            boundsEnd = now;
+            boundsEnd = todayEnd;
 
             prevStart = new Date(now.getFullYear() - 1, 0, 1, 0, 0, 0, 0);
             prevEnd = new Date(now.getFullYear() - 1, 11, 31, 23, 59, 59, 999);
@@ -2083,10 +2083,11 @@ app.get('/api/metricas/resumen', (req, res) => {
         if (boundsStart && boundsEnd) {
             const sStr = toSqliteDateStr(boundsStart);
             const eStr = toSqliteDateStr(boundsEnd);
-            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE fecha_envio >= ? AND fecha_envio <= ?`).all(sStr, eStr);
+            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, 'localtime') >= ? AND datetime(fecha_envio, 'localtime') <= ?`).all(sStr, eStr);
         } else {
             gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp`).all();
         }
+
 
         const gestiones = gestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
 
@@ -2196,8 +2197,9 @@ app.get('/api/metricas/resumen', (req, res) => {
         if (prevStart && prevEnd) {
             const psStr = toSqliteDateStr(prevStart);
             const peStr = toSqliteDateStr(prevEnd);
-            gestionesPrevRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE fecha_envio >= ? AND fecha_envio <= ?`).all(psStr, peStr);
+            gestionesPrevRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, 'localtime') >= ? AND datetime(fecha_envio, 'localtime') <= ?`).all(psStr, peStr);
         }
+
 
         const gestionesPrev = gestionesPrevRaw.filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
 
