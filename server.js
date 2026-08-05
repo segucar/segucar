@@ -2108,9 +2108,28 @@ app.get('/api/metricas/resumen', (req, res) => {
             const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
 
             if (isRenovacion) {
-                const valorPolizaRenovada = 55865;
-                return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
+                let isPaid = false;
+                if (g.poliza_id) {
+                    const origPol = db.prepare("SELECT patente, operacion FROM polizas WHERE id = ?").get(g.poliza_id);
+                    if (origPol && origPol.patente) {
+                        const paidPol = db.prepare(`
+                            SELECT 1 FROM polizas 
+                            WHERE patente = ? AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
+                              AND (COALESCE(saldo_pendiente, 0) = 0 OR COALESCE(cuotas_debe, 3) < COALESCE(total_cuotas, 3))
+                        `).get(origPol.patente, origPol.operacion);
+                        if (paidPol) isPaid = true;
+                    }
+                }
+
+                if (isPaid) {
+                    const valorPolizaRenovada = 55865;
+                    return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
+                }
+                // Renovó (nueva operación): cuenta como exitoso en conteo de gestiones, pero $0.00 en dinero recuperado hasta que se registre el pago
+                return 0;
             }
+
+
 
             if (g.estado_resultado === 'exitoso_total') {
                 return saldoEnviar;
@@ -2129,6 +2148,7 @@ app.get('/api/metricas/resumen', (req, res) => {
 
             return 0;
         }
+
 
         let dinero_recuperado_total = 0;
         

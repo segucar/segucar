@@ -336,30 +336,29 @@ db.evaluarAtribucionMetricas = () => {
                 const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(g.tipo_plantilla);
 
                 if (isRenovacion) {
-                    let hasNewOpPaid = false;
+                    let hasNewOp = false;
                     if (g.poliza_id) {
                         const origPol = checkPolizaDetails.get(g.poliza_id);
                         if (origPol && origPol.patente) {
                             const newOp = db.prepare(`
                                 SELECT 1 FROM polizas 
                                 WHERE patente = ? AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
-                                  AND (COALESCE(saldo_pendiente, 0) = 0 OR COALESCE(cuotas_debe, 3) < COALESCE(total_cuotas, 3))
                             `).get(origPol.patente, origPol.operacion);
-                            if (newOp) hasNewOpPaid = true;
+                            if (newOp) hasNewOp = true;
                         }
                     }
-                    if (!hasNewOpPaid && g.cliente_id) {
+                    if (!hasNewOp && g.cliente_id) {
                         const newOpCli = db.prepare(`
                             SELECT 1 FROM polizas p1
                             INNER JOIN polizas p2 ON p1.patente = p2.patente
                             WHERE p1.cliente_id = ? AND CAST(p2.operacion AS INTEGER) > CAST(p1.operacion AS INTEGER)
-                              AND (COALESCE(p2.saldo_pendiente, 0) = 0 OR COALESCE(p2.cuotas_debe, 3) < COALESCE(p2.total_cuotas, 3))
                         `).get(g.cliente_id);
-                        if (newOpCli) hasNewOpPaid = true;
+                        if (newOpCli) hasNewOp = true;
                     }
 
-                    // ⚠️ REGLA: Solo sumar a las estadísticas si renovó Y PAGÓ. Si renovó pero no pagó, sigue 'pendiente'.
-                    if (hasNewOpPaid) {
+                    // ⚠️ REGLA: Si generó nueva operación por renovación, cuenta como EXITOSO en gestiones (sale de la lista de renovaciones pendientes).
+                    // El dinero recuperado se suma $0.00 si aún no pagó, o el valor de la póliza si ya pagó.
+                    if (hasNewOp) {
                         updateGestion.run('exitoso_total', g.id);
                         continue;
                     }
@@ -389,6 +388,7 @@ db.evaluarAtribucionMetricas = () => {
         console.error('Error evaluando atribución de métricas:', e);
     }
 };
+
 
 
 
