@@ -839,8 +839,8 @@ function createClientRow(client, poliza, isSecondary = false) {
             const _waSentKey = 'segucar_wa_sent_' + client.id + '_' + (poliza ? poliza.operacion : '');
             const _waSentVal = localStorage.getItem(_waSentKey);
             const _todayStr = new Date().toISOString().slice(0, 10); // "YYYY-MM-DD"
-            // "Enviado" solo vale para HOY — si es de otro día, se resetea automáticamente
-            const isWaSent = _waSentVal === _todayStr;
+            // Fuente de verdad: DB (contacted_today) primero, localStorage como fallback rápido
+            const isWaSent = client.contacted_today === true || _waSentVal === _todayStr;
 
             // ⚡ Opción B: deshabilitar botón WhatsApp en días no hábiles
             const isDiaNoHabil = poliza && poliza.es_dia_no_habil;

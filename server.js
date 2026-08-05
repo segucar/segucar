@@ -963,6 +963,13 @@ app.get('/api/clientes', (req, res) => {
         const hoyClientes = new Date();
         const esDiaNoHabilClientes = esNoHabil(hoyClientes);
 
+        // ── Clientes contactados HOY (fuente de verdad para el botón "Enviado") ──
+        const hoyDateStr = toLocalISOString(hoyClientes);
+        const contactadosHoyRows = db.prepare(
+            `SELECT DISTINCT cliente_id FROM contactos WHERE DATE(fecha) = ?`
+        ).all(hoyDateStr);
+        const contactadosHoySet = new Set(contactadosHoyRows.map(r => r.cliente_id));
+
         const dateVence48h = addCalendarDays(todayStr, 2);
         const dateVencio48h = addCalendarDays(todayStr, -2);
         const dateVencio96h = addCalendarDays(todayStr, -4);
@@ -1313,6 +1320,9 @@ app.get('/api/clientes', (req, res) => {
                 p.es_dia_no_habil = esDiaNoHabilClientes;
             }
             cliente.polizas = polizasDeduplicadas;
+            // ── Fuente de verdad para el botón "Enviado": viene de la DB, no del localStorage ──
+            cliente.contacted_today = contactadosHoySet.has(cliente.id);
+
         }
 
         let finalClientes = clientes;
