@@ -131,8 +131,13 @@ function renderTable() {
         </button>
       `;
 
+    // Badge if client already has another active policy (different vehicle)
+    const yaClienteBadge = item.ya_es_cliente
+      ? `<span title="Este cliente ya tiene otra póliza activa con otro vehículo" style="margin-left:6px; font-size:0.68rem; padding:2px 7px; background:rgba(0,200,83,0.12); color:#00c853; border:1px solid rgba(0,200,83,0.3); border-radius:10px; font-weight:700; vertical-align:middle; white-space:nowrap;">✅ Ya activo</span>`
+      : '';
+
     tr.innerHTML = `
-      <td><strong>${escapeHtml(item.nombre || '-')}</strong></td>
+      <td><strong>${escapeHtml(item.nombre || '-')}</strong>${yaClienteBadge}</td>
       <td>${phoneColHtml}</td>
       <td><strong>${escapeHtml(item.patente || '-')}</strong></td>
       <td><span style="font-size:0.83rem; font-weight:700; color:var(--text-secondary); font-family:monospace; background:rgba(255,255,255,0.05); padding:3px 8px; border-radius:6px;">${escapeHtml(item.operacion || '-')}</span></td>
