@@ -24,6 +24,7 @@
         <a href="#" onclick="switchView('cobranza'); return false;" id="navCobranza" class="nav-link">💰 Cobranza</a>
         <a href="#" onclick="switchView('renovaciones'); return false;" id="navRenovaciones" class="nav-link">🛡️ Renovaciones</a>
         <a href="#" onclick="switchView('metricas'); return false;" id="navMetricas" class="nav-link">📊 Métricas</a>
+        <a href="#" onclick="switchView('validacion'); return false;" id="navValidacion" class="nav-link" style="color:#a29bfe;font-weight:700;">📱 Validar Teléfonos</a>
         <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
         <a href="importar.html" class="nav-link">📥 Importar</a>
         <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
@@ -588,6 +589,38 @@
           <button type="submit" class="btn btn-primary" style="font-weight:700;">💾 Dar de Alta Cliente & Póliza</button>
         </div>
       </form>
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       📱 VIEW: VALIDACIÓN DE TELÉFONOS (Pre-integración WA API)
+       ══════════════════════════════════════════════════════════════════════ -->
+  <div id="viewValidacion" class="view-section" style="display:none;">
+    <div style="max-width:900px;margin:0 auto;">
+
+      <!-- Header -->
+      <div style="margin-bottom:24px;">
+        <h2 style="font-size:1.5rem;font-weight:800;margin:0 0 6px 0;color:#a29bfe;">📱 Validación de Teléfonos</h2>
+        <p style="color:var(--text-secondary);margin:0;font-size:0.88rem;">Revisá los números antes de conectar la API de WhatsApp Business. Un número duplicado o falso hace que el mensaje llegue al cliente equivocado.</p>
+      </div>
+
+      <!-- Resumen tarjetas -->
+      <div id="valResumen" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:28px;"></div>
+
+      <!-- Números comodín -->
+      <div class="card" style="margin-bottom:20px;padding:20px;border-radius:14px;border:1px solid rgba(255,71,87,0.3);background:rgba(255,71,87,0.06);">
+        <div style="font-weight:800;font-size:0.95rem;color:#ff4757;margin-bottom:4px;">🚨 Números Comodín (probablemente falsos)</div>
+        <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:14px;">Estos números tienen 8 o más clientes distintos asignados. Es casi seguro que fueron usados como relleno cuando no se conocía el número real. <strong>No enviar WhatsApp a estos clientes hasta corregirlo.</strong></div>
+        <div id="valComodines"><div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div></div>
+      </div>
+
+      <!-- Duplicados con apellidos distintos -->
+      <div class="card" style="padding:20px;border-radius:14px;border:1px solid rgba(253,203,110,0.3);background:rgba(253,203,110,0.05);">
+        <div style="font-weight:800;font-size:0.95rem;color:#fdcb6e;margin-bottom:4px;">⚠️ Mismo número, distintos apellidos</div>
+        <div style="font-size:0.82rem;color:var(--text-secondary);margin-bottom:14px;">Estos pares comparten el mismo teléfono pero son personas distintas. Podría ser un error de carga o un número compartido en el mismo hogar. Revisá cuál es el correcto.</div>
+        <div id="valDuplicados"><div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div></div>
+      </div>
+
     </div>
   </div>
 

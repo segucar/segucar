@@ -1933,6 +1933,56 @@ app.get('/api/telefonos-invalidos', (req, res) => {
 
 app.get('/api/reportes/telefonos-invalidos', generarExcelEstructuradoExcelJS);
 
+// ─── VALIDACIÓN DE TELÉFONOS (para integración WA API) ───────────────────────
+app.get('/api/validacion-telefonos', (req, res) => {
+    try {
+        const clientes = db.prepare(
+            "SELECT id, nombre, telefono FROM clientes WHERE telefono IS NOT NULL AND length(replace(telefono, ' ', '')) >= 9"
+        ).all();
+
+        const grupos = {};
+        clientes.forEach(c => {
+            const raw = String(c.telefono).replace(/[^0-9]/g, '');
+            if (!grupos[raw]) grupos[raw] = [];
+            grupos[raw].push({ id: c.id, nombre: c.nombre, telefono: c.telefono });
+        });
+
+        const comodines = [];   // ≥8 clientes con apellidos distintos = número falso/relleno
+        const duplicados = [];  // 2-7 clientes con apellidos distintos = probable error de carga
+
+        Object.entries(grupos).forEach(([num, lista]) => {
+            if (lista.length < 2) return;
+            const apellidos = lista.map(c => c.nombre.trim().split(/\s+/)[0].toLowerCase());
+            const todosIguales = apellidos.every(a => a === apellidos[0]);
+            if (todosIguales) return; // misma familia, ok
+
+            const entry = { telefono: num, clientes: lista };
+            if (lista.length >= 8) comodines.push(entry);
+            else duplicados.push(entry);
+        });
+
+        // Totales generales
+        const total = db.prepare("SELECT COUNT(*) as n FROM clientes").get().n;
+        const sinTel = db.prepare("SELECT COUNT(*) as n FROM clientes WHERE telefono IS NULL OR length(replace(telefono,' ','')) < 9").get().n;
+
+        res.json({
+            resumen: {
+                total_clientes: total,
+                sin_telefono: sinTel,
+                con_telefono: total - sinTel,
+                comodines: comodines.length,
+                duplicados_distintos: duplicados.length
+            },
+            comodines,
+            duplicados
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  MÉTRICAS Y CONVERSIÓN COMERCIAL (Atribución Automática & Edge Cases)
 // ═══════════════════════════════════════════════════════════════════════════

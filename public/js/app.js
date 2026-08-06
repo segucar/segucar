@@ -230,29 +230,29 @@ document.addEventListener('click', (e) => {
 function switchView(viewName) {
   state.activeView = viewName;
 
-  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas'].forEach(id => {
+  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
 
-  if (viewName === 'dashboard') document.getElementById('navDashboard')?.classList.add('active');
-  else if (viewName === 'cobranza') document.getElementById('navCobranza')?.classList.add('active');
+  if (viewName === 'dashboard')    document.getElementById('navDashboard')?.classList.add('active');
+  else if (viewName === 'cobranza')    document.getElementById('navCobranza')?.classList.add('active');
   else if (viewName === 'renovaciones') document.getElementById('navRenovaciones')?.classList.add('active');
-  else if (viewName === 'metricas') document.getElementById('navMetricas')?.classList.add('active');
+  else if (viewName === 'metricas')    document.getElementById('navMetricas')?.classList.add('active');
+  else if (viewName === 'validacion')  document.getElementById('navValidacion')?.classList.add('active');
 
   // 1. Ocultar todas las vistas principales
-  ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas'].forEach(id => {
+  ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas', 'viewValidacion'].forEach(id => {
     const el = document.getElementById(id);
-    if (el) {
-      el.style.display = 'none';
-      el.classList.add('hidden');
-    }
+    if (el) { el.style.display = 'none'; el.classList.add('hidden'); }
   });
 
   // 2. Encender la vista seleccionada
-  const targetId = viewName === 'cobranza' ? 'viewCobranza' : 
-                   viewName === 'renovaciones' ? 'viewRenovaciones' : 
-                   viewName === 'metricas' ? 'viewMetricas' : 'viewDashboard';
+  const targetId = viewName === 'cobranza'    ? 'viewCobranza'
+                 : viewName === 'renovaciones' ? 'viewRenovaciones'
+                 : viewName === 'metricas'     ? 'viewMetricas'
+                 : viewName === 'validacion'   ? 'viewValidacion'
+                 : 'viewDashboard';
   const targetView = document.getElementById(targetId);
   if (targetView) {
     targetView.classList.remove('hidden');
@@ -292,6 +292,10 @@ function switchView(viewName) {
     if (typeof fetchMetricas === 'function') fetchMetricas();
     return;
   }
+  if (viewName === 'validacion') {
+    loadValidacion();
+    return;
+  }
 
   if (viewName === 'cobranza') {
     if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
@@ -315,6 +319,70 @@ function openViewWithFilter(viewName, filterVal) {
   switchView(viewName);
   filterByState(filterVal);
 }
+
+// ─── VALIDACIÓN DE TELÉFONOS ──────────────────────────────────────────────────────
+async function loadValidacion() {
+  const elRes      = document.getElementById('valResumen');
+  const elCom      = document.getElementById('valComodines');
+  const elDup      = document.getElementById('valDuplicados');
+  if (!elRes) return;
+  elRes.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div>';
+  elCom.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div>';
+  elDup.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div>';
+
+  try {
+    const r = await fetch('/api/validacion-telefonos');
+    const d = await r.json();
+    const s = d.resumen;
+
+    // Tarjetas resumen
+    const cards = [
+      { label: 'Total Clientes',      val: s.total_clientes,      color: '#a29bfe' },
+      { label: 'Con Teléfono ✅',      val: s.con_telefono,        color: '#00b894' },
+      { label: 'Sin Teléfono ❌',      val: s.sin_telefono,        color: '#ff4757' },
+      { label: 'Números Comodín 🚨',  val: s.comodines,          color: '#ff6b35' },
+      { label: 'Duplicados Distintos ⚠️', val: s.duplicados_distintos, color: '#fdcb6e' },
+    ];
+    elRes.innerHTML = cards.map(c => `
+      <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:1.6rem;font-weight:800;color:${c.color};">${c.val}</div>
+        <div style="font-size:0.78rem;color:var(--text-secondary);margin-top:4px;">${c.label}</div>
+      </div>`).join('');
+
+    // Comodines
+    if (!d.comodines.length) {
+      elCom.innerHTML = '<div style="color:#00b894;font-weight:700;">✅ No se encontraron números comodín. ¡Todo limpio!</div>';
+    } else {
+      elCom.innerHTML = d.comodines.map(g => `
+        <div style="background:rgba(255,71,87,0.08);border:1px solid rgba(255,71,87,0.2);border-radius:10px;padding:12px 16px;margin-bottom:10px;">
+          <div style="font-family:monospace;font-size:0.9rem;font-weight:700;color:#ff4757;margin-bottom:8px;">📱 +${g.telefono} <span style="font-size:0.78rem;color:var(--text-secondary);font-family:sans-serif;font-weight:400;">(${g.clientes.length} clientes asignados)</span></div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;">
+            ${g.clientes.map(c => `<span style="background:rgba(255,71,87,0.15);border:1px solid rgba(255,71,87,0.3);border-radius:6px;padding:3px 8px;font-size:0.78rem;cursor:pointer;" onclick="switchView('cobranza');setTimeout(()=>{document.getElementById('searchInput').value='${c.nombre.split(' ')[0]}';applyFilters();},400);" title="Ver cliente">${c.nombre}</span>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+
+    // Duplicados con apellidos distintos
+    if (!d.duplicados.length) {
+      elDup.innerHTML = '<div style="color:#00b894;font-weight:700;">✅ No se encontraron duplicados con apellidos distintos.</div>';
+    } else {
+      elDup.innerHTML = d.duplicados.map(g => `
+        <div style="background:rgba(253,203,110,0.06);border:1px solid rgba(253,203,110,0.2);border-radius:10px;padding:12px 16px;margin-bottom:10px;">
+          <div style="font-family:monospace;font-size:0.88rem;font-weight:700;color:#fdcb6e;margin-bottom:8px;">📱 +${g.telefono}</div>
+          <div style="display:flex;flex-direction:column;gap:4px;">
+            ${g.clientes.map(c => `
+              <div style="display:flex;justify-content:space-between;align-items:center;background:rgba(255,255,255,0.03);border-radius:6px;padding:5px 10px;">
+                <span style="font-size:0.83rem;">${c.nombre} <span style="color:var(--text-secondary);font-size:0.75rem;">(id ${c.id})</span></span>
+              </div>`).join('')}
+          </div>
+        </div>`).join('');
+    }
+
+  } catch (err) {
+    elRes.innerHTML = `<div style="color:#ff4757;">Error al cargar: ${err.message}</div>`;
+  }
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 function handleSort(col) {
   if (state.sort.by === col) {
