@@ -230,7 +230,7 @@ document.addEventListener('click', (e) => {
 function switchView(viewName) {
   state.activeView = viewName;
 
-  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion'].forEach(id => {
+  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion', 'navBandejaWA'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });
@@ -240,9 +240,10 @@ function switchView(viewName) {
   else if (viewName === 'renovaciones') document.getElementById('navRenovaciones')?.classList.add('active');
   else if (viewName === 'metricas')    document.getElementById('navMetricas')?.classList.add('active');
   else if (viewName === 'validacion')  document.getElementById('navValidacion')?.classList.add('active');
+  else if (viewName === 'bandejaWA')   document.getElementById('navBandejaWA')?.classList.add('active');
 
   // 1. Ocultar todas las vistas principales
-  ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas', 'viewValidacion'].forEach(id => {
+  ['viewDashboard', 'viewCobranza', 'viewRenovaciones', 'viewMetricas', 'viewValidacion', 'viewBandejaWA'].forEach(id => {
     const el = document.getElementById(id);
     if (el) { el.style.display = 'none'; el.classList.add('hidden'); }
   });
@@ -252,6 +253,7 @@ function switchView(viewName) {
                  : viewName === 'renovaciones' ? 'viewRenovaciones'
                  : viewName === 'metricas'     ? 'viewMetricas'
                  : viewName === 'validacion'   ? 'viewValidacion'
+                 : viewName === 'bandejaWA'    ? 'viewBandejaWA'
                  : 'viewDashboard';
   const targetView = document.getElementById(targetId);
   if (targetView) {
@@ -294,6 +296,10 @@ function switchView(viewName) {
   }
   if (viewName === 'validacion') {
     loadValidacion();
+    return;
+  }
+  if (viewName === 'bandejaWA') {
+    loadBandejaWA();
     return;
   }
 
@@ -379,8 +385,163 @@ async function loadValidacion() {
         </div>`).join('');
     }
 
+// ─── BANDEJA DE ENTRADA WHATSAPP & CONFIGURACIÓN API ──────────────────────────────
+let waSelectedClient = null;
+
+async function loadBandejaWA() {
+  const elList = document.getElementById('waChatList');
+  if (!elList) return;
+  elList.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;">Cargando conversaciones...</div>';
+
+  try {
+    const r = await fetch('/api/whatsapp/bandeja');
+    const chats = await r.json();
+
+    if (!chats || chats.length === 0) {
+      elList.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;padding:12px;">Sin conversaciones activas aún. Los mensajes enviados y recibidos aparecerán aquí.</div>';
+      return;
+    }
+
+    elList.innerHTML = chats.map(c => `
+      <div onclick="selectWaChat(${c.cliente_id}, '${escapeHtml(c.cliente_nombre)}', '${c.cliente_telefono}')" style="background:${waSelectedClient && waSelectedClient.id === c.cliente_id ? 'rgba(46,213,115,0.15)' : 'rgba(255,255,255,0.03)'};border:1px solid ${waSelectedClient && waSelectedClient.id === c.cliente_id ? '#2ed573' : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:12px;cursor:pointer;transition:all 0.2s ease;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <strong style="font-size:0.88rem;color:#fff;">${escapeHtml(c.cliente_nombre)}</strong>
+          ${c.sin_leer > 0 ? `<span style="background:#ff4757;color:#fff;font-size:0.7rem;font-weight:800;border-radius:10px;padding:2px 6px;">${c.sin_leer}</span>` : ''}
+        </div>
+        <div style="font-size:0.78rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+          ${c.ultima_direccion === 'saliente' ? '↩️ ' : '📥 '}${escapeHtml(c.ultimo_mensaje || '')}
+        </div>
+        <div style="font-size:0.7rem;color:rgba(255,255,255,0.3);margin-top:4px;text-align:right;">
+          ${new Date(c.ultima_fecha).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+        </div>
+      </div>
+    `).join('');
   } catch (err) {
-    elRes.innerHTML = `<div style="color:#ff4757;">Error al cargar: ${err.message}</div>`;
+    elList.innerHTML = `<div style="color:#ff4757;font-size:0.85rem;">Error al cargar chats: ${err.message}</div>`;
+  }
+}
+
+async function selectWaChat(clienteId, nombre, telefono) {
+  waSelectedClient = { id: clienteId, nombre, telefono };
+  document.getElementById('waActiveClientName').innerText = nombre;
+  document.getElementById('waActiveClientPhone').innerText = '+' + telefono;
+  document.getElementById('waInputMessage').disabled = false;
+  document.getElementById('waBtnSend').disabled = false;
+
+  const elMsgs = document.getElementById('waChatMessages');
+  elMsgs.innerHTML = '<div style="color:var(--text-secondary);text-align:center;margin-top:20px;">Cargando mensajes...</div>';
+
+  // Recargar la lista para actualizar el highlight
+  loadBandejaWA();
+
+  try {
+    const r = await fetch(`/api/whatsapp/chat/${clienteId}`);
+    const history = await r.json();
+
+    if (!history || history.length === 0) {
+      elMsgs.innerHTML = '<div style="color:var(--text-secondary);text-align:center;margin-top:20px;">Sin historial de mensajes con este cliente.</div>';
+      return;
+    }
+
+    elMsgs.innerHTML = history.map(m => {
+      const isSaliente = m.direccion === 'saliente';
+      const statusIcon = m.estado === 'leido' ? '🔵🔵' : m.estado === 'entregado' ? '✓✓' : '✓';
+      return `
+        <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:75%;background:${isSaliente ? 'rgba(46,213,115,0.18)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isSaliente ? 'rgba(46,213,115,0.35)' : 'rgba(255,255,255,0.12)'};border-radius:12px;padding:10px 14px;color:#fff;">
+          <div style="font-size:0.88rem;word-break:break-word;">${escapeHtml(m.mensaje)}</div>
+          <div style="font-size:0.68rem;color:rgba(255,255,255,0.4);margin-top:4px;text-align:right;">
+            ${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} ${isSaliente ? statusIcon : ''}
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Auto-scroll al final del chat
+    elMsgs.scrollTop = elMsgs.scrollHeight;
+  } catch (err) {
+    elMsgs.innerHTML = `<div style="color:#ff4757;text-align:center;">Error al cargar chat: ${err.message}</div>`;
+  }
+}
+
+async function handleSendWaChat(event) {
+  event.preventDefault();
+  if (!waSelectedClient) return;
+
+  const input = document.getElementById('waInputMessage');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+
+  try {
+    const r = await fetch('/api/whatsapp/enviar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cliente_id: waSelectedClient.id,
+        telefono: waSelectedClient.telefono,
+        mensaje: text
+      })
+    });
+
+    const res = await r.json();
+    if (res.ok) {
+      // Recargar chat para ver el mensaje enviado
+      selectWaChat(waSelectedClient.id, waSelectedClient.nombre, waSelectedClient.telefono);
+    } else {
+      alert('Error enviando mensaje: ' + (res.error || 'Desconocido'));
+    }
+  } catch (err) {
+    alert('Error de red: ' + err.message);
+  }
+}
+
+async function openModalWaConfig() {
+  const modal = document.getElementById('modalWaConfig');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  // Cargar config actual
+  try {
+    const r = await fetch('/api/whatsapp/config');
+    const cfg = await r.json();
+    document.getElementById('waCfgModo').value = cfg.modo || 'simulacion';
+    document.getElementById('waCfgApiKey').value = cfg.api_key || '';
+    
+    // Formatear URL de Webhook sugerida
+    const origin = window.location.origin;
+    document.getElementById('waCfgWebhookUrl').value = `${origin}/api/webhooks/whatsapp`;
+  } catch (err) {
+    console.error('Error cargando WA config:', err);
+  }
+}
+
+function closeModalWaConfig() {
+  const modal = document.getElementById('modalWaConfig');
+  if (modal) modal.style.display = 'none';
+}
+
+async function handleSaveWaConfig(event) {
+  event.preventDefault();
+  const modo = document.getElementById('waCfgModo').value;
+  const api_key = document.getElementById('waCfgApiKey').value.trim();
+  const webhook_url = document.getElementById('waCfgWebhookUrl').value;
+
+  try {
+    const r = await fetch('/api/whatsapp/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ modo, api_key, webhook_url, proveedor: '360dialog' })
+    });
+    const res = await r.json();
+    if (res.ok) {
+      alert('✅ Configuración de WhatsApp API guardada correctamente.');
+      closeModalWaConfig();
+    } else {
+      alert('Error guardando configuración: ' + res.error);
+    }
+  } catch (err) {
+    alert('Error de red: ' + err.message);
   }
 }
 // ─────────────────────────────────────────────────────────────────────────────

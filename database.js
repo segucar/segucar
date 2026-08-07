@@ -168,6 +168,32 @@ db.exec(`
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 📩 TABLA: Mensajes WhatsApp API (Entrantes y Salientes)
+    CREATE TABLE IF NOT EXISTS mensajes_whatsapp (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cliente_id INTEGER REFERENCES clientes(id) ON DELETE CASCADE,
+        wa_message_id TEXT,
+        direccion TEXT NOT NULL DEFAULT 'saliente', -- 'saliente' | 'entrante'
+        telefono TEXT NOT NULL,
+        mensaje TEXT NOT NULL,
+        tipo TEXT DEFAULT 'texto', -- 'texto' | 'plantilla' | 'imagen' | 'documento'
+        estado TEXT DEFAULT 'enviado', -- 'enviado' | 'entregado' | 'leido' | 'fallido' | 'recibido'
+        meta_data TEXT NULL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    -- ⚙️ TABLA: Configuración WhatsApp API (360dialog / Meta)
+    CREATE TABLE IF NOT EXISTS config_whatsapp_api (
+        id INTEGER PRIMARY KEY DEFAULT 1,
+        proveedor TEXT DEFAULT '360dialog',
+        api_key TEXT DEFAULT '',
+        waba_id TEXT DEFAULT '',
+        phone_number_id TEXT DEFAULT '',
+        modo TEXT DEFAULT 'simulacion', -- 'simulacion' (web.whatsapp fallback) | 'oficial' (360dialog API)
+        webhook_url TEXT DEFAULT '',
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE INDEX IF NOT EXISTS idx_polizas_cliente_id ON polizas(cliente_id);
     CREATE INDEX IF NOT EXISTS idx_polizas_operacion ON polizas(operacion);
     CREATE INDEX IF NOT EXISTS idx_polizas_patente ON polizas(patente);
@@ -176,6 +202,8 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
     CREATE INDEX IF NOT EXISTS idx_clientes_telefono ON clientes(telefono);
     CREATE INDEX IF NOT EXISTS idx_cuotas_admin_poliza ON cuotas_admin(poliza_id);
+    CREATE INDEX IF NOT EXISTS idx_mensajes_wa_cliente ON mensajes_whatsapp(cliente_id);
+    CREATE INDEX IF NOT EXISTS idx_mensajes_wa_msgid ON mensajes_whatsapp(wa_message_id);
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────

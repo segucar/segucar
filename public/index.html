@@ -24,12 +24,12 @@
         <a href="#" onclick="switchView('cobranza'); return false;" id="navCobranza" class="nav-link">💰 Cobranza</a>
         <a href="#" onclick="switchView('renovaciones'); return false;" id="navRenovaciones" class="nav-link">🛡️ Renovaciones</a>
         <a href="#" onclick="switchView('metricas'); return false;" id="navMetricas" class="nav-link">📊 Métricas</a>
+        <a href="#" onclick="switchView('bandejaWA'); return false;" id="navBandejaWA" class="nav-link" style="color:#2ed573;font-weight:700;">💬 Bandeja WhatsApp</a>
         <a href="#" onclick="switchView('validacion'); return false;" id="navValidacion" class="nav-link" style="color:#a29bfe;font-weight:700;">📱 Validar Teléfonos</a>
         <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
         <a href="importar.html" class="nav-link">📥 Importar</a>
         <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
-        <a href="#" onclick="openModalAdminCobranzas(); return false;" class="nav-link" style="color: #48cae4; font-weight:700;">⚙️ Cuotas & Acarreo (Admin)</a>
-        <a href="/api/exportar-excel" class="nav-link" style="color:var(--accent-cyan-light); font-weight:600; display:inline-flex; align-items:center; gap:6px;">📥 Exportar Excel</a>
+        <a href="#" onclick="openModalWaConfig(); return false;" class="nav-link" style="color:#2ed573;font-weight:600;">⚙️ Config WA API</a>
         <button class="btn btn-sm btn-primary" id="btnSyncNRE" onclick="triggerSyncNRE()" style="gap:6px; margin-left:12px; display:inline-flex; align-items:center; font-weight:700; border-radius:8px; padding:6px 14px;">🔄 Sincronizar NRE</button>
       </div>
     </div>
@@ -621,6 +621,86 @@
         <div id="valDuplicados"><div style="color:var(--text-secondary);font-size:0.85rem;">Cargando...</div></div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ══════════════════════════════════════════════════════════════════════
+       💬 VIEW: BANDEJA DE ENTRADA WHATSAPP (Chat Multiusuario en Computadora)
+       ══════════════════════════════════════════════════════════════════════ -->
+  <div id="viewBandejaWA" class="view-section" style="display:none;">
+    <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;height:calc(100vh - 120px);background:rgba(10,25,47,0.85);border:1px solid var(--border-color);border-radius:16px;overflow:hidden;padding:16px;">
+      
+      <!-- Panel Izquierdo: Lista de Chats -->
+      <div style="display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.08);padding-right:16px;overflow:hidden;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h3 style="margin:0;font-size:1.1rem;font-weight:800;color:#2ed573;">💬 Conversaciones</h3>
+          <button class="btn btn-sm" onclick="loadBandejaWA()" style="background:rgba(46,213,115,0.15);color:#2ed573;border:none;padding:4px 10px;font-size:0.78rem;">🔄 Actualizar</button>
+        </div>
+        <div id="waChatList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
+          <div style="color:var(--text-secondary);font-size:0.85rem;">Cargando chats...</div>
+        </div>
+      </div>
+
+      <!-- Panel Derecho: Conversación Seleccionada -->
+      <div id="waChatPanel" style="display:flex;flex-direction:column;overflow:hidden;">
+        <div id="waChatHeader" style="padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <h4 id="waActiveClientName" style="margin:0;font-size:1.05rem;color:#fff;">Seleccioná un chat</h4>
+            <span id="waActiveClientPhone" style="font-size:0.8rem;color:var(--text-secondary);">—</span>
+          </div>
+          <div id="waActiveClientActions" style="display:flex;gap:8px;"></div>
+        </div>
+
+        <!-- Mensajes del Chat -->
+        <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:rgba(0,0,0,0.2);border-radius:12px;margin-bottom:12px;">
+          <div style="color:var(--text-secondary);text-align:center;margin-top:40px;font-size:0.9rem;">Hacé clic en una conversación para ver los mensajes.</div>
+        </div>
+
+        <!-- Input para enviar respuesta -->
+        <form id="waSendForm" onsubmit="handleSendWaChat(event)" style="display:flex;gap:10px;">
+          <input type="text" id="waInputMessage" placeholder="Escribí un mensaje..." style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;color:#fff;font-size:0.9rem;" disabled autocomplete="off">
+          <button type="submit" id="waBtnSend" class="btn btn-primary" style="background:#2ed573;border:none;font-weight:700;padding:10px 20px;border-radius:10px;" disabled>Enviar ✈️</button>
+        </form>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ⚙️ MODAL: CONFIGURACIÓN WHATSAPP API -->
+  <div id="modalWaConfig" class="modal" style="display:none;">
+    <div class="modal-content" style="max-width:540px;background:#0a192f;border:1px solid #2ed573;border-radius:16px;padding:24px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+        <h3 style="margin:0;font-size:1.2rem;font-weight:800;color:#2ed573;">⚙️ Configuración WhatsApp Business API</h3>
+        <button class="btn-close" onclick="closeModalWaConfig()" style="background:none;border:none;color:#fff;font-size:1.4rem;cursor:pointer;">&times;</button>
+      </div>
+
+      <form id="formWaConfig" onsubmit="handleSaveWaConfig(event)">
+        
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.85rem;font-weight:700;color:var(--text-secondary);margin-bottom:6px;">Modo de Funcionamiento</label>
+          <select id="waCfgModo" style="width:100%;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.15);">
+            <option value="simulacion">🟢 Modo Simulación (WhatsApp Web tradicional / tandas)</option>
+            <option value="oficial">🚀 Modo Oficial API Directa (360dialog / Meta)</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.85rem;font-weight:700;color:var(--text-secondary);margin-bottom:6px;">360dialog D360-API-KEY</label>
+          <input type="text" id="waCfgApiKey" placeholder="Pegá tu API Key de 360dialog aquí..." style="width:100%;padding:10px;border-radius:8px;background:rgba(255,255,255,0.06);color:#fff;border:1px solid rgba(255,255,255,0.15);font-family:monospace;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Obtenela en tu panel de <a href="https://hub.360dialog.com" target="_blank" style="color:#2ed573;">hub.360dialog.com</a>.</span>
+        </div>
+
+        <div style="margin-bottom:16px;">
+          <label style="display:block;font-size:0.85rem;font-weight:700;color:var(--text-secondary);margin-bottom:6px;">URL de Webhook (para configurar en 360dialog)</label>
+          <input type="text" id="waCfgWebhookUrl" readonly style="width:100%;padding:10px;border-radius:8px;background:rgba(255,255,255,0.03);color:#2ed573;border:1px solid rgba(255,255,255,0.1);font-family:monospace;font-size:0.82rem;">
+          <span style="font-size:0.75rem;color:var(--text-secondary);">Copiá esta URL en el campo Webhook de 360dialog para recibir respuestas en tiempo real.</span>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:24px;">
+          <button type="button" class="btn btn-ghost" onclick="closeModalWaConfig()">Cancelar</button>
+          <button type="submit" class="btn btn-primary" style="background:#2ed573;border:none;font-weight:700;">💾 Guardar Configuración</button>
+        </div>
+      </form>
     </div>
   </div>
 

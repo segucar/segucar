@@ -9,6 +9,7 @@ const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
+const waService = require('./whatsapp_service');
 
 function getFechasTargetCobranza(targetState, hoyDate = new Date()) {
     const allPol = db.prepare("SELECT DISTINCT fecha_vencimiento FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento IS NOT NULL AND length(fecha_vencimiento) > 0").all();
@@ -1994,6 +1995,94 @@ app.get('/api/validacion-telefonos', (req, res) => {
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  📱 WHATSAPP BUSINESS API (360dialog / Meta Directo)
+// ═══════════════════════════════════════════════════════════════════════════
+
+// GET Config de WhatsApp API
+app.get('/api/whatsapp/config', (req, res) => {
+    try {
+        const cfg = waService.getConfig();
+        res.json(cfg);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST Guardar Config de WhatsApp API (API Key, modo, etc)
+app.post('/api/whatsapp/config', (req, res) => {
+    try {
+        const result = waService.saveConfig(req.body);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET Lista de chats para la Bandeja de Entrada
+app.get('/api/whatsapp/bandeja', (req, res) => {
+    try {
+        const list = waService.getConversacionesBandeja();
+        res.json(list);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// GET Historial de chat con un cliente específico
+app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
+    try {
+        const clienteId = parseInt(req.params.clienteId, 10);
+        const history = waService.getChatHistory(clienteId);
+        res.json(history);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST Enviar mensaje via API (Texto o Plantilla)
+app.post('/api/whatsapp/enviar', async (req, res) => {
+    try {
+        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros } = req.body;
+        if (!telefono) return res.status(400).json({ error: 'Teléfono requerido' });
+
+        let result;
+        if (tipo_plantilla) {
+            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es', parametros || []);
+        } else {
+            result = await waService.sendTextMessage(cliente_id, telefono, mensaje);
+        }
+
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// POST Webhook oficial para 360dialog / Meta (Mensajes entrantes y cambios de estado)
+app.post('/api/webhooks/whatsapp', (req, res) => {
+    try {
+        const result = waService.processWebhookPayload(req.body);
+        res.json(result);
+    } catch (err) {
+        console.error('[Webhook Error]', err);
+        res.status(200).json({ ok: true }); // Responder 200 siempre a Meta para evitar des-suscripción
+    }
+});
+
+// GET Webhook verification challenge (para verificación inicial Meta)
+app.get('/api/webhooks/whatsapp', (req, res) => {
+    const mode = req.query['hub.mode'];
+    const token = req.query['hub.verify_token'];
+    const challenge = req.query['hub.challenge'];
+
+    if (mode === 'subscribe') {
+        res.status(200).send(challenge);
+    } else {
+        res.sendStatus(403);
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
