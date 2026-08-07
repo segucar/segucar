@@ -657,7 +657,9 @@
         </div>
 
         <!-- Input para enviar respuesta -->
-        <form id="waSendForm" onsubmit="handleSendWaChat(event)" style="display:flex;gap:10px;">
+        <form id="waSendForm" onsubmit="handleSendWaChat(event)" style="display:flex;gap:10px;align-items:center;">
+          <input type="file" id="waFileInput" style="display:none;" onchange="handleSendWaFile(this)">
+          <button type="button" id="waBtnAttach" onclick="triggerWaFileSelect()" class="btn btn-secondary" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);padding:10px 14px;border-radius:10px;color:#2ed573;font-weight:700;cursor:pointer;" title="Adjuntar PDF o Imagen" disabled>📎 PDF/Foto</button>
           <input type="text" id="waInputMessage" placeholder="Escribí un mensaje..." style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;color:#fff;font-size:0.9rem;" disabled autocomplete="off">
           <button type="submit" id="waBtnSend" class="btn btn-primary" style="background:#2ed573;border:none;font-weight:700;padding:10px 20px;border-radius:10px;" disabled>Enviar ✈️</button>
         </form>

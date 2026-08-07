@@ -434,6 +434,8 @@ async function selectWaChat(clienteId, nombre, telefono) {
   document.getElementById('waActiveClientPhone').innerText = '+' + telefono;
   document.getElementById('waInputMessage').disabled = false;
   document.getElementById('waBtnSend').disabled = false;
+  const btnAttach = document.getElementById('waBtnAttach');
+  if (btnAttach) btnAttach.disabled = false;
 
   const elMsgs = document.getElementById('waChatMessages');
   elMsgs.innerHTML = '<div style="color:var(--text-secondary);text-align:center;margin-top:20px;">Cargando mensajes...</div>';
@@ -500,6 +502,42 @@ async function handleSendWaChat(event) {
     }
   } catch (err) {
     alert('Error de red: ' + err.message);
+  }
+}
+
+function triggerWaFileSelect() {
+  const input = document.getElementById('waFileInput');
+  if (input) input.click();
+}
+
+async function handleSendWaFile(input) {
+  if (!waSelectedClient || !input.files || !input.files[0]) return;
+  const file = input.files[0];
+
+  const formData = new FormData();
+  formData.append('archivo', file);
+  formData.append('cliente_id', waSelectedClient.id);
+  formData.append('telefono', waSelectedClient.telefono);
+
+  if (typeof showToast === 'function') showToast('Enviando archivo por WhatsApp...', 'info');
+
+  try {
+    const r = await fetch('/api/whatsapp/enviar-media', {
+      method: 'POST',
+      body: formData
+    });
+    const res = await r.json();
+
+    if (res.ok) {
+      if (typeof showToast === 'function') showToast('📎 Archivo enviado correctamente', 'success');
+      selectWaChat(waSelectedClient.id, waSelectedClient.nombre, waSelectedClient.telefono);
+    } else {
+      alert('Error al enviar archivo: ' + (res.error || 'Desconocido'));
+    }
+  } catch (err) {
+    alert('Error de red al enviar archivo: ' + err.message);
+  } finally {
+    input.value = '';
   }
 }
 

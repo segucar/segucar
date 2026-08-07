@@ -2062,6 +2062,25 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
     }
 });
 
+// POST Enviar archivo multimedia (PDF, JPG, PNG, etc.) via API
+const uploadWaMedia = multer({ dest: path.join(__dirname, 'public', 'uploads') });
+app.post('/api/whatsapp/enviar-media', uploadWaMedia.single('archivo'), async (req, res) => {
+    try {
+        const { cliente_id, telefono } = req.body;
+        if (!req.file) return res.status(400).json({ error: 'Archivo no proporcionado' });
+
+        const origin = req.protocol + '://' + req.get('host');
+        const fileUrl = `${origin}/uploads/${req.file.filename}`;
+        const fileName = req.file.originalname;
+        const mimeType = req.file.mimetype;
+
+        const result = await waService.sendMediaMessage(cliente_id, telefono, fileUrl, fileName, mimeType);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // POST Webhook oficial para 360dialog / Meta (Mensajes entrantes y cambios de estado)
 app.post('/api/webhooks/whatsapp', (req, res) => {
     try {

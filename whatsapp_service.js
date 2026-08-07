@@ -312,12 +312,69 @@ function getConversacionesBandeja() {
   }
 }
 
+/**
+ * Envía un archivo multimedia (PDF, imagen, etc.) por WhatsApp
+ */
+async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 'application/pdf') {
+  const cfg = getConfig();
+  const formattedPhone = formatPhone(phone);
+
+  if (cfg.modo === 'simulacion' || !cfg.api_key) {
+    console.log(`[WA Simulación Archivo] ${fileName} (${fileUrl}) a ${formattedPhone}`);
+    const res = db.prepare(`
+      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
+      VALUES (?, 'saliente', ?, ?, 'archivo', 'enviado')
+    `).run(clienteId, formattedPhone, `📎 [Archivo: ${fileName}] (${fileUrl})`);
+    return { ok: true, simulado: true, id: res.lastInsertRowid };
+  }
+
+  try {
+    const isImage = mimeType.startsWith('image/');
+    const mediaType = isImage ? 'image' : 'document';
+    const mediaPayload = isImage 
+      ? { link: fileUrl, caption: fileName }
+      : { link: fileUrl, filename: fileName };
+
+    const response = await fetch(getApiUrl(cfg.api_key), {
+      method: 'POST',
+      headers: {
+        'D360-API-KEY': cfg.api_key,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: formattedPhone,
+        type: mediaType,
+        [mediaType]: mediaPayload
+      })
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('[WA API Media Error]', data);
+      return { ok: false, error: data.error || 'Error al enviar archivo por 360dialog' };
+    }
+
+    const waMsgId = data.messages && data.messages[0] ? data.messages[0].id : null;
+    const res = db.prepare(`
+      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
+      VALUES (?, ?, 'saliente', ?, ?, 'archivo', 'enviado', ?)
+    `).run(clienteId, waMsgId, formattedPhone, `📎 ${fileName} (${fileUrl})`, JSON.stringify(data));
+
+    return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
+  } catch (err) {
+    console.error('[WA Service Media Exception]', err);
+    return { ok: false, error: err.message };
+  }
+}
+
 module.exports = {
   getConfig,
   saveConfig,
   formatPhone,
   sendTextMessage,
   sendTemplateMessage,
+  sendMediaMessage,
   processWebhookPayload,
   getChatHistory,
   getConversacionesBandeja
