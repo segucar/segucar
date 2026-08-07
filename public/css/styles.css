@@ -1081,6 +1081,11 @@ textarea.form-control {
   to { transform: rotate(360deg); }
 }
 
+@keyframes waPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.7); }
+}
+
 /* FAB */
 .fab {
   position: fixed;

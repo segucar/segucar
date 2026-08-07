@@ -663,10 +663,18 @@
             <div style="width:40px;height:40px;border-radius:50%;background:#6b7c85;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;">👤</div>
             <div>
               <h4 id="waActiveClientName" style="margin:0;font-size:1.05rem;color:#e9edef;font-weight:700;">Seleccioná un chat</h4>
-              <span id="waActiveClientPhone" style="font-size:0.8rem;color:#8696a0;">—</span>
+              <div style="display:flex;align-items:center;gap:6px;">
+                <span id="waActiveClientPhone" style="font-size:0.8rem;color:#8696a0;">—</span>
+                <span id="waLiveIndicator" style="display:none;align-items:center;gap:4px;font-size:0.75rem;color:#00a884;">
+                  <span style="width:6px;height:6px;background:#00a884;border-radius:50%;display:inline-block;animation:waPulse 1.5s infinite;"></span>
+                  En vivo
+                </span>
+              </div>
             </div>
           </div>
-          <div id="waActiveClientActions" style="display:flex;gap:8px;"></div>
+          <div id="waActiveClientActions" style="display:flex;gap:8px;">
+            <button onclick="if(waSelectedClient){refreshWaChatSilent();loadBandejaWA();}" style="background:#2a3942;border:none;border-radius:8px;padding:7px 12px;color:#8696a0;font-size:0.82rem;cursor:pointer;font-weight:600;" title="Sincronizar mensajes ahora">🔄 Sincronizar</button>
+          </div>
         </div>
 
         <!-- Muro de Mensajes -->

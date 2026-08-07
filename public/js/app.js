@@ -300,8 +300,11 @@ function switchView(viewName) {
   }
   if (viewName === 'bandejaWA') {
     loadBandejaWA();
+    startWaAutoRefresh();
     return;
   }
+  // Detener auto-refresh si se sale de la Bandeja WA
+  stopWaAutoRefresh();
 
   if (viewName === 'cobranza') {
     if (state.sort.by === 'nombre' || state.sort.by === 'prioridad_cobranza') {
@@ -394,6 +397,147 @@ async function loadValidacion() {
 
 // ─── BANDEJA DE ENTRADA WHATSAPP & CONFIGURACIÓN API ──────────────────────────────
 let waSelectedClient = null;
+let waLastMessageCount = 0;
+let waAutoRefreshTimer = null;
+let waBandejaRefreshTimer = null;
+
+// Iniciar el auto-refresh de chat y bandeja
+function startWaAutoRefresh() {
+  stopWaAutoRefresh();
+  // Refrescar mensajes del chat activo cada 15 segundos
+  waAutoRefreshTimer = setInterval(() => {
+    if (waSelectedClient) {
+      refreshWaChatSilent();
+    }
+  }, 15000);
+  // Refrescar la lista de conversaciones cada 30 segundos
+  waBandejaRefreshTimer = setInterval(() => {
+    checkForNewWaMessages();
+  }, 30000);
+}
+
+function stopWaAutoRefresh() {
+  if (waAutoRefreshTimer) { clearInterval(waAutoRefreshTimer); waAutoRefreshTimer = null; }
+  if (waBandejaRefreshTimer) { clearInterval(waBandejaRefreshTimer); waBandejaRefreshTimer = null; }
+}
+
+// Refrescar mensajes sin mostrar loading spinner
+async function refreshWaChatSilent() {
+  if (!waSelectedClient) return;
+  try {
+    const r = await fetch(`/api/whatsapp/chat/${waSelectedClient.id}`);
+    const history = await r.json();
+    if (!history) return;
+
+    // Detectar si hay mensajes nuevos
+    if (history.length > waLastMessageCount) {
+      const newCount = history.length - waLastMessageCount;
+      // Notificación sonora suave
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = ctx.createOscillator();
+        const gainNode = ctx.createGain();
+        oscillator.connect(gainNode);
+        gainNode.connect(ctx.destination);
+        oscillator.frequency.setValueAtTime(880, ctx.currentTime);
+        oscillator.frequency.setValueAtTime(1100, ctx.currentTime + 0.1);
+        gainNode.gain.setValueAtTime(0.1, ctx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+        oscillator.start(ctx.currentTime);
+        oscillator.stop(ctx.currentTime + 0.3);
+      } catch(e) { /* silenciar errores de audio */ }
+
+      // Renderizar los nuevos mensajes
+      waLastMessageCount = history.length;
+      renderWaChatMessages(history);
+      loadBandejaWA();
+    }
+  } catch(e) { /* silencioso */ }
+}
+
+// Verificar si hay nuevos mensajes en cualquier chat (para el badge de la bandeja)
+async function checkForNewWaMessages() {
+  try {
+    const r = await fetch('/api/whatsapp/bandeja');
+    const chats = await r.json();
+    if (!chats) return;
+    const totalUnread = chats.reduce((acc, c) => acc + (c.sin_leer || 0), 0);
+    const navBtn = document.querySelector('[onclick*="bandejaWA"]');
+    if (navBtn) {
+      const existing = navBtn.querySelector('.wa-badge');
+      if (totalUnread > 0) {
+        if (!existing) {
+          const badge = document.createElement('span');
+          badge.className = 'wa-badge';
+          badge.style.cssText = 'background:#00a884;color:#111b21;font-size:0.68rem;font-weight:800;border-radius:10px;padding:1px 6px;margin-left:4px;vertical-align:middle;';
+          badge.textContent = totalUnread;
+          navBtn.appendChild(badge);
+        } else {
+          existing.textContent = totalUnread;
+        }
+      } else if (existing) {
+        existing.remove();
+      }
+    }
+  } catch(e) { /* silencioso */ }
+}
+
+// Renderizar mensajes del chat (función separada para reusar)
+function renderWaChatMessages(history) {
+  const elMsgs = document.getElementById('waChatMessages');
+  if (!elMsgs) return;
+
+  if (!history || history.length === 0) {
+    elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Sin historial de mensajes con este cliente.</div>';
+    return;
+  }
+
+  elMsgs.innerHTML = history.map(m => {
+    const isSaliente = m.direccion === 'saliente';
+    const statusIcon = m.estado === 'leido' ? '<span style="color:#53bdeb;">✓✓</span>' : m.estado === 'entregado' ? '<span style="color:#8696a0;">✓✓</span>' : '<span style="color:#8696a0;">✓</span>';
+    let contentHtml = escapeHtml(m.mensaje || '');
+
+    // Parsear imagen recibida de Meta/360dialog [Imagen recibida:MEDIA_ID]
+    const imgMatch = m.mensaje ? m.mensaje.match(/📷 \[Imagen recibida:(.*?)\](.*)/) : null;
+    if (imgMatch) {
+      const mediaId = imgMatch[1].trim();
+      const caption = imgMatch[2] ? escapeHtml(imgMatch[2]) : '';
+      if (mediaId) {
+        contentHtml = `
+          <div style="font-size:0.8rem;color:#8696a0;margin-bottom:4px;">📷 Imagen recibida:</div>
+          <img src="/api/whatsapp/media/${mediaId}" style="max-width:300px;max-height:300px;border-radius:8px;display:block;cursor:pointer;border:1px solid rgba(255,255,255,0.15);" onclick="window.open(this.src, '_blank')" alt="Imagen" onerror="this.onerror=null;this.replaceWith('📷 [Imagen - no disponible]');">
+          ${caption ? `<div style="font-size:0.85rem;color:#e9edef;margin-top:6px;">${caption}</div>` : ''}
+        `;
+      }
+    }
+
+    // Parsear documento/PDF recibido [Documento:MEDIA_ID:FILENAME]
+    const docMatch = m.mensaje ? m.mensaje.match(/📄 \[Documento:(.*?):(.*?)]/) : null;
+    if (docMatch) {
+      const mediaId = docMatch[1].trim();
+      const filename = escapeHtml(docMatch[2].trim());
+      if (mediaId) {
+        contentHtml = `
+          <a href="/api/whatsapp/media/${mediaId}?filename=${encodeURIComponent(filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,168,132,0.15);border:1px solid #00a884;color:#00a884;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:4px;">
+            📄 ${filename} (Ver / Descargar PDF)
+          </a>
+        `;
+      }
+    }
+
+    return `
+      <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:70%;background:${isSaliente ? '#005c4b' : '#202c33'};border-radius:${isSaliente ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};padding:8px 12px;color:#e9edef;box-shadow:0 1px 1px rgba(0,0,0,0.2);">
+        <div style="font-size:0.91rem;line-height:1.4;word-break:break-word;">${contentHtml}</div>
+        <div style="font-size:0.68rem;color:rgba(241,241,242,0.6);margin-top:4px;text-align:right;display:flex;justify-content:flex-end;align-items:center;gap:4px;">
+          <span>${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+          ${isSaliente ? statusIcon : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  elMsgs.scrollTop = elMsgs.scrollHeight;
+}
 
 async function loadBandejaWA() {
   const elList = document.getElementById('waChatList');
@@ -446,12 +590,16 @@ function filterWaChats(query) {
 
 async function selectWaChat(clienteId, nombre, telefono) {
   waSelectedClient = { id: clienteId, nombre, telefono };
+  waLastMessageCount = 0;
   document.getElementById('waActiveClientName').innerText = nombre;
   document.getElementById('waActiveClientPhone').innerText = '+' + telefono;
   document.getElementById('waInputMessage').disabled = false;
   document.getElementById('waBtnSend').disabled = false;
   const btnAttach = document.getElementById('waBtnAttach');
   if (btnAttach) btnAttach.disabled = false;
+  // Mostrar indicador en vivo
+  const liveInd = document.getElementById('waLiveIndicator');
+  if (liveInd) liveInd.style.display = 'inline-flex';
 
   const elMsgs = document.getElementById('waChatMessages');
   elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Cargando mensajes...</div>';
@@ -461,58 +609,8 @@ async function selectWaChat(clienteId, nombre, telefono) {
   try {
     const r = await fetch(`/api/whatsapp/chat/${clienteId}`);
     const history = await r.json();
-
-    if (!history || history.length === 0) {
-      elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Sin historial de mensajes con este cliente.</div>';
-      return;
-    }
-
-    elMsgs.innerHTML = history.map(m => {
-      const isSaliente = m.direccion === 'saliente';
-      const statusIcon = m.estado === 'leido' ? '<span style="color:#53bdeb;">✓✓</span>' : m.estado === 'entregado' ? '<span style="color:#8696a0;">✓✓</span>' : '<span style="color:#8696a0;">✓</span>';
-      let contentHtml = escapeHtml(m.mensaje || '');
-
-      // Parsear imagen recibida de Meta/360dialog [Imagen recibida:MEDIA_ID]
-      const imgMatch = m.mensaje ? m.mensaje.match(/📷 \[Imagen recibida:(.*?)\](.*)/) : null;
-      if (imgMatch) {
-        const mediaId = imgMatch[1].trim();
-        const caption = imgMatch[2] ? escapeHtml(imgMatch[2]) : '';
-        if (mediaId) {
-          contentHtml = `
-            <div style="font-size:0.8rem;color:#8696a0;margin-bottom:4px;">📷 Imagen recibida:</div>
-            <img src="/api/whatsapp/media/${mediaId}" style="max-width:300px;max-height:300px;border-radius:8px;display:block;cursor:pointer;border:1px solid rgba(255,255,255,0.15);" onclick="window.open(this.src, '_blank')" alt="Imagen" onerror="this.onerror=null;this.replaceWith('📷 [Imagen recibida - no disponible]');">
-            ${caption ? `<div style="font-size:0.85rem;color:#e9edef;margin-top:6px;">${caption}</div>` : ''}
-          `;
-        }
-      }
-
-      // Parsear documento/PDF recibido de Meta/360dialog [Documento:MEDIA_ID:FILENAME]
-      const docMatch = m.mensaje ? m.mensaje.match(/📄 \[Documento:(.*?):(.*?)]/) : null;
-      if (docMatch) {
-        const mediaId = docMatch[1].trim();
-        const filename = escapeHtml(docMatch[2].trim());
-        if (mediaId) {
-          contentHtml = `
-            <a href="/api/whatsapp/media/${mediaId}?filename=${encodeURIComponent(filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,168,132,0.15);border:1px solid #00a884;color:#00a884;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:4px;">
-              📄 ${filename} (Ver / Descargar PDF)
-            </a>
-          `;
-        }
-      }
-
-      return `
-        <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:70%;background:${isSaliente ? '#005c4b' : '#202c33'};border-radius:${isSaliente ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};padding:8px 12px;color:#e9edef;box-shadow:0 1px 1px rgba(0,0,0,0.2);">
-          <div style="font-size:0.91rem;line-height:1.4;word-break:break-word;">${contentHtml}</div>
-          <div style="font-size:0.68rem;color:rgba(241,241,242,0.6);margin-top:4px;text-align:right;display:flex;justify-content:flex-end;align-items:center;gap:4px;">
-            <span>${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-            ${isSaliente ? statusIcon : ''}
-          </div>
-        </div>
-      `;
-    }).join('');
-
-    // Auto-scroll al final del chat
-    elMsgs.scrollTop = elMsgs.scrollHeight;
+    waLastMessageCount = history ? history.length : 0;
+    renderWaChatMessages(history);
   } catch (err) {
     elMsgs.innerHTML = `<div style="color:#ff4757;text-align:center;">Error al cargar chat: ${err.message}</div>`;
   }
