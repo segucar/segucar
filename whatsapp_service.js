@@ -227,10 +227,14 @@ function processWebhookPayload(payload) {
 
         if (msg.type === 'text' && msg.text) {
           textContent = msg.text.body;
-        } else if (msg.type === 'image') {
-          textContent = '📷 [Imagen recibida]';
-        } else if (msg.type === 'document') {
-          textContent = '📄 [Documento / Comprobante recibido]';
+        } else if (msg.type === 'image' && msg.image) {
+          const caption = msg.image.caption ? ` ${msg.image.caption}` : '';
+          const mediaId = msg.image.id || '';
+          textContent = `📷 [Imagen recibida:${mediaId}]${caption}`;
+        } else if (msg.type === 'document' && msg.document) {
+          const mediaId = msg.document.id || '';
+          const fileName = msg.document.filename || 'Comprobante.pdf';
+          textContent = `📄 [Documento:${mediaId}:${fileName}]`;
         } else {
           textContent = `[Mensaje tipo: ${msg.type}]`;
         }

@@ -2081,6 +2081,46 @@ app.post('/api/whatsapp/enviar-media', uploadWaMedia.single('archivo'), async (r
     }
 });
 
+// GET Proxy para descargar / visualizar imágenes y documentos entrantes desde 360dialog
+app.get('/api/whatsapp/media/:mediaId', async (req, res) => {
+    try {
+        const { mediaId } = req.params;
+        const cfg = waService.getConfig();
+        if (!cfg.api_key) return res.status(404).send('Sin API Key configurada');
+
+        const baseUrl = cfg.api_key.includes('SBN') ? 'https://waba-sandbox.360dialog.io' : 'https://waba.360dialog.io';
+        
+        // 1. Obtener URL del archivo desde Meta / 360dialog
+        const infoRes = await fetch(`${baseUrl}/v1/media/${mediaId}`, {
+            headers: { 'D360-API-KEY': cfg.api_key }
+        });
+
+        if (!infoRes.ok) {
+            return res.status(404).send('Media no encontrado en 360dialog');
+        }
+
+        const info = await infoRes.json();
+        const mediaUrl = info.url;
+
+        // 2. Descargar y transmitir los bytes de la imagen/PDF al navegador
+        const fileRes = await fetch(mediaUrl, {
+            headers: { 'D360-API-KEY': cfg.api_key }
+        });
+
+        const contentType = info.mime_type || fileRes.headers.get('content-type') || 'image/jpeg';
+        res.setHeader('Content-Type', contentType);
+        if (req.query.filename) {
+            res.setHeader('Content-Disposition', `inline; filename="${req.query.filename}"`);
+        }
+
+        const arrayBuffer = await fileRes.arrayBuffer();
+        res.send(Buffer.from(arrayBuffer));
+    } catch (err) {
+        console.error('[Media Proxy Error]', err);
+        res.status(500).send(err.message);
+    }
+});
+
 // POST Webhook oficial para 360dialog / Meta (Mensajes entrantes y cambios de estado)
 app.post('/api/webhooks/whatsapp', (req, res) => {
     try {

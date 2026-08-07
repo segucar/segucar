@@ -455,9 +455,39 @@ async function selectWaChat(clienteId, nombre, telefono) {
     elMsgs.innerHTML = history.map(m => {
       const isSaliente = m.direccion === 'saliente';
       const statusIcon = m.estado === 'leido' ? '🔵🔵' : m.estado === 'entregado' ? '✓✓' : '✓';
+      let contentHtml = escapeHtml(m.mensaje || '');
+
+      // Parsear imagen recibida de Meta/360dialog [Imagen recibida:MEDIA_ID]
+      const imgMatch = m.mensaje ? m.mensaje.match(/📷 \[Imagen recibida:(.*?)\](.*)/) : null;
+      if (imgMatch) {
+        const mediaId = imgMatch[1].trim();
+        const caption = imgMatch[2] ? escapeHtml(imgMatch[2]) : '';
+        if (mediaId) {
+          contentHtml = `
+            <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">📷 Imagen recibida:</div>
+            <img src="/api/whatsapp/media/${mediaId}" style="max-width:280px;max-height:280px;border-radius:10px;display:block;cursor:pointer;border:1px solid rgba(255,255,255,0.2);" onclick="window.open(this.src, '_blank')" alt="Imagen" onerror="this.onerror=null;this.replaceWith('📷 [Imagen recibida - no disponible]');">
+            ${caption ? `<div style="font-size:0.8rem;color:rgba(255,255,255,0.8);margin-top:4px;">${caption}</div>` : ''}
+          `;
+        }
+      }
+
+      // Parsear documento/PDF recibido de Meta/360dialog [Documento:MEDIA_ID:FILENAME]
+      const docMatch = m.mensaje ? m.mensaje.match(/📄 \[Documento:(.*?):(.*?)]/) : null;
+      if (docMatch) {
+        const mediaId = docMatch[1].trim();
+        const filename = escapeHtml(docMatch[2].trim());
+        if (mediaId) {
+          contentHtml = `
+            <a href="/api/whatsapp/media/${mediaId}?filename=${encodeURIComponent(filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;background:rgba(46,213,115,0.15);border:1px solid #2ed573;color:#2ed573;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:4px;">
+              📄 ${filename} (Ver / Descargar PDF)
+            </a>
+          `;
+        }
+      }
+
       return `
         <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:75%;background:${isSaliente ? 'rgba(46,213,115,0.18)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isSaliente ? 'rgba(46,213,115,0.35)' : 'rgba(255,255,255,0.12)'};border-radius:12px;padding:10px 14px;color:#fff;">
-          <div style="font-size:0.88rem;word-break:break-word;">${escapeHtml(m.mensaje)}</div>
+          <div style="font-size:0.88rem;word-break:break-word;">${contentHtml}</div>
           <div style="font-size:0.68rem;color:rgba(255,255,255,0.4);margin-top:4px;text-align:right;">
             ${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} ${isSaliente ? statusIcon : ''}
           </div>
