@@ -5,7 +5,12 @@
 const db = require('./database');
 
 // URL base de 360dialog API
-const D360_API_URL = 'https://waba.360dialog.io/v1/messages';
+function getApiUrl(apiKey) {
+  if (apiKey && apiKey.includes('SBN')) {
+    return 'https://waba-sandbox.360dialog.io/v1/messages';
+  }
+  return 'https://waba.360dialog.io/v1/messages';
+}
 
 /**
  * Obtiene la configuración actual de la API de WhatsApp de la BD
@@ -86,7 +91,7 @@ async function sendTextMessage(clienteId, phone, text) {
 
   // Modo oficial via 360dialog API
   try {
-    const response = await fetch(D360_API_URL, {
+    const response = await fetch(getApiUrl(cfg.api_key), {
       method: 'POST',
       headers: {
         'D360-API-KEY': cfg.api_key,
@@ -146,7 +151,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
       }
     ] : [];
 
-    const response = await fetch(D360_API_URL, {
+    const response = await fetch(getApiUrl(cfg.api_key), {
       method: 'POST',
       headers: {
         'D360-API-KEY': cfg.api_key,
