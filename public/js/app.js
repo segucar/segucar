@@ -337,11 +337,12 @@ async function loadValidacion() {
 
     // Tarjetas resumen
     const cards = [
-      { label: 'Total Clientes',      val: s.total_clientes,      color: '#a29bfe' },
-      { label: 'Con Teléfono ✅',      val: s.con_telefono,        color: '#00b894' },
-      { label: 'Sin Teléfono ❌',      val: s.sin_telefono,        color: '#ff4757' },
-      { label: 'Números Comodín 🚨',  val: s.comodines,          color: '#ff6b35' },
-      { label: 'Duplicados Distintos ⚠️', val: s.duplicados_distintos, color: '#fdcb6e' },
+      { label: 'Total Clientes',            val: s.total_clientes,           color: '#a29bfe' },
+      { label: 'Con Teléfono ✅',            val: s.con_telefono,             color: '#00b894' },
+      { label: 'Sin Teléfono ❌',            val: s.sin_telefono,             color: '#ff7675' },
+      { label: 'Números Comodín 🚨',        val: s.comodines,               color: '#ff6b35' },
+      { label: 'Pendientes Revisar ⚠️',     val: s.duplicados_distintos,     color: s.duplicados_distintos > 0 ? '#fdcb6e' : '#00b894' },
+      { label: 'Compartidos Verificados 🤝', val: s.compartidos_verificados, color: '#74b9ff' }
     ];
     elRes.innerHTML = cards.map(c => `
       <div style="background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:16px;text-align:center;">

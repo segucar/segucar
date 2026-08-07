@@ -1934,6 +1934,14 @@ app.get('/api/telefonos-invalidos', (req, res) => {
 app.get('/api/reportes/telefonos-invalidos', generarExcelEstructuradoExcelJS);
 
 // ─── VALIDACIÓN DE TELÉFONOS (para integración WA API) ───────────────────────
+const TELEFONOS_COMPARTIDOS_CONFIRMADOS = new Set([
+    '5492235560341', '5492235266970', '5492235161260', '5492234386662',
+    '5492233036447', '5492235234646', '5492235462277', '5492236326720',
+    '5492235062765', '5492236915769', '5492235417649', '5492235013114',
+    '5492235601417', '5492236705023', '5492236959527', '5492235568034',
+    '5492235041769', '5492236365524'
+]);
+
 app.get('/api/validacion-telefonos', (req, res) => {
     try {
         const clientes = db.prepare(
@@ -1949,6 +1957,7 @@ app.get('/api/validacion-telefonos', (req, res) => {
 
         const comodines = [];   // ≥8 clientes con apellidos distintos = número falso/relleno
         const duplicados = [];  // 2-7 clientes con apellidos distintos = probable error de carga
+        const compartidosVerificados = [];
 
         Object.entries(grupos).forEach(([num, lista]) => {
             if (lista.length < 2) return;
@@ -1957,8 +1966,13 @@ app.get('/api/validacion-telefonos', (req, res) => {
             if (todosIguales) return; // misma familia, ok
 
             const entry = { telefono: num, clientes: lista };
-            if (lista.length >= 8) comodines.push(entry);
-            else duplicados.push(entry);
+            if (TELEFONOS_COMPARTIDOS_CONFIRMADOS.has(num)) {
+                compartidosVerificados.push(entry);
+            } else if (lista.length >= 8) {
+                comodines.push(entry);
+            } else {
+                duplicados.push(entry);
+            }
         });
 
         // Totales generales
@@ -1971,10 +1985,12 @@ app.get('/api/validacion-telefonos', (req, res) => {
                 sin_telefono: sinTel,
                 con_telefono: total - sinTel,
                 comodines: comodines.length,
-                duplicados_distintos: duplicados.length
+                duplicados_distintos: duplicados.length,
+                compartidos_verificados: compartidosVerificados.length
             },
             comodines,
-            duplicados
+            duplicados,
+            compartidosVerificados
         });
     } catch (err) {
         res.status(500).json({ error: err.message });
