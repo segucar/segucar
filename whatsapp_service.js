@@ -98,6 +98,7 @@ async function sendTextMessage(clienteId, phone, text) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        messaging_product: 'whatsapp',
         to: formattedPhone,
         type: 'text',
         text: { body: text }
@@ -158,6 +159,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        messaging_product: 'whatsapp',
         to: formattedPhone,
         type: 'template',
         template: {
