@@ -315,8 +315,10 @@ function switchView(viewName) {
     }
   }
 
-  // 5. Volver a pedir los datos si es necesario
-  if (viewName !== 'dashboard') {
+  // 5. Volver a pedir los datos según la vista
+  if (viewName === 'dashboard') {
+    if (typeof fetchStats === 'function') fetchStats();
+  } else {
     if (typeof fetchClientes === 'function') fetchClientes();
   }
 }
