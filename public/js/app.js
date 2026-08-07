@@ -387,6 +387,11 @@ async function loadValidacion() {
         </div>`).join('');
     }
 
+  } catch (err) {
+    elRes.innerHTML = `<div style="color:#ff4757;">Error al cargar: ${err.message}</div>`;
+  }
+}
+
 // ─── BANDEJA DE ENTRADA WHATSAPP & CONFIGURACIÓN API ──────────────────────────────
 let waSelectedClient = null;
 
