@@ -627,41 +627,59 @@
   <!-- ══════════════════════════════════════════════════════════════════════
        💬 VIEW: BANDEJA DE ENTRADA WHATSAPP (Chat Multiusuario en Computadora)
        ══════════════════════════════════════════════════════════════════════ -->
+  <!-- ══════════════════════════════════════════════════════════════════════
+       💬 VIEW: BANDEJA DE ENTRADA WHATSAPP (WhatsApp Web Style Dark Theme)
+       ══════════════════════════════════════════════════════════════════════ -->
   <div id="viewBandejaWA" class="view-section" style="display:none;">
-    <div style="display:grid;grid-template-columns:320px 1fr;gap:20px;height:calc(100vh - 120px);background:rgba(10,25,47,0.85);border:1px solid var(--border-color);border-radius:16px;overflow:hidden;padding:16px;">
+    <div style="display:grid;grid-template-columns:360px 1fr;gap:0;height:calc(100vh - 110px);background:#111b21;border:1px solid rgba(255,255,255,0.1);border-radius:16px;overflow:hidden;box-shadow:0 20px 40px rgba(0,0,0,0.5);">
       
       <!-- Panel Izquierdo: Lista de Chats -->
-      <div style="display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,0.08);padding-right:16px;overflow:hidden;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-          <h3 style="margin:0;font-size:1.1rem;font-weight:800;color:#2ed573;">💬 Conversaciones</h3>
-          <button class="btn btn-sm" onclick="loadBandejaWA()" style="background:rgba(46,213,115,0.15);color:#2ed573;border:none;padding:4px 10px;font-size:0.78rem;">🔄 Actualizar</button>
+      <div style="display:flex;flex-direction:column;background:#111b21;border-right:1px solid rgba(255,255,255,0.08);overflow:hidden;">
+        <!-- Header Sidebar -->
+        <div style="padding:14px 16px;background:#202c33;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:36px;height:36px;border-radius:50%;background:#00a884;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:1.1rem;">💬</div>
+            <h3 style="margin:0;font-size:1.05rem;font-weight:700;color:#e9edef;">Conversaciones</h3>
+          </div>
+          <button class="btn btn-sm" onclick="loadBandejaWA()" style="background:rgba(0,168,132,0.2);color:#00a884;border:1px solid rgba(0,168,132,0.4);padding:6px 12px;font-size:0.78rem;border-radius:8px;font-weight:700;cursor:pointer;">🔄 Actualizar</button>
         </div>
-        <div id="waChatList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;">
-          <div style="color:var(--text-secondary);font-size:0.85rem;">Cargando chats...</div>
+
+        <!-- Buscador de Chats -->
+        <div style="padding:10px 12px;background:#111b21;border-bottom:1px solid rgba(255,255,255,0.05);">
+          <input type="text" id="waSearchChatInput" placeholder="🔍 Buscar conversación..." oninput="filterWaChats(this.value)" style="width:100%;padding:8px 12px;border-radius:8px;background:#202c33;color:#e9edef;border:none;font-size:0.85rem;outline:none;">
+        </div>
+
+        <!-- Lista de Conversaciones -->
+        <div id="waChatList" style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;padding:6px;">
+          <div style="color:#8696a0;font-size:0.85rem;padding:12px;text-align:center;">Cargando chats...</div>
         </div>
       </div>
 
       <!-- Panel Derecho: Conversación Seleccionada -->
-      <div id="waChatPanel" style="display:flex;flex-direction:column;overflow:hidden;">
-        <div id="waChatHeader" style="padding-bottom:12px;border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <h4 id="waActiveClientName" style="margin:0;font-size:1.05rem;color:#fff;">Seleccioná un chat</h4>
-            <span id="waActiveClientPhone" style="font-size:0.8rem;color:var(--text-secondary);">—</span>
+      <div id="waChatPanel" style="display:flex;flex-direction:column;background:#0b141a;overflow:hidden;">
+        <!-- Header Chat Activo -->
+        <div id="waChatHeader" style="padding:12px 20px;background:#202c33;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;">
+          <div style="display:flex;align-items:center;gap:12px;">
+            <div style="width:40px;height:40px;border-radius:50%;background:#6b7c85;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;">👤</div>
+            <div>
+              <h4 id="waActiveClientName" style="margin:0;font-size:1.05rem;color:#e9edef;font-weight:700;">Seleccioná un chat</h4>
+              <span id="waActiveClientPhone" style="font-size:0.8rem;color:#8696a0;">—</span>
+            </div>
           </div>
           <div id="waActiveClientActions" style="display:flex;gap:8px;"></div>
         </div>
 
-        <!-- Mensajes del Chat -->
-        <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;background:rgba(0,0,0,0.2);border-radius:12px;margin-bottom:12px;">
-          <div style="color:var(--text-secondary);text-align:center;margin-top:40px;font-size:0.9rem;">Hacé clic en una conversación para ver los mensajes.</div>
+        <!-- Muro de Mensajes -->
+        <div id="waChatMessages" style="flex:1;overflow-y:auto;padding:20px;display:flex;flex-direction:column;gap:10px;background:#0b141a;background-image:radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);background-size:20px 20px;">
+          <div style="color:#8696a0;text-align:center;margin-top:60px;font-size:0.92rem;">Hacé clic en una conversación para ver los mensajes.</div>
         </div>
 
-        <!-- Input para enviar respuesta -->
-        <form id="waSendForm" onsubmit="handleSendWaChat(event)" style="display:flex;gap:10px;align-items:center;">
+        <!-- Input Barra de Mensajes -->
+        <form id="waSendForm" onsubmit="handleSendWaChat(event)" style="padding:12px 16px;background:#202c33;border-top:1px solid rgba(255,255,255,0.05);display:flex;gap:12px;align-items:center;">
           <input type="file" id="waFileInput" style="display:none;" onchange="handleSendWaFile(this)">
-          <button type="button" id="waBtnAttach" onclick="triggerWaFileSelect()" class="btn btn-secondary" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.18);padding:10px 14px;border-radius:10px;color:#2ed573;font-weight:700;cursor:pointer;" title="Adjuntar PDF o Imagen" disabled>📎 PDF/Foto</button>
-          <input type="text" id="waInputMessage" placeholder="Escribí un mensaje..." style="flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:10px;padding:10px 14px;color:#fff;font-size:0.9rem;" disabled autocomplete="off">
-          <button type="submit" id="waBtnSend" class="btn btn-primary" style="background:#2ed573;border:none;font-weight:700;padding:10px 20px;border-radius:10px;" disabled>Enviar ✈️</button>
+          <button type="button" id="waBtnAttach" onclick="triggerWaFileSelect()" class="btn btn-secondary" style="background:#2a3942;border:none;padding:10px 14px;border-radius:8px;color:#00a884;font-weight:700;cursor:pointer;font-size:0.9rem;" title="Adjuntar PDF o Imagen" disabled>📎 PDF/Foto</button>
+          <input type="text" id="waInputMessage" placeholder="Escribí un mensaje..." style="flex:1;background:#2a3942;border:none;border-radius:8px;padding:12px 16px;color:#e9edef;font-size:0.92rem;outline:none;" disabled autocomplete="off">
+          <button type="submit" id="waBtnSend" class="btn btn-primary" style="background:#00a884;border:none;font-weight:700;padding:12px 22px;border-radius:8px;color:#fff;font-size:0.92rem;cursor:pointer;" disabled>Enviar ✈️</button>
         </form>
       </div>
 

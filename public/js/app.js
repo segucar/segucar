@@ -398,34 +398,50 @@ let waSelectedClient = null;
 async function loadBandejaWA() {
   const elList = document.getElementById('waChatList');
   if (!elList) return;
-  elList.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;">Cargando conversaciones...</div>';
 
   try {
     const r = await fetch('/api/whatsapp/bandeja');
     const chats = await r.json();
 
     if (!chats || chats.length === 0) {
-      elList.innerHTML = '<div style="color:var(--text-secondary);font-size:0.85rem;padding:12px;">Sin conversaciones activas aún. Los mensajes enviados y recibidos aparecerán aquí.</div>';
+      elList.innerHTML = '<div style="color:#8696a0;font-size:0.85rem;padding:20px;text-align:center;">Sin conversaciones activas aún. Los mensajes enviados y recibidos aparecerán aquí.</div>';
       return;
     }
 
-    elList.innerHTML = chats.map(c => `
-      <div onclick="selectWaChat(${c.cliente_id}, '${escapeHtml(c.cliente_nombre)}', '${c.cliente_telefono}')" style="background:${waSelectedClient && waSelectedClient.id === c.cliente_id ? 'rgba(46,213,115,0.15)' : 'rgba(255,255,255,0.03)'};border:1px solid ${waSelectedClient && waSelectedClient.id === c.cliente_id ? '#2ed573' : 'rgba(255,255,255,0.08)'};border-radius:10px;padding:12px;cursor:pointer;transition:all 0.2s ease;">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-          <strong style="font-size:0.88rem;color:#fff;">${escapeHtml(c.cliente_nombre)}</strong>
-          ${c.sin_leer > 0 ? `<span style="background:#ff4757;color:#fff;font-size:0.7rem;font-weight:800;border-radius:10px;padding:2px 6px;">${c.sin_leer}</span>` : ''}
+    elList.innerHTML = chats.map(c => {
+      const isSelected = waSelectedClient && waSelectedClient.id === c.cliente_id;
+      return `
+        <div onclick="selectWaChat(${c.cliente_id}, '${escapeHtml(c.cliente_nombre)}', '${c.cliente_telefono}')" style="background:${isSelected ? '#2a3942' : 'transparent'};border-radius:10px;padding:12px 14px;cursor:pointer;transition:background 0.15s ease;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,0.03);">
+          <div style="width:42px;height:42px;border-radius:50%;background:#6b7c85;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0;">👤</div>
+          <div style="flex:1;overflow:hidden;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+              <strong style="font-size:0.92rem;color:#e9edef;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.cliente_nombre)}</strong>
+              <span style="font-size:0.72rem;color:${c.sin_leer > 0 ? '#00a884' : '#8696a0'};font-weight:${c.sin_leer > 0 ? '700' : '400'};">
+                ${new Date(c.ultima_fecha).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+              </span>
+            </div>
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div style="font-size:0.82rem;color:#8696a0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                ${c.ultima_direccion === 'saliente' ? '↩️ ' : '📥 '}${escapeHtml(c.ultimo_mensaje || '')}
+              </div>
+              ${c.sin_leer > 0 ? `<span style="background:#00a884;color:#111b21;font-size:0.72rem;font-weight:800;border-radius:10px;padding:1px 7px;margin-left:6px;">${c.sin_leer}</span>` : ''}
+            </div>
+          </div>
         </div>
-        <div style="font-size:0.78rem;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-          ${c.ultima_direccion === 'saliente' ? '↩️ ' : '📥 '}${escapeHtml(c.ultimo_mensaje || '')}
-        </div>
-        <div style="font-size:0.7rem;color:rgba(255,255,255,0.3);margin-top:4px;text-align:right;">
-          ${new Date(c.ultima_fecha).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
   } catch (err) {
-    elList.innerHTML = `<div style="color:#ff4757;font-size:0.85rem;">Error al cargar chats: ${err.message}</div>`;
+    elList.innerHTML = `<div style="color:#ff4757;font-size:0.85rem;padding:12px;">Error al cargar chats: ${err.message}</div>`;
   }
+}
+
+function filterWaChats(query) {
+  const q = (query || '').toLowerCase().trim();
+  const items = document.querySelectorAll('#waChatList > div');
+  items.forEach(el => {
+    const text = el.innerText.toLowerCase();
+    el.style.display = text.includes(q) ? 'flex' : 'none';
+  });
 }
 
 async function selectWaChat(clienteId, nombre, telefono) {
@@ -438,9 +454,8 @@ async function selectWaChat(clienteId, nombre, telefono) {
   if (btnAttach) btnAttach.disabled = false;
 
   const elMsgs = document.getElementById('waChatMessages');
-  elMsgs.innerHTML = '<div style="color:var(--text-secondary);text-align:center;margin-top:20px;">Cargando mensajes...</div>';
+  elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Cargando mensajes...</div>';
 
-  // Recargar la lista para actualizar el highlight
   loadBandejaWA();
 
   try {
@@ -448,13 +463,13 @@ async function selectWaChat(clienteId, nombre, telefono) {
     const history = await r.json();
 
     if (!history || history.length === 0) {
-      elMsgs.innerHTML = '<div style="color:var(--text-secondary);text-align:center;margin-top:20px;">Sin historial de mensajes con este cliente.</div>';
+      elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Sin historial de mensajes con este cliente.</div>';
       return;
     }
 
     elMsgs.innerHTML = history.map(m => {
       const isSaliente = m.direccion === 'saliente';
-      const statusIcon = m.estado === 'leido' ? '🔵🔵' : m.estado === 'entregado' ? '✓✓' : '✓';
+      const statusIcon = m.estado === 'leido' ? '<span style="color:#53bdeb;">✓✓</span>' : m.estado === 'entregado' ? '<span style="color:#8696a0;">✓✓</span>' : '<span style="color:#8696a0;">✓</span>';
       let contentHtml = escapeHtml(m.mensaje || '');
 
       // Parsear imagen recibida de Meta/360dialog [Imagen recibida:MEDIA_ID]
@@ -464,9 +479,9 @@ async function selectWaChat(clienteId, nombre, telefono) {
         const caption = imgMatch[2] ? escapeHtml(imgMatch[2]) : '';
         if (mediaId) {
           contentHtml = `
-            <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px;">📷 Imagen recibida:</div>
-            <img src="/api/whatsapp/media/${mediaId}" style="max-width:280px;max-height:280px;border-radius:10px;display:block;cursor:pointer;border:1px solid rgba(255,255,255,0.2);" onclick="window.open(this.src, '_blank')" alt="Imagen" onerror="this.onerror=null;this.replaceWith('📷 [Imagen recibida - no disponible]');">
-            ${caption ? `<div style="font-size:0.8rem;color:rgba(255,255,255,0.8);margin-top:4px;">${caption}</div>` : ''}
+            <div style="font-size:0.8rem;color:#8696a0;margin-bottom:4px;">📷 Imagen recibida:</div>
+            <img src="/api/whatsapp/media/${mediaId}" style="max-width:300px;max-height:300px;border-radius:8px;display:block;cursor:pointer;border:1px solid rgba(255,255,255,0.15);" onclick="window.open(this.src, '_blank')" alt="Imagen" onerror="this.onerror=null;this.replaceWith('📷 [Imagen recibida - no disponible]');">
+            ${caption ? `<div style="font-size:0.85rem;color:#e9edef;margin-top:6px;">${caption}</div>` : ''}
           `;
         }
       }
@@ -478,7 +493,7 @@ async function selectWaChat(clienteId, nombre, telefono) {
         const filename = escapeHtml(docMatch[2].trim());
         if (mediaId) {
           contentHtml = `
-            <a href="/api/whatsapp/media/${mediaId}?filename=${encodeURIComponent(filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:6px;background:rgba(46,213,115,0.15);border:1px solid #2ed573;color:#2ed573;padding:8px 12px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:4px;">
+            <a href="/api/whatsapp/media/${mediaId}?filename=${encodeURIComponent(filename)}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;background:rgba(0,168,132,0.15);border:1px solid #00a884;color:#00a884;padding:8px 14px;border-radius:8px;text-decoration:none;font-weight:700;margin-top:4px;">
               📄 ${filename} (Ver / Descargar PDF)
             </a>
           `;
@@ -486,10 +501,11 @@ async function selectWaChat(clienteId, nombre, telefono) {
       }
 
       return `
-        <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:75%;background:${isSaliente ? 'rgba(46,213,115,0.18)' : 'rgba(255,255,255,0.08)'};border:1px solid ${isSaliente ? 'rgba(46,213,115,0.35)' : 'rgba(255,255,255,0.12)'};border-radius:12px;padding:10px 14px;color:#fff;">
-          <div style="font-size:0.88rem;word-break:break-word;">${contentHtml}</div>
-          <div style="font-size:0.68rem;color:rgba(255,255,255,0.4);margin-top:4px;text-align:right;">
-            ${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} ${isSaliente ? statusIcon : ''}
+        <div style="align-self:${isSaliente ? 'flex-end' : 'flex-start'};max-width:70%;background:${isSaliente ? '#005c4b' : '#202c33'};border-radius:${isSaliente ? '12px 12px 2px 12px' : '12px 12px 12px 2px'};padding:8px 12px;color:#e9edef;box-shadow:0 1px 1px rgba(0,0,0,0.2);">
+          <div style="font-size:0.91rem;line-height:1.4;word-break:break-word;">${contentHtml}</div>
+          <div style="font-size:0.68rem;color:rgba(241,241,242,0.6);margin-top:4px;text-align:right;display:flex;justify-content:flex-end;align-items:center;gap:4px;">
+            <span>${new Date(m.created_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
+            ${isSaliente ? statusIcon : ''}
           </div>
         </div>
       `;
@@ -1720,6 +1736,7 @@ async function triggerSmartWhatsApp(clientId, operacion) {
         // Abrir Bandeja WA y seleccionar este cliente
         switchView('bandejaWA');
         selectWaChat(clientId, client.nombre, phone);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
         showToast(`Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
       }
