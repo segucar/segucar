@@ -1613,7 +1613,7 @@ function getWaMessageData(client, polizaInput, template) {
   return { msg, poliza: targetPolizas[0] };
 }
 
-function triggerSmartWhatsApp(clientId, operacion) {
+async function triggerSmartWhatsApp(clientId, operacion) {
   const client = state.clients.find(c => c.id === clientId);
   if (!client) return;
 
@@ -1665,7 +1665,54 @@ function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
-  // ── Anti-ban: verificar tanda antes de abrir ──
+  // Verificar si estamos en Modo Oficial API o Modo Simulación
+  try {
+    const resCfg = await fetch('/api/whatsapp/config');
+    const cfg = await resCfg.json();
+
+    if (cfg.modo === 'oficial' && cfg.api_key) {
+      // 🚀 Modo Oficial API: Enviar directo por 360dialog y abrir Bandeja WA
+      showToast(`Enviando aviso por WhatsApp API a ${client.nombre}...`, 'info');
+      const resSend = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_id: clientId,
+          telefono: phone,
+          mensaje: msg
+        })
+      });
+      const dataSend = await resSend.json();
+
+      if (dataSend.ok) {
+        showToast(`✅ Aviso de WhatsApp enviado exitosamente a ${client.nombre}`, 'success');
+        markWhatsAppAsSent(clientId, operacion);
+        // Abrir Bandeja WA y seleccionar este cliente
+        switchView('bandejaWA');
+        selectWaChat(clientId, client.nombre, phone);
+      } else {
+        showToast(`Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
+      }
+
+      fetch('/api/contactos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_id: clientId,
+          poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
+          tipo: template.tipo,
+          medio: 'whatsapp',
+          mensaje: msg
+        })
+      }).catch(err => console.error('Error logging contact:', err));
+
+      return;
+    }
+  } catch (err) {
+    console.error('Error verificando modo WA config:', err);
+  }
+
+  // 🟢 Modo Simulación: Abrir WhatsApp Web tradicional
   if (!checkWaTanda()) {
     const info = getWaTandaInfo();
     const minLeft = Math.ceil(info.remaining / 60000);
