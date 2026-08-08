@@ -59,7 +59,8 @@ function toLocalDateString(fecha) {
 }
 
 /**
- * Verifica si una fecha es Sábado, Domingo o Feriado en Argentina.
+ * Verifica si una fecha es Domingo o Feriado en Argentina.
+ * NOTA: SEGUCar trabaja los SÁBADOS — solo se pausa los Domingos y Feriados.
  * @param {Date} fecha
  * @returns {boolean}
  */
@@ -67,7 +68,8 @@ function esNoHabil(fecha) {
     const d = _normalizarFecha(fecha);
     if (isNaN(d.getTime())) return false;
     const diaSemana = d.getDay(); // 0 = Domingo, 6 = Sábado
-    if (diaSemana === 0 || diaSemana === 6) return true;
+    // Solo Domingo es no hábil (SEGUCar trabaja los sábados)
+    if (diaSemana === 0) return true;
 
     const fechaStr = toLocalDateString(d);
     if (!fechaStr) return false;
