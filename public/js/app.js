@@ -226,7 +226,6 @@ document.addEventListener('click', (e) => {
     }
   }
 });
-});
 
 // ─── GEAR CONFIG DROPDOWN ───────────────────────────────────────────────────
 function toggleConfigMenu(e) {

@@ -39,9 +39,11 @@
             <a href="importar.html" class="nav-config-item">📥 Importar Datos</a>
             <div class="nav-config-divider"></div>
             <a href="#" onclick="openModalWaConfig(); toggleConfigMenu(); return false;" class="nav-config-item">🔑 Config WhatsApp API</a>
-            <a href="#" onclick="triggerSyncNRE(); toggleConfigMenu(); return false;" class="nav-config-item">🔄 Sincronizar NRE</a>
           </div>
         </div>
+
+        <!-- SINCRONIZAR NRE (siempre visible) -->
+        <button class="btn btn-sm btn-primary" id="btnSyncNRE" onclick="triggerSyncNRE()" style="gap:6px; margin-left:4px; display:inline-flex; align-items:center; font-weight:700; border-radius:8px; padding:6px 12px; font-size:0.8rem;">🔄 NRE</button>
       </div>
     </div>
   </nav>
