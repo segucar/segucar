@@ -18,16 +18,25 @@
                 </svg>
                 <span class="brand-text">SEGU<em>Car</em></span>
             </a>
-            <div class="navbar-nav" style="align-items:center;">
+            <div class="navbar-nav" style="align-items:center; gap:4px;">
                 <a href="index.html" onclick="localStorage.setItem('targetView', 'dashboard')" class="nav-link">🏠 Dashboard</a>
                 <a href="index.html" onclick="localStorage.setItem('targetView', 'cobranza')" class="nav-link">💰 Cobranza</a>
                 <a href="index.html" onclick="localStorage.setItem('targetView', 'renovaciones')" class="nav-link">🛡️ Renovaciones</a>
                 <a href="index.html" onclick="localStorage.setItem('targetView', 'metricas')" class="nav-link">📊 Métricas</a>
-                <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
-                <a href="importar.html" class="nav-link active">📥 Importar</a>
-                <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
-        <a href="/api/exportar-excel" class="nav-link" style="color:var(--accent-cyan-light); font-weight:600;">📥 Exportar Excel</a>
-                <a href="index.html" onclick="localStorage.setItem('targetSyncNRE', 'true')" class="btn btn-sm btn-primary" style="gap:6px; margin-left:8px; display:inline-flex; align-items:center; text-decoration:none;">🔄 Sincronizar NRE</a>
+                <!-- Gear dropdown -->
+                <div class="nav-config-dropdown">
+                  <button class="nav-config-btn" onclick="this.nextElementSibling.classList.toggle('open')" title="Configuración">⚙️</button>
+                  <div class="nav-config-menu">
+                    <div class="nav-config-menu-title">⚙️ Configuración &amp; Herramientas</div>
+                    <a href="plantillas.html" class="nav-config-item">📋 Plantillas de WhatsApp</a>
+                    <a href="index.html" onclick="localStorage.setItem('targetView','validacion')" class="nav-config-item">📱 Validar Teléfonos</a>
+                    <a href="recuperacion.html" class="nav-config-item">🔄 Recuperación de Clientes</a>
+                    <a href="importar.html" class="nav-config-item active" style="color:var(--accent-cyan);">📥 Importar Datos</a>
+                    <div class="nav-config-divider"></div>
+                    <a href="index.html" onclick="localStorage.setItem('targetView','waconfig')" class="nav-config-item">🔑 Config WhatsApp API</a>
+                  </div>
+                </div>
+                <a href="index.html" onclick="localStorage.setItem('targetSyncNRE', 'true')" class="btn btn-sm btn-primary" style="gap:6px; margin-left:4px; display:inline-flex; align-items:center; text-decoration:none; font-size:0.8rem; padding:6px 12px; border-radius:8px;">🔄 NRE</a>
             </div>
         </div>
     </nav>
