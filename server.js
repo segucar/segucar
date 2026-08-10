@@ -1890,8 +1890,8 @@ app.get('/api/plantillas', (req, res) => {
 
 app.post('/api/plantillas', (req, res) => {
     try {
-        const { nombre, tipo, mensaje, activa } = req.body;
-        const info = db.prepare('INSERT INTO plantillas (nombre, tipo, mensaje, activa) VALUES (?, ?, ?, ?)').run(nombre, tipo, mensaje, activa !== undefined ? activa : 1);
+        const { nombre, tipo, nombre_meta, mensaje, activa } = req.body;
+        const info = db.prepare('INSERT INTO plantillas (nombre, tipo, nombre_meta, mensaje, activa) VALUES (?, ?, ?, ?, ?)').run(nombre, tipo, nombre_meta || null, mensaje, activa !== undefined ? activa : 1);
         res.status(201).json({ id: info.lastInsertRowid, message: 'Plantilla creada' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1900,8 +1900,8 @@ app.post('/api/plantillas', (req, res) => {
 
 app.put('/api/plantillas/:id', (req, res) => {
     try {
-        const { nombre, tipo, mensaje, activa } = req.body;
-        const info = db.prepare('UPDATE plantillas SET nombre=?, tipo=?, mensaje=?, activa=? WHERE id=?').run(nombre, tipo, mensaje, activa, req.params.id);
+        const { nombre, tipo, nombre_meta, mensaje, activa } = req.body;
+        const info = db.prepare('UPDATE plantillas SET nombre=?, tipo=?, nombre_meta=?, mensaje=?, activa=? WHERE id=?').run(nombre, tipo, nombre_meta || null, mensaje, activa, req.params.id);
         if (info.changes === 0) return res.status(404).json({ error: 'Plantilla no encontrada' });
         res.json({ message: 'Plantilla actualizada' });
     } catch (error) {
@@ -3088,7 +3088,7 @@ app.get('/api/automation/pendientes-hoy', (req, res) => {
             else if (diffHoras < 0 && diffHoras >= -48 && cuotasDebe >= 1)
                 { tipo = 'primer_aviso'; plantilla = 'primer_aviso_vencida_48hs'; }
             else if (diffHoras < -48 && diffHoras >= -96 && cuotasDebe >= 1)
-                { tipo = 'segundo_aviso'; plantilla = 'segundo_aviso_mora_96hs'; }
+                { tipo = 'segundo_aviso'; plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs'; }
             else if (diffHoras < -96 && cuotasDebe >= 2)
                 { tipo = 'mora_critica'; plantilla = 'mora_critica_impaga'; }
 
