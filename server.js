@@ -1772,24 +1772,37 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
         const transaction = db.transaction((rows) => {
             for (const row of rows) {
                 try {
-                    const operacion = String(row['Operacion'] || '').trim();
-                    const nombre = String(row['Nombre'] || row['Asegurado'] || '').trim();
-                    const telefono = sanitizeAndFixPhone(row['Teléfono'] || row['Telefono'] || '');
-                    const seccion = row['Seccion'] || row['Sección'] || '';
-                    const patente = String(row['Patente'] || '').trim();
-                    // Support both "Vehículo" column and "Marca" column
-                    const vehiculo = String(row['Vehículo'] || row['Vehiculo'] || row['Marca'] || '').trim();
-                    const sumaAseg = String(row['Suma Aseg'] || '').trim();
-                    const codProd = String(row['Cod Prod'] || '').trim();
-                    const cuenta = String(row['Cuenta'] || row['Productor'] || '').trim();
-                    const finVig = parseFecha(row['Fin Vig'] || row['Vencimiento'] || row['Vig. Hasta'] || row['Fecha Vencimiento'] || '');
+                    // Soporta columnas NRE y columnas AGS (exportado desde portal AGS)
+                    const operacion = String(
+                        row['Operacion'] || row['Póliza'] || row['Poliza'] || row['N° Póliza'] || row['Nro Poliza'] || row['poliza'] || ''
+                    ).trim();
+                    const nombre = String(
+                        row['Nombre'] || row['Asegurado'] || row['asegurado'] || row['ASEGURADO'] || ''
+                    ).trim();
+                    const telefono = sanitizeAndFixPhone(row['Teléfono'] || row['Telefono'] || row['Tel'] || row['Celular'] || '');
+                    const seccion = row['Seccion'] || row['Sección'] || row['Descri'] || row['Descripcion'] || '';
+                    const patente = String(row['Patente'] || row['patente'] || row['PATENTE'] || '').trim();
+                    // AGS: columna Vehículo puede incluir el año separado en otra columna
+                    const vehiculoBase = String(row['Vehículo'] || row['Vehiculo'] || row['Marca'] || row['vehiculo'] || '').trim();
+                    const anioVeh = String(row['Año'] || row['Anio'] || row['año'] || '').trim();
+                    const vehiculo = (vehiculoBase && anioVeh && !vehiculoBase.includes(anioVeh))
+                        ? `${vehiculoBase} ${anioVeh}` : vehiculoBase;
+                    // AGS: Suma puede llamarse 'Suma', Premio puede usarse como alternativa
+                    const sumaAseg = String(row['Suma Aseg'] || row['Suma'] || row['Premio'] || row['suma'] || '').trim();
+                    const codProd = String(row['Cod Prod'] || row['Productor'] || row['productor'] || '').trim();
+                    const cuenta = String(row['Cuenta'] || row['Agencia'] || row['agencia'] || '').trim();
+                    const finVig = parseFecha(
+                        row['Fin Vig'] || row['Vencimiento'] || row['Vig. Hasta'] ||
+                        row['Fecha Vencimiento'] || row['fin_vig'] || row['FinVig'] || ''
+                    );
                     const renovada = String(row['Renovada'] || '').trim();
-                    const cuoDebe = parseInt(row['Cuo Debe']) || 0;
+                    const cuoDebe = parseInt(row['Cuo Debe'] || row['Cuotas Debe'] || 0) || 0;
                     const direccion = String(row['Direccion'] || row['Dirección'] || '').trim();
                     const localidad = String(row['Localidad'] || '').trim();
                     const direccionCompleta = [direccion, localidad].filter(Boolean).join(', ');
 
-                    if (!operacion) { errores++; continue; }
+                    if (!operacion) { errores++; detalles.push(`Fila sin operacion/poliza: ${JSON.stringify(Object.keys(row))}`); continue; }
+                    if (!nombre) { errores++; detalles.push(`Fila sin nombre/asegurado: operacion=${operacion}`); continue; }
 
                     // Use 'Tipo Vehiculo' column if available, otherwise detect
                     let tipoVehiculo;
