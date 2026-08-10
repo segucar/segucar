@@ -1,11 +1,31 @@
-// ─── Importar Excel ────────────────────────────────────────────────────────
-
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 const fileInfo = document.getElementById('fileInfo');
 const importBtn = document.getElementById('importBtn');
 
 let selectedFile = null;
+
+// ─── Origin radio button styling ──────────────────────────────────────────
+function actualizarEstiloOrigen() {
+    const nreLabel = document.getElementById('origenNRELabel');
+    const agsLabel = document.getElementById('origenAGSLabel');
+    const esAGS = document.getElementById('origenAGS')?.checked;
+    if (!nreLabel || !agsLabel) return;
+    if (esAGS) {
+        agsLabel.style.border = '2px solid #1565c0';
+        agsLabel.style.background = 'rgba(21,101,192,0.15)';
+        nreLabel.style.border = '2px solid #444';
+        nreLabel.style.background = 'transparent';
+        importBtn.textContent = '🔵 Importar como AGS';
+    } else {
+        nreLabel.style.border = '2px solid var(--accent-cyan)';
+        nreLabel.style.background = 'rgba(0,180,216,0.1)';
+        agsLabel.style.border = '2px solid #444';
+        agsLabel.style.background = 'transparent';
+        importBtn.textContent = '📥 Importar Archivo';
+    }
+}
+document.querySelectorAll('input[name="origenImport"]').forEach(r => r.addEventListener('change', actualizarEstiloOrigen));
 
 // Drag & Drop
 dropZone.addEventListener('dragover', (e) => {
@@ -42,10 +62,11 @@ function handleFileSelect(file) {
     importBtn.classList.remove('hidden');
 }
 
-// ─── Upload real al servidor ───────────────────────────────────────────────
-
 async function uploadExcel() {
     if (!selectedFile) return;
+
+    const origenRadio = document.querySelector('input[name="origenImport"]:checked');
+    const origen = origenRadio ? origenRadio.value : 'NRE';
 
     importBtn.disabled = true;
     importBtn.innerText = 'Importando...';
@@ -55,6 +76,7 @@ async function uploadExcel() {
     try {
         const formData = new FormData();
         formData.append('archivo', selectedFile);
+        formData.append('origen', origen);
 
         const response = await fetch('/api/importar', {
             method: 'POST',

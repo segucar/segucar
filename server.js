@@ -1756,8 +1756,9 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
         const sheet = workbook.Sheets[workbook.SheetNames[0]];
         const data = xlsx.utils.sheet_to_json(sheet, { defval: '' });
 
-        const findClienteByName = db.prepare('SELECT id FROM clientes WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(?)) LIMIT 1');
-        const insertCliente = db.prepare('INSERT INTO clientes (nombre, telefono, direccion) VALUES (?, ?, ?)');
+        const origen = (req.body.origen || 'NRE').toUpperCase();
+        const findClienteByName = db.prepare("SELECT id FROM clientes WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(?)) AND (origen = ? OR (origen IS NULL AND ? = 'NRE')) LIMIT 1");
+        const insertCliente = db.prepare("INSERT INTO clientes (nombre, telefono, direccion, origen) VALUES (?, ?, ?, ?)");
         const updateClienteTel = db.prepare("UPDATE clientes SET telefono = ? WHERE id = ? AND (telefono IS NULL OR telefono = '')");
         const findPoliza = db.prepare('SELECT id FROM polizas WHERE operacion = ?');
         const insertPoliza = db.prepare(`
@@ -1810,7 +1811,7 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
 
                     // Buscar o crear cliente
                     let cliente_id;
-                    const existing = findClienteByName.get(nombre);
+                    const existing = findClienteByName.get(nombre, origen, origen);
                     if (existing) {
                         cliente_id = existing.id;
                         if (telefono) updateClienteTel.run(telefono, cliente_id);
@@ -1818,7 +1819,7 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
                             db.prepare("UPDATE clientes SET direccion = ? WHERE id = ? AND (direccion IS NULL OR direccion = '')").run(direccionCompleta, cliente_id);
                         }
                     } else {
-                        const info = insertCliente.run(nombre, telefono, direccionCompleta);
+                        const info = insertCliente.run(nombre, telefono, direccionCompleta, origen);
                         cliente_id = info.lastInsertRowid;
                     }
 
@@ -1829,6 +1830,11 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
                         actualizados++;
                     } else {
                         insertPoliza.run(cliente_id, operacion, seccion, tipoVehiculo, patente, vehiculo, sumaAseg, codProd, cuenta, finVig, renovada, cuoDebe, estado);
+                        // Si es AGS, marcar aseguradora
+                        if (origen === 'AGS') {
+                            const lastId = db.prepare('SELECT last_insert_rowid() as id').get().id;
+                            db.prepare("UPDATE polizas SET aseguradora = 'AGS' WHERE id = ?").run(lastId);
+                        }
                         importados++;
                     }
                 } catch (err) {

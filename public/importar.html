@@ -62,6 +62,21 @@
                     <strong>Tamaño:</strong> <span id="fileSize"></span>
                 </div>
                 
+                <!-- Origen selector -->
+                <div style="margin-bottom:14px;">
+                    <label style="display:block;font-weight:600;font-size:0.85rem;margin-bottom:8px;color:var(--text-secondary);">Sistema de origen del archivo:</label>
+                    <div style="display:flex;gap:10px;">
+                        <label id="origenNRELabel" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid var(--accent-cyan);background:rgba(0,180,216,0.1);cursor:pointer;font-weight:600;">
+                            <input type="radio" name="origenImport" id="origenNRE" value="NRE" checked style="accent-color:var(--accent-cyan);">
+                            🗂️ NRE
+                        </label>
+                        <label id="origenAGSLabel" style="flex:1;display:flex;align-items:center;gap:8px;padding:10px 14px;border-radius:10px;border:2px solid #444;background:transparent;cursor:pointer;font-weight:600;">
+                            <input type="radio" name="origenImport" id="origenAGS" value="AGS" style="accent-color:#1565c0;">
+                            🔵 AGS
+                        </label>
+                    </div>
+                </div>
+
                 <button id="importBtn" class="btn btn-primary w-100 hidden" onclick="uploadExcel()">Importar Archivo</button>
                 
                 <div id="importProgress" class="hidden mt-3">
