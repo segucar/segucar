@@ -1289,9 +1289,10 @@ function createClientRow(client, poliza, isSecondary = false) {
     : '-';
 
   const formattedName = formatClientName(client.nombre || '-');
+  const agsTag = client.origen === 'AGS' ? `<span style="background:#1565c0;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:5px;letter-spacing:0.5px;vertical-align:middle;">AGS</span>` : '';
   const nameHtml = isSecondary 
-    ? `<span style="color: var(--accent-cyan-light); font-size: 0.88rem;" title="Mismo cliente (Segunda póliza)">↳ <strong>${escapeHtml(formattedName)}</strong></span>` 
-    : `<strong>${escapeHtml(formattedName)}</strong>`;
+    ? `<span style="color: var(--accent-cyan-light); font-size: 0.88rem;" title="Mismo cliente (Segunda póliza)">↳ <strong>${escapeHtml(formattedName)}</strong>${agsTag}</span>` 
+    : `<strong>${escapeHtml(formattedName)}</strong>${agsTag}`;
 
   const phoneHtml = client.telefono 
     ? `<span>📱 ${escapeHtml(client.telefono)}</span>` 

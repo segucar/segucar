@@ -8,6 +8,7 @@ const fs = require('fs');
 const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
+const { syncAGS } = require('./sync_ags');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
 const waService = require('./whatsapp_service');
 
@@ -1544,6 +1545,20 @@ app.post('/api/sync-nre', async (req, res) => {
     } catch (error) {
         console.error('Error en sync-nre:', error);
         res.status(500).json({ error: 'Error al sincronizar con portal NRE: ' + error.message });
+    }
+});
+
+app.post('/api/sync-ags', async (req, res) => {
+    try {
+        const result = await syncAGS();
+        res.json({
+            success: true,
+            message: 'Sincronización con portal AGS completada.',
+            detalles: result
+        });
+    } catch (error) {
+        console.error('Error en sync-ags:', error);
+        res.status(500).json({ error: 'Error al sincronizar con portal AGS: ' + error.message });
     }
 });
 
@@ -3221,6 +3236,33 @@ if (require.main === module) {
     setInterval(correrAutoSync, INTERVALO_MS);
 
     console.log('⏰ Auto-sync NRE programado: cada 2hs en días hábiles (8am-8pm)');
+})();
+
+// ─── AUTO-SYNC AGS CADA 2 HORAS (días hábiles, 8am-8pm) ─────────────────────
+(function iniciarAutoSyncAGS() {
+    const INTERVALO_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+    async function correrAutoSyncAGS() {
+        const ahora = new Date();
+        const dia = ahora.getDay();
+        const hora = ahora.getHours();
+        if (dia === 0 || hora < 8 || hora >= 20) {
+            console.log(`⏭️  Auto-sync AGS omitido (${dia === 0 ? 'Domingo' : 'fuera de horario'})`);
+            return;
+        }
+        try {
+            console.log(`🔵 Auto-sync AGS iniciado (${toLocalISOString(ahora)})...`);
+            const result = await syncAGS();
+            console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas} actualizadas, ${result.con_deuda} con deuda`);
+        } catch (err) {
+            console.error('❌ Auto-sync AGS error:', err.message);
+        }
+    }
+
+    // Delay de 60s para no solaparse con NRE al arrancar
+    setTimeout(correrAutoSyncAGS, 60 * 1000);
+    setInterval(correrAutoSyncAGS, INTERVALO_MS);
+    console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (8am-8pm)');
 })();
 
 module.exports = app;
