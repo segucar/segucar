@@ -11,6 +11,58 @@ const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_n
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
 const waService = require('./whatsapp_service');
 
+// ─── MIGRACIÓN AUTOMÁTICA: Alinear plantillas con nombres de Meta ────────────
+(function migrarPlantillas() {
+    try {
+        // 1. Agregar columna nombre_meta si no existe
+        try { db.prepare('ALTER TABLE plantillas ADD COLUMN nombre_meta TEXT').run(); } catch(e) {}
+
+        // 2. Actualizar textos y nombre_meta para cada plantilla
+        const updates = [
+            {
+                tipo: 'recordatorio_48hs',
+                nombre_meta: 'recordatorio_preventivo_48hs',
+                mensaje: 'Hola, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu póliza N° {operacion} (Patente {patente}). Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
+            },
+            {
+                tipo: 'primer_aviso',
+                nombre_meta: 'primer_aviso_vencida_48hs',
+                mensaje: 'Hola, te recuerdo que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
+            },
+            {
+                tipo: 'segundo_aviso',
+                nombre_meta: 'cuota_segundo_aviso_vencida_hace_96_hs',
+                mensaje: 'Hola, ¿cómo estás? Te informamos que la cuota de tu seguro ({operacion} - Patente {patente}) venció hace 96 hs y si no se regulariza antes de las 12hs de mañana se suspende la cobertura por falta de pago. Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
+            },
+            {
+                tipo: 'mora_critica',
+                nombre_meta: 'mora_critica_impaga',
+                activa: 1,
+                mensaje: 'Hola, te avisamos que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace más de 4 días y registrás cuotas impagas. La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
+            },
+            {
+                tipo: 'renovacion_7_dias',
+                nombre_meta: 'aviso_renovacion_7_dias',
+                mensaje: 'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
+            }
+        ];
+
+        for (const u of updates) {
+            if (u.activa !== undefined) {
+                db.prepare('UPDATE plantillas SET nombre_meta=?, mensaje=?, activa=? WHERE tipo=?')
+                  .run(u.nombre_meta, u.mensaje, u.activa, u.tipo);
+            } else {
+                db.prepare('UPDATE plantillas SET nombre_meta=?, mensaje=? WHERE tipo=?')
+                  .run(u.nombre_meta, u.mensaje, u.tipo);
+            }
+        }
+        console.log('✅ Migración plantillas: textos y nombre_meta actualizados');
+    } catch(e) {
+        console.error('❌ Error en migración plantillas:', e.message);
+    }
+})();
+
+
 function getFechasTargetCobranza(targetState, hoyDate = new Date()) {
     const allPol = db.prepare("SELECT DISTINCT fecha_vencimiento FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento IS NOT NULL AND length(fecha_vencimiento) > 0").all();
     const matchingVtos = [];
