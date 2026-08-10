@@ -2383,9 +2383,10 @@ function showCuotasModal(polizaId, operacion) {
 
   const opStr = targetPoliza ? (targetPoliza.operacion || operacion) : operacion;
   const clienteName = targetCliente ? formatClientName(targetCliente.nombre || '') : '';
+  const isAGSPoliza = (targetPoliza && (targetPoliza.aseguradora === 'AGS' || targetPoliza.aseguradora === 'Agrosalta')) || (targetCliente && targetCliente.origen === 'AGS');
 
   if (title) {
-    title.innerHTML = `<span>🧾</span> <span>Historial de Cuotas NRE — Póliza N° ${escapeHtml(opStr)}</span>`;
+    title.innerHTML = `<span>🧾</span> <span>Historial de Cuotas ${isAGSPoliza ? 'AGS' : 'NRE'} — Póliza N° ${escapeHtml(opStr)}</span>`;
   }
 
   let historial = [];
@@ -2397,9 +2398,10 @@ function showCuotasModal(polizaId, operacion) {
     }
   }
 
-  // Fallback if no JSON history stored yet: construct 3 sample/estimated cuotas from DB values
+  // Fallback if no JSON history stored yet: construct sample/estimated cuotas from DB values
   if (!historial || historial.length === 0) {
-    const totalCuotas = targetPoliza ? (targetPoliza.total_cuotas || 3) : 3;
+    const defaultTotal = isAGSPoliza ? 4 : 3;
+    const totalCuotas = targetPoliza ? (targetPoliza.total_cuotas || defaultTotal) : defaultTotal;
     const cuotasDebe = targetPoliza ? (targetPoliza.cuotas_debe || 0) : 0;
     const vtoCuota = targetPoliza ? targetPoliza.fecha_vencimiento : null;
     const saldo = targetPoliza ? (parseFloat(targetPoliza.saldo_pendiente) || 0) : 0;
@@ -2412,8 +2414,8 @@ function showCuotasModal(polizaId, operacion) {
         vto_cuota: esImpaga ? vtoCuota : null,
         saldo_cli: esImpaga ? (saldo / Math.max(1, cuotasDebe)) : 0,
         estado: esImpaga ? 'PENDIENTE' : 'PAGADA',
-        fecha_pago: esImpaga ? null : 'Registrado en NRE',
-        lote: esImpaga ? '-' : 'Lote NRE Sincronizado'
+        fecha_pago: esImpaga ? null : (isAGSPoliza ? 'Registrado en AGS' : 'Registrado en NRE'),
+        lote: esImpaga ? '-' : (isAGSPoliza ? 'Sincronizado con AGS' : 'Lote NRE Sincronizado')
       });
     }
   }
@@ -2424,11 +2426,14 @@ function showCuotasModal(polizaId, operacion) {
     const estadoBadge = getCuotaEstadoBadge(item);
 
     const vtoFormatted = item.vto_cuota ? formatDate(item.vto_cuota) : '-';
-    const pagoFormatted = item.fecha_pago ? formatDate(item.fecha_pago) : (isPend ? '-' : 'Abonada');
+    let rawPago = item.fecha_pago;
+    if (rawPago === 'Registrado en NRE' && isAGSPoliza) rawPago = 'Registrado en AGS';
+    const pagoFormatted = rawPago ? (rawPago.startsWith('Registrado') ? rawPago : formatDate(rawPago)) : (isPend ? '-' : 'Abonada');
     const saldoFormatted = item.saldo_cli > 0 
       ? `$ ${parseFloat(item.saldo_cli).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 })}` 
       : '$ 0,00';
-    const loteStr = item.lote || '-';
+    let loteStr = item.lote || '-';
+    if (loteStr === 'Lote NRE Sincronizado' && isAGSPoliza) loteStr = 'Sincronizado con AGS';
 
     rowsHtml += `
       <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
@@ -2436,13 +2441,12 @@ function showCuotasModal(polizaId, operacion) {
         <td style="padding:10px 14px;">${vtoFormatted}</td>
         <td style="padding:10px 14px;"><strong style="color:${isPend ? '#ff4757' : '#2ed573'};">${saldoFormatted}</strong></td>
         <td style="padding:10px 14px;">${estadoBadge}</td>
-        <td style="padding:10px 14px; font-family:monospace; color:var(--text-secondary);">${pagoFormatted}</td>
+        <td style="padding:10px 14px; font-family:monospace; color:var(--text-secondary);">${escapeHtml(pagoFormatted)}</td>
         <td style="padding:10px 14px; font-family:monospace; color:var(--accent-cyan-light);">${escapeHtml(loteStr)}</td>
       </tr>
     `;
   });
 
-  const isAGSPoliza = (targetPoliza && (targetPoliza.aseguradora === 'AGS' || targetPoliza.aseguradora === 'Agrosalta')) || (targetCliente && targetCliente.origen === 'AGS');
   let grucarBadge = '<span class="badge" style="background:rgba(255,71,87,0.15); border:1px solid #ff4757; color:#ff4757; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🔴 Sin Cobertura Grucar</span>';
   if (isAGSPoliza) {
     grucarBadge = '<span class="badge" style="background:rgba(21,101,192,0.18); border:1px solid #1565c0; color:#48cae4; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🔵 AGS (Sin Grucar)</span>';
@@ -2459,7 +2463,7 @@ function showCuotasModal(polizaId, operacion) {
       <div><strong>Asegurado:</strong> ${escapeHtml(clienteName)}</div>
       <div><strong>Vehículo:</strong> ${escapeHtml(targetPoliza ? (targetPoliza.vehiculo || '-') : '-')}</div>
       <div><strong>Patente:</strong> <span style="font-family:monospace; font-weight:700;">${escapeHtml(targetPoliza ? (targetPoliza.patente || '-') : '-')}</span></div>
-      <div><strong>Estado Grucar API:</strong> ${grucarBadge}</div>
+      <div><strong>${isAGSPoliza ? 'Compañía / Grucar:' : 'Estado Grucar API:'}</strong> ${grucarBadge}</div>
     </div>
     <div class="table-container" style="max-height: 320px; overflow-y: auto;">
       <table style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
@@ -2470,7 +2474,7 @@ function showCuotasModal(polizaId, operacion) {
             <th style="padding: 10px 14px; color: var(--text-secondary);">SALDO CLI</th>
             <th style="padding: 10px 14px; color: var(--text-secondary);">ESTADO</th>
             <th style="padding: 10px 14px; color: var(--text-secondary);">FECHA PAGO</th>
-            <th style="padding: 10px 14px; color: var(--text-secondary);">N° LOTE NRE</th>
+            <th style="padding: 10px 14px; color: var(--text-secondary);">${isAGSPoliza ? 'REFERENCIA / LOTE' : 'N° LOTE NRE'}</th>
           </tr>
         </thead>
         <tbody>
