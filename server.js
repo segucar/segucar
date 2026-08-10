@@ -1773,29 +1773,31 @@ app.post('/api/importar', upload.single('archivo'), (req, res) => {
             for (const row of rows) {
                 try {
                     // Soporta columnas NRE y columnas AGS (exportado desde portal AGS)
+                    // strip commas and spaces from policy number (AGS usa 8,257,130 format)
                     const operacion = String(
                         row['Operacion'] || row['Póliza'] || row['Poliza'] || row['N° Póliza'] || row['Nro Poliza'] || row['poliza'] || ''
-                    ).trim();
+                    ).replace(/[,\s]/g, '').trim();
                     const nombre = String(
                         row['Nombre'] || row['Asegurado'] || row['asegurado'] || row['ASEGURADO'] || ''
                     ).trim();
                     const telefono = sanitizeAndFixPhone(row['Teléfono'] || row['Telefono'] || row['Tel'] || row['Celular'] || '');
-                    const seccion = row['Seccion'] || row['Sección'] || row['Descri'] || row['Descripcion'] || '';
+                    const seccion = String(row['Seccion'] || row['Sección'] || row['Cobertura'] || row['Descri'] || row['Descripcion'] || '').trim();
                     const patente = String(row['Patente'] || row['patente'] || row['PATENTE'] || '').trim();
                     // AGS: columna Vehículo puede incluir el año separado en otra columna
                     const vehiculoBase = String(row['Vehículo'] || row['Vehiculo'] || row['Marca'] || row['vehiculo'] || '').trim();
                     const anioVeh = String(row['Año'] || row['Anio'] || row['año'] || '').trim();
                     const vehiculo = (vehiculoBase && anioVeh && !vehiculoBase.includes(anioVeh))
                         ? `${vehiculoBase} ${anioVeh}` : vehiculoBase;
-                    // AGS: Suma puede llamarse 'Suma', Premio puede usarse como alternativa
-                    const sumaAseg = String(row['Suma Aseg'] || row['Suma'] || row['Premio'] || row['suma'] || '').trim();
+                    // AGS: Suma puede tener formato '$11.000.000' o numero con puntos — limpiar
+                    const sumaRaw = String(row['Suma Aseg'] || row['Suma'] || row['Premio'] || row['suma'] || '').trim();
+                    const sumaAseg = sumaRaw.replace(/[\$\.]/g, '').replace(/,/g, '').trim();
                     const codProd = String(row['Cod Prod'] || row['Productor'] || row['productor'] || '').trim();
                     const cuenta = String(row['Cuenta'] || row['Agencia'] || row['agencia'] || '').trim();
                     const finVig = parseFecha(
                         row['Fin Vig'] || row['Vencimiento'] || row['Vig. Hasta'] ||
                         row['Fecha Vencimiento'] || row['fin_vig'] || row['FinVig'] || ''
                     );
-                    const renovada = String(row['Renovada'] || '').trim();
+                    const renovada = String(row['Renovada'] || row['Acción'] || row['Accion'] || '').trim();
                     const cuoDebe = parseInt(row['Cuo Debe'] || row['Cuotas Debe'] || 0) || 0;
                     const direccion = String(row['Direccion'] || row['Dirección'] || '').trim();
                     const localidad = String(row['Localidad'] || '').trim();
