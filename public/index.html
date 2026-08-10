@@ -19,18 +19,29 @@
         </svg>
         <span class="brand-text">SEGU<em>Car</em></span>
       </a>
-      <div class="navbar-nav" style="align-items:center;">
+      <div class="navbar-nav" style="align-items:center; gap: 4px;">
+        <!-- TABS PRINCIPALES (empleado) -->
         <a href="#" onclick="switchView('dashboard'); return false;" id="navDashboard" class="nav-link active">🏠 Dashboard</a>
         <a href="#" onclick="switchView('cobranza'); return false;" id="navCobranza" class="nav-link">💰 Cobranza</a>
         <a href="#" onclick="switchView('renovaciones'); return false;" id="navRenovaciones" class="nav-link">🛡️ Renovaciones</a>
         <a href="#" onclick="switchView('metricas'); return false;" id="navMetricas" class="nav-link">📊 Métricas</a>
-        <a href="#" onclick="switchView('bandejaWA'); return false;" id="navBandejaWA" class="nav-link" style="color:#2ed573;font-weight:700;">💬 Bandeja WhatsApp</a>
-        <a href="#" onclick="switchView('validacion'); return false;" id="navValidacion" class="nav-link" style="color:#a29bfe;font-weight:700;">📱 Validar Teléfonos</a>
-        <a href="recuperacion.html" class="nav-link">🔄 Recuperación</a>
-        <a href="importar.html" class="nav-link">📥 Importar</a>
-        <a href="plantillas.html" class="nav-link">📋 Plantillas</a>
-        <a href="#" onclick="openModalWaConfig(); return false;" class="nav-link" style="color:#2ed573;font-weight:600;">⚙️ Config WA API</a>
-        <button class="btn btn-sm btn-primary" id="btnSyncNRE" onclick="triggerSyncNRE()" style="gap:6px; margin-left:12px; display:inline-flex; align-items:center; font-weight:700; border-radius:8px; padding:6px 14px;">🔄 Sincronizar NRE</button>
+
+        <!-- RUEDA DE CONFIGURACIONES (admin) -->
+        <div class="nav-config-dropdown" id="navConfigDropdown">
+          <button class="nav-config-btn" onclick="toggleConfigMenu(event)" title="Configuración y herramientas">
+            ⚙️
+          </button>
+          <div class="nav-config-menu" id="navConfigMenu">
+            <div class="nav-config-menu-title">⚙️ Configuración &amp; Herramientas</div>
+            <a href="plantillas.html" class="nav-config-item">📋 Plantillas de WhatsApp</a>
+            <a href="#" onclick="switchView('validacion'); toggleConfigMenu(); return false;" class="nav-config-item">📱 Validar Teléfonos</a>
+            <a href="recuperacion.html" class="nav-config-item">🔄 Recuperación de Clientes</a>
+            <a href="importar.html" class="nav-config-item">📥 Importar Datos</a>
+            <div class="nav-config-divider"></div>
+            <a href="#" onclick="openModalWaConfig(); toggleConfigMenu(); return false;" class="nav-config-item">🔑 Config WhatsApp API</a>
+            <a href="#" onclick="triggerSyncNRE(); toggleConfigMenu(); return false;" class="nav-config-item">🔄 Sincronizar NRE</a>
+          </div>
+        </div>
       </div>
     </div>
   </nav>

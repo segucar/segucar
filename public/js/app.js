@@ -226,11 +226,24 @@ document.addEventListener('click', (e) => {
     }
   }
 });
+});
+
+// ─── GEAR CONFIG DROPDOWN ───────────────────────────────────────────────────
+function toggleConfigMenu(e) {
+  if (e) e.stopPropagation();
+  const menu = document.getElementById('navConfigMenu');
+  if (menu) menu.classList.toggle('open');
+}
+// Cerrar el menú al hacer clic fuera
+document.addEventListener('click', () => {
+  const menu = document.getElementById('navConfigMenu');
+  if (menu) menu.classList.remove('open');
+});
 
 function switchView(viewName) {
   state.activeView = viewName;
 
-  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion', 'navBandejaWA'].forEach(id => {
+  ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.remove('active');
   });

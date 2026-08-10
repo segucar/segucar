@@ -176,9 +176,85 @@ body {
   border-radius: 2px;
 }
 
-/* ═══════════════════════════════════════════════════════════════════════════
-   CONTAINER & LAYOUT
-   ═══════════════════════════════════════════════════════════════════════════ */
+/* ─── GEAR CONFIG DROPDOWN ─── */
+.nav-config-dropdown {
+  position: relative;
+}
+
+.nav-config-btn {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 6px 12px;
+  transition: all 0.2s;
+  line-height: 1;
+}
+
+.nav-config-btn:hover {
+  background: rgba(0, 180, 216, 0.2);
+  border-color: var(--accent-cyan);
+  transform: rotate(30deg);
+}
+
+.nav-config-menu {
+  display: none;
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  background: #0d1b2a;
+  border: 1px solid rgba(0, 180, 216, 0.3);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  min-width: 220px;
+  padding: 8px;
+  z-index: 9999;
+}
+
+.nav-config-menu.open {
+  display: block;
+  animation: fadeInDown 0.15s ease;
+}
+
+@keyframes fadeInDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.nav-config-menu-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent-cyan);
+  padding: 6px 10px 10px;
+  opacity: 0.8;
+}
+
+.nav-config-item {
+  display: block;
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 0.88rem;
+  transition: background 0.15s;
+  cursor: pointer;
+}
+
+.nav-config-item:hover {
+  background: rgba(0, 180, 216, 0.15);
+  color: var(--accent-cyan-light);
+}
+
+.nav-config-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+  margin: 6px 0;
+}
+
 
 .container {
   max-width: 1400px;
