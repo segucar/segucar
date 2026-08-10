@@ -1289,7 +1289,8 @@ function createClientRow(client, poliza, isSecondary = false) {
     : '-';
 
   const formattedName = formatClientName(client.nombre || '-');
-  const agsTag = client.origen === 'AGS' ? `<span style="background:#1565c0;color:#fff;font-size:0.65rem;font-weight:700;padding:2px 6px;border-radius:4px;margin-left:5px;letter-spacing:0.5px;vertical-align:middle;">AGS</span>` : '';
+  const isAGS = (client && client.origen === 'AGS') || (poliza && (poliza.aseguradora === 'AGS' || poliza.aseguradora === 'Agrosalta'));
+  const agsTag = isAGS ? `<span style="background:#1565c0;color:#fff;font-size:0.68rem;font-weight:700;padding:2px 7px;border-radius:4px;margin-left:6px;letter-spacing:0.5px;vertical-align:middle;box-shadow:0 0 6px rgba(21,101,192,0.4);">🔵 AGS</span>` : '';
   const nameHtml = isSecondary 
     ? `<span style="color: var(--accent-cyan-light); font-size: 0.88rem;" title="Mismo cliente (Segunda póliza)">↳ <strong>${escapeHtml(formattedName)}</strong>${agsTag}</span>` 
     : `<strong>${escapeHtml(formattedName)}</strong>${agsTag}`;
@@ -1315,7 +1316,8 @@ function createClientRow(client, poliza, isSecondary = false) {
 
   if (isCobranza) {
     const nroCuota = poliza ? (poliza.nro_cuota || 1) : 1;
-    const totalCuotas = poliza ? (poliza.total_cuotas || 3) : 3;
+    const defaultTotal = isAGS ? 4 : 3;
+    const totalCuotas = poliza ? (poliza.total_cuotas || defaultTotal) : defaultTotal;
     const cuotaStr = `Cuota ${nroCuota}/${totalCuotas}`;
 
     const saldoVal = getSaldoExigible(poliza);
@@ -2440,8 +2442,11 @@ function showCuotasModal(polizaId, operacion) {
     `;
   });
 
+  const isAGSPoliza = (targetPoliza && (targetPoliza.aseguradora === 'AGS' || targetPoliza.aseguradora === 'Agrosalta')) || (targetCliente && targetCliente.origen === 'AGS');
   let grucarBadge = '<span class="badge" style="background:rgba(255,71,87,0.15); border:1px solid #ff4757; color:#ff4757; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🔴 Sin Cobertura Grucar</span>';
-  if (targetPoliza && (targetPoliza.grucar_activo === 1 || targetPoliza.grucar_activo === '1' || targetPoliza.grucar_activo === true)) {
+  if (isAGSPoliza) {
+    grucarBadge = '<span class="badge" style="background:rgba(21,101,192,0.18); border:1px solid #1565c0; color:#48cae4; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🔵 AGS (Sin Grucar)</span>';
+  } else if (targetPoliza && (targetPoliza.grucar_activo === 1 || targetPoliza.grucar_activo === '1' || targetPoliza.grucar_activo === true)) {
     if (targetPoliza.grucar_pendiente_sync === 1) {
       grucarBadge = '<span class="badge" style="background:rgba(255,165,2,0.15); border:1px solid #ffa502; color:#ffa502; padding:4px 10px; border-radius:12px; font-size:0.78rem; font-weight:700;">🟡 Pendiente Sync / Retry</span>';
     } else {
