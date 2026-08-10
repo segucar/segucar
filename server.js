@@ -3134,4 +3134,41 @@ if (require.main === module) {
     });
 }
 
+// ─── AUTO-SYNC NRE CADA 2 HORAS (días hábiles, 8am-8pm) ────────────────────
+// El botón manual sigue funcionando igual. Esto corre en paralelo en el servidor.
+(function iniciarAutoSyncNRE() {
+    const INTERVALO_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+    async function correrAutoSync() {
+        const ahora = new Date();
+        const dia = ahora.getDay(); // 0=Dom, 6=Sab
+        const hora = ahora.getHours();
+
+        // Solo en días hábiles (Lun-Sab) y en horario de 8am a 8pm
+        if (dia === 0 || hora < 8 || hora >= 20) {
+            console.log(`⏭️  Auto-sync NRE omitido (${dia === 0 ? 'Domingo' : 'fuera de horario'})`);
+            return;
+        }
+
+        try {
+            const usuario = process.env.SISTEMA_USUARIO || 'SUA';
+            const password = process.env.SISTEMA_PASSWORD || 'sua';
+            console.log(`🔄 Auto-sync NRE iniciado (${toLocalISOString(ahora)})...`);
+            const result = await syncGeneralNRE(usuario, password);
+            updateLastSyncDate();
+            console.log(`✅ Auto-sync NRE completado — ${result?.actualizados || 0} registros actualizados`);
+        } catch (err) {
+            console.error('❌ Auto-sync NRE error:', err.message);
+        }
+    }
+
+    // Correr al inicio (con 30s de delay para que el servidor arranque)
+    setTimeout(correrAutoSync, 30 * 1000);
+
+    // Repetir cada 2 horas
+    setInterval(correrAutoSync, INTERVALO_MS);
+
+    console.log('⏰ Auto-sync NRE programado: cada 2hs en días hábiles (8am-8pm)');
+})();
+
 module.exports = app;
