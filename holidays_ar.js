@@ -180,16 +180,22 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     const esLunes = diaSemana === 1;
     const esViernes = diaSemana === 5;
 
-    // ── RECORDATORIO PREVENTIVO: vence en 1 a 2 días (24 a 48 hs futuro) ──────
-    if (calDiff === 1 || calDiff === 2) return 'recordatorio_48hs';
+    // ── RECORDATORIO PREVENTIVO: vence en 2 días calendario ──────────────────
+    // 🟡 Ej: hoy=Mié → recordatorio para cuotas del Vie
+    // 🟡 Lunes catch-up: recordatorio para cuotas del Lun siguiente (calDiff=3 el Vie)
+    if (calDiff === 2) return 'recordatorio_48hs';
     if (esViernes && calDiff === 3) return 'recordatorio_48hs'; // Viernes notifica para el lunes
 
-    // ── PRIMER AVISO (0-48 hs): venció hace 1 a 2 días ────────────────────────
-    if (calDiff === -1 || calDiff === -2) return 'cuota_vencida_0_48hs';
+    // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días calendario ───────
+    // 🟠 Ej: hoy=Mié → cuotas del Lun (Hace 2 días)
+    if (calDiff === -2) return 'cuota_vencida_0_48hs';
+    // Lunes catch-up: agrega el Viernes anterior (calDiff=-3) ya que Vie+2=Dom no es hábil
     if (esLunes && calDiff === -3) return 'cuota_vencida_0_48hs';
 
-    // ── SEGUNDO AVISO (48-96 hs): venció hace 3 a 4 días ──────────────────────
-    if (calDiff === -3 || calDiff === -4) return 'cuota_vencida_48_96hs';
+    // ── SEGUNDO AVISO (96 hs): venció hace EXACTAMENTE 4 días calendario ──────
+    // 🔴 Ej: hoy=Mié → cuotas del Sáb anterior (Hace 4 días)
+    if (calDiff === -4) return 'cuota_vencida_48_96hs';
+    // Lunes catch-up: agrega el Miércoles anterior (calDiff=-5) ya que Mié+4=Dom no es hábil
     if (esLunes && calDiff === -5) return 'cuota_vencida_48_96hs';
 
     // ── MORA CRÍTICA: venció hace más de 4 días ────────────────────────────────
