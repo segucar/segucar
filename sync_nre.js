@@ -358,7 +358,14 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
             saldo_pendiente = ?, 
             fecha_vencimiento = COALESCE(?, fecha_vencimiento), 
             cuotas_historial = ? 
-        WHERE operacion = ?
+        WHERE operacion = ? 
+          AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+          AND NOT EXISTS (
+              SELECT 1 FROM polizas p2 
+              WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(polizas.patente))
+                AND p2.id != polizas.id 
+                AND CAST(p2.operacion AS INTEGER) > CAST(polizas.operacion AS INTEGER)
+          )
     `);
 
     db.transaction((map) => {

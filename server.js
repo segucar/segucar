@@ -120,6 +120,51 @@ function getAppName() {
 const upload = multer({ dest: 'data/uploads/' });
 
 // ═══════════════════════════════════════════════════════════════════════════
+//  CLEANUP: DE-DUPLICACION DE CLIENTES Y POLIZAS REEMPLAZADAS
+// ═══════════════════════════════════════════════════════════════════════════
+
+function cleanupDatabaseDuplicationsAndSuperseded() {
+    try {
+        const clients = db.prepare('SELECT id, TRIM(UPPER(nombre)) as norm_name FROM clientes').all();
+        const map = {};
+        for (const c of clients) {
+            if (!c.norm_name) continue;
+            const cleanName = c.norm_name.replace(/\s+/g, ' ');
+            if (!map[cleanName]) map[cleanName] = [];
+            map[cleanName].push(c.id);
+        }
+
+        db.transaction(() => {
+            for (const [normName, ids] of Object.entries(map)) {
+                if (ids.length > 1) {
+                    const masterId = ids[0];
+                    for (let i = 1; i < ids.length; i++) {
+                        const slaveId = ids[i];
+                        db.prepare('UPDATE polizas SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
+                        db.prepare('DELETE FROM clientes WHERE id = ?').run(slaveId);
+                    }
+                }
+            }
+        })();
+
+        db.prepare(`
+            UPDATE polizas 
+            SET cuotas_debe = 0, saldo_pendiente = 0, estado = 'anulada'
+            WHERE EXISTS (
+                SELECT 1 FROM polizas p2 
+                WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(polizas.patente))
+                  AND p2.id != polizas.id 
+                  AND CAST(p2.operacion AS INTEGER) > CAST(polizas.operacion AS INTEGER)
+            )
+        `).run();
+    } catch (err) {
+        console.error('Error en cleanupDatabaseDuplicationsAndSuperseded:', err);
+    }
+}
+
+cleanupDatabaseDuplicationsAndSuperseded();
+
+// ═══════════════════════════════════════════════════════════════════════════
 //  HELPERS: LOGICA DE DIAS HABILES
 // ═══════════════════════════════════════════════════════════════════════════
 
