@@ -201,7 +201,12 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             const finVig = parseFechaArg(item.finVig);
             let estado = 'vigente';
-            if (finVig) {
+            const renStr = String(item.renovada || '').toLowerCase();
+            if (renStr.includes('anulad')) {
+                estado = 'anulada';
+            } else if (renStr.includes('baja')) {
+                estado = 'baja';
+            } else if (finVig) {
                 const hoy = new Date();
                 const venc = new Date(finVig);
                 if (venc < hoy) estado = 'vencida';

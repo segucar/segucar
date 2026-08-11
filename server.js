@@ -384,6 +384,9 @@ app.get('/api/dashboard/stats', (req, res) => {
         let polizas_vigentes = 0;
 
         for (const p of allPolizas) {
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+
             const fv = p.fecha_vencimiento;
             const cd = parseInt(p.cuotas_debe || 0);
 
@@ -1051,6 +1054,11 @@ app.get('/api/clientes', (req, res) => {
             // Exclude policies that have been renewed (superseded by a newer operation for the same patente)
             const notRenewedClause = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
 
+            const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
+            if (!isHistoricoFilter) {
+                where += ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')`;
+            }
+
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                 // AL DIA (sin deuda) Y vence en EXACTAMENTE 7 dias
                 where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
@@ -1257,7 +1265,11 @@ app.get('/api/clientes', (req, res) => {
 
             if (estado) {
                 const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
+                const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
                 rawPolizas = rawPolizas.filter(p => {
+                    const est = (p.estado || '').toLowerCase();
+                    if ((est === 'anulada' || est === 'baja') && !isHistoricoFilter) return false;
+
                     const fv = p.fecha_vencimiento || '';
                     const cd = parseInt(p.cuotas_debe || 0);
                     const fvRen = p.fin_vigencia_poliza || fv;
