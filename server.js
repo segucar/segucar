@@ -1642,8 +1642,19 @@ app.get('/api/recuperacion/exportar', (req, res) => {
     }
 });
 
+let isSyncingNRE = false;
+
 app.post('/api/sync-nre', async (req, res) => {
+    if (isSyncingNRE) {
+        return res.json({
+            success: true,
+            running: true,
+            message: 'La sincronización con NRE está en curso en el servidor. Los datos se actualizarán al finalizar.'
+        });
+    }
+
     try {
+        isSyncingNRE = true;
         const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
         
@@ -1657,6 +1668,8 @@ app.post('/api/sync-nre', async (req, res) => {
     } catch (error) {
         console.error('Error en sync-nre:', error);
         res.status(500).json({ error: 'Error al sincronizar con portal NRE: ' + error.message });
+    } finally {
+        isSyncingNRE = false;
     }
 });
 

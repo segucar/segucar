@@ -2283,23 +2283,37 @@ async function triggerSyncNRE() {
 
   showToast('Conectando en vivo con portal NRE para sincronizar emisiones y pagos...', 'info');
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+
   try {
-    const res = await fetch('/api/sync-nre', { method: 'POST' });
+    const res = await fetch('/api/sync-nre', { 
+      method: 'POST',
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
     const data = await res.json();
 
     if (data.success) {
-      showToast('¡Sincronización en vivo completada con éxito!', 'success');
+      showToast(data.message || '¡Sincronización en vivo completada con éxito!', 'success');
       await fetchStats();
-      await fetchClientes(state.pagination.page);
+      await fetchClientes(state.pagination ? state.pagination.page : 1);
     } else {
       showToast(data.error || 'Error al sincronizar con NRE', 'error');
     }
   } catch (e) {
-    showToast('Error de conexión al sincronizar con NRE', 'error');
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      showToast('⏱️ La sincronización NRE se está completando en segundo plano.', 'info');
+      await fetchStats();
+      await fetchClientes(state.pagination ? state.pagination.page : 1);
+    } else {
+      showToast('Error de conexión al sincronizar con NRE', 'error');
+    }
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '🔄 Sincronizar NRE';
+      btn.innerHTML = '🔄 NRE';
     }
   }
 }
