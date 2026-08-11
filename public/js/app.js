@@ -1074,9 +1074,10 @@ let currentFetchRequestId = 0;
 
 async function fetchClientes() {
   const requestId = ++currentFetchRequestId;
+  state.clients = []; // Limpiar estado anterior para evitar parpadeos visuales (ej: 6 filas pasaban a 4)
   const tableBody = getEl('clientsTableBody');
   if (tableBody) {
-    tableBody.innerHTML = '<tr><td colspan="8" class="text-center"><div class="loading"></div></td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding:40px;"><div class="loading"></div></td></tr>';
   }
 
   try {
@@ -1225,7 +1226,10 @@ function renderTable() {
         items.push({ client, poliza: null, isSecondary: false });
       }
     } else {
+      // Cuando hay un filtro activo (ej: tarjeta Primer Aviso), mostrar 1 fila por cliente/póliza principal
+      const isFiltered = Boolean(state.filters.estado);
       polizas.forEach((poliza, idx) => {
+        if (isFiltered && idx > 0) return; // Evitar filas secundarias duplicadas al filtrar
         items.push({ client, poliza, isSecondary: idx > 0 });
       });
     }
