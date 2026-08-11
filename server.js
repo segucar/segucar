@@ -1115,11 +1115,16 @@ app.get('/api/clientes', (req, res) => {
         const hoyClientes = new Date();
         const esDiaNoHabilClientes = esNoHabil(hoyClientes);
 
-        // ── Clientes contactados HOY (fuente de verdad para el botón "Enviado") ──
-        const hoyDateStr = toLocalISOString(hoyClientes);
-        const contactadosHoyRows = db.prepare(
-            `SELECT DISTINCT cliente_id FROM contactos WHERE DATE(fecha) = ?`
-        ).all(hoyDateStr);
+        // ── Clientes contactados HOY (fuente de verdad multi-dispositivo para el botón "Enviado") ──
+        const contactadosHoyRows = db.prepare(`
+            SELECT DISTINCT cliente_id FROM (
+                SELECT cliente_id FROM contactos WHERE date(datetime(fecha, '-3 hours')) = date('now', '-3 hours') OR date(fecha) = date('now', 'localtime')
+                UNION
+                SELECT cliente_id FROM mensajes_whatsapp WHERE (date(datetime(created_at, '-3 hours')) = date('now', '-3 hours') OR date(created_at) = date('now', 'localtime')) AND estado = 'enviado'
+                UNION
+                SELECT cliente_id FROM historial_gestiones_whatsapp WHERE date(datetime(fecha_envio, '-3 hours')) = date('now', '-3 hours') OR date(fecha_envio) = date('now', 'localtime')
+            )
+        `).all();
         const contactadosHoySet = new Set(contactadosHoyRows.map(r => r.cliente_id));
 
         const dateVence48h = addCalendarDays(todayStr, 2);

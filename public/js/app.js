@@ -89,8 +89,16 @@ function _startWaCountdown() {
   }, 5000);
 }
 
-// Renderizar banner al cargar la página (por si había un cooldown activo)
-document.addEventListener('DOMContentLoaded', () => { _renderWaBanner(); });
+// Renderizar banner al cargar la página y activar auto-sincronización multi-PC
+document.addEventListener('DOMContentLoaded', () => { 
+  _renderWaBanner(); 
+  // 🔄 Auto-sincronización en segundo plano cada 30s entre computadoras de empleados
+  setInterval(() => {
+    if (document.visibilityState === 'visible' && state.activeView !== 'bandejaWA') {
+      fetchClientes();
+    }
+  }, 30000);
+});
 // ─────────────────────────────────────────────────────────────────────────────
 
 const COLUMN_DEFAULTS = {
@@ -131,7 +139,13 @@ function getColumnPreferences() {
   const stored = localStorage.getItem('columnPreferences');
   if (stored) {
     try {
-      return { ...COLUMN_DEFAULTS, ...JSON.parse(stored) };
+      const parsed = JSON.parse(stored);
+      // Forzar que las columnas principales de cobranza/mora/vigencia estén activas por defecto
+      if (parsed.importe === undefined) parsed.importe = true;
+      if (parsed.dias_mora === undefined) parsed.dias_mora = true;
+      if (parsed.fin_vigencia === undefined) parsed.fin_vigencia = true;
+      if (parsed.accion_cobranza === undefined) parsed.accion_cobranza = true;
+      return { ...COLUMN_DEFAULTS, ...parsed };
     } catch (e) {
       return COLUMN_DEFAULTS;
     }
