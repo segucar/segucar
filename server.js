@@ -3408,8 +3408,8 @@ if (require.main === module) {
         }
     }
 
-    // Correr al inicio (con 30s de delay para que el servidor arranque)
-    setTimeout(correrAutoSync, 30 * 1000);
+    // Correr al inicio (con 3 min de delay para que Render complete el port scan y arranque limpio)
+    setTimeout(correrAutoSync, 3 * 60 * 1000);
 
     // Repetir cada 2 horas
     setInterval(correrAutoSync, INTERVALO_MS);
@@ -3438,8 +3438,8 @@ if (require.main === module) {
         }
     }
 
-    // Delay de 60s para no solaparse con NRE al arrancar
-    setTimeout(correrAutoSyncAGS, 60 * 1000);
+    // Delay de 5min para no solaparse con NRE ni bloquear el arranque de Render
+    setTimeout(correrAutoSyncAGS, 5 * 60 * 1000);
     setInterval(correrAutoSyncAGS, INTERVALO_MS);
     console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (8am-8pm)');
 })();
