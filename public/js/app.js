@@ -203,7 +203,7 @@ document.addEventListener('click', () => {
   if (menu) menu.classList.remove('open');
 });
 
-function switchView(viewName) {
+function switchView(viewName, skipFetch = false) {
   state.activeView = viewName;
 
   ['navDashboard', 'navCobranza', 'navRenovaciones', 'navMetricas', 'navValidacion'].forEach(id => {
@@ -295,15 +295,20 @@ function switchView(viewName) {
   }
 
   // 5. Volver a pedir los datos según la vista
-  if (viewName === 'dashboard') {
-    if (typeof fetchStats === 'function') fetchStats();
-  } else {
-    if (typeof fetchClientes === 'function') fetchClientes();
+  if (!skipFetch) {
+    if (viewName === 'dashboard') {
+      if (typeof fetchStats === 'function') fetchStats();
+    } else {
+      if (typeof fetchClientes === 'function') fetchClientes();
+    }
   }
 }
 
 function openViewWithFilter(viewName, filterVal) {
-  switchView(viewName);
+  state.filters.estado = filterVal;
+  const filterEstado = getEl('filterEstado');
+  if (filterEstado) filterEstado.value = filterVal;
+  switchView(viewName, true);
   filterByState(filterVal);
 }
 
@@ -1050,7 +1055,10 @@ function getCuotaEstadoBadge(item) {
   }
 }
 
+let currentFetchRequestId = 0;
+
 async function fetchClientes() {
+  const requestId = ++currentFetchRequestId;
   const tableBody = getEl('clientsTableBody');
   if (tableBody) {
     tableBody.innerHTML = '<tr><td colspan="8" class="text-center"><div class="loading"></div></td></tr>';
@@ -1072,6 +1080,8 @@ async function fetchClientes() {
 
     const res = await fetch(`/api/clientes?${params}`);
     const data = await res.json();
+
+    if (requestId !== currentFetchRequestId) return;
 
     state.clients = data.clientes || [];
     state.pagination.total = data.total || 0;
