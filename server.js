@@ -2242,17 +2242,23 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
 app.post('/api/whatsapp/enviar', async (req, res) => {
     try {
         const { cliente_id, telefono, mensaje, tipo_plantilla, parametros } = req.body;
+        console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, parametros: parametros ? 'yes' : 'no', mensaje_length: mensaje ? mensaje.length : 0 });
+        
         if (!telefono) return res.status(400).json({ error: 'Teléfono requerido' });
 
         let result;
         if (tipo_plantilla) {
+            console.log(`[/api/whatsapp/enviar] Sending HSM template: "${tipo_plantilla}" to ${telefono}`);
             result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es', parametros || []);
         } else {
+            console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono}`);
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje);
         }
 
+        console.log('[/api/whatsapp/enviar] Result:', JSON.stringify(result));
         res.json(result);
     } catch (err) {
+        console.error('[/api/whatsapp/enviar] Exception:', err);
         res.status(500).json({ error: err.message });
     }
 });

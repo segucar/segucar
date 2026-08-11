@@ -988,6 +988,7 @@ async function fetchTemplates() {
       name: t.nombre,
       template: t.mensaje,
       tipo: t.tipo,
+      nombre_meta: t.nombre_meta || null,
       activa: t.activa
     })).filter(t => t.activa);
   } catch (err) {
@@ -1813,7 +1814,7 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.tipo
+          tipo_plantilla: template.nombre_meta || template.tipo
         })
       });
       const dataSend = await resSend.json();
@@ -1845,6 +1846,8 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     }
   } catch (err) {
     console.error('Error verificando modo WA config:', err);
+    showToast(`❌ Error al conectar con la API de WhatsApp: ${err.message}`, 'error');
+    return;
   }
 
   // 🟢 Modo Simulación: Abrir WhatsApp Web tradicional
