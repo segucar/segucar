@@ -2373,7 +2373,13 @@ app.get('/api/metricas/resumen', (req, res) => {
             return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
         }
 
-        const now = new Date();
+        function getArgentinaNow() {
+            const d = new Date();
+            const argStr = d.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
+            return new Date(argStr);
+        }
+
+        const now = getArgentinaNow();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
