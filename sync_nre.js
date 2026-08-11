@@ -466,7 +466,77 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 }
 
 /**
- * Sincronización General en Vivo (3 en 1: Vencimientos, Deudas vencidas + Verificación de Pagos NRE)
+ * Sincroniza y verifica pólizas Anuladas / dadas de Baja contra traigo-polizas.php
+ */
+async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
+    const cheerio = require('cheerio');
+    let anuladasEncontradas = 0;
+    try {
+        const { baseUrl, getCookieString } = await loginNRE(usuario, password);
+        const rowsPat = db.prepare(`
+            SELECT DISTINCT patente 
+            FROM polizas 
+            WHERE patente IS NOT NULL AND patente != '' 
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).all();
+
+        const markAnulada = db.prepare(`
+            UPDATE polizas 
+            SET estado = 'anulada', cuotas_debe = 0, saldo_pendiente = 0 
+            WHERE operacion = ?
+        `);
+
+        const batchSize = 10;
+        for (let i = 0; i < rowsPat.length; i += batchSize) {
+            const chunk = rowsPat.slice(i, i + batchSize);
+            await Promise.all(chunk.map(async (rowPat) => {
+                try {
+                    const formParams = new URLSearchParams();
+                    formParams.append('poli', '');
+                    formParams.append('endo', '0');
+                    formParams.append('prop', '');
+                    formParams.append('patente', rowPat.patente);
+                    formParams.append('asegurado', '');
+                    formParams.append('sini', '');
+
+                    const res = await fetchWithRetry(`${baseUrl}/traigo-polizas.php`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/x-www-form-urlencoded',
+                            'Cookie': getCookieString(),
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: formParams.toString()
+                    });
+
+                    const json = await res.json();
+                    if (json && json.tabla) {
+                        const $ = cheerio.load(json.tabla);
+                        $('tbody tr, tr').each((j, tr) => {
+                            const cols = $(tr).find('td').map((k, td) => $(td).text().trim()).get();
+                            if (cols.length >= 7) {
+                                const op = cols[0];
+                                const estadoStr = (cols[6] || '').toLowerCase();
+                                if (op && (estadoStr.includes('anulad') || estadoStr.includes('baja'))) {
+                                    const info = markAnulada.run(op);
+                                    if (info.changes > 0) anuladasEncontradas++;
+                                }
+                            }
+                        });
+                    }
+                } catch (err) {
+                    // Ignore per-patente fetch error
+                }
+            }));
+        }
+    } catch (err) {
+        console.error('Error en syncAnuladasNRE:', err);
+    }
+    return { anuladas_encontradas: anuladasEncontradas };
+}
+
+/**
+ * Sincronización General en Vivo (4 en 1: Vencimientos, Deudas vencidas, Verificación de Pagos + Pólizas Anuladas)
  */
 async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     const currentYear = new Date().getFullYear();
@@ -480,6 +550,9 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     const opsEnDeuda = deudasRes.opsEnDeudaSet || null;
     const pagosRes = await syncPagosNRE(usuario, password, opsEnDeuda);
 
+    // 4. 🚫 Sincronizar Pólizas Anuladas / dadas de Baja en NRE
+    const anuladasRes = await syncAnuladasNRE(usuario, password);
+
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
@@ -491,7 +564,8 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
         vencimientos_sincronizados: vtoRes.total || 0,
         deudores_vencidos: deudasRes.actualizados || 0,
         polizas_saldadas_verificadas: pagosRes.saldadas || 0,
-        polizas_verificadas_pagos: pagosRes.verificadas || 0
+        polizas_verificadas_pagos: pagosRes.verificadas || 0,
+        polizas_anuladas_detectadas: anuladasRes.anuladas_encontradas || 0
     };
 }
 
@@ -545,4 +619,4 @@ function calcularDeudaRealConReglas(tipoVehiculo, totalPagado, cuotasArray, hoyS
     return cuotasImpagasReales;
 }
 
-module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, calcularDeudaRealConReglas };
+module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, calcularDeudaRealConReglas };
