@@ -141,7 +141,57 @@ function cleanupDatabaseDuplicationsAndSuperseded() {
                     for (let i = 1; i < ids.length; i++) {
                         const slaveId = ids[i];
                         db.prepare('UPDATE polizas SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
+                        db.prepare('UPDATE contactos SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
+                        db.prepare('UPDATE historial_gestiones_whatsapp SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
+                        db.prepare('DELETE FROM telefonos_maestros WHERE cliente_id = ?').run(slaveId);
                         db.prepare('DELETE FROM clientes WHERE id = ?').run(slaveId);
+                    }
+                }
+            }
+        })();
+
+        // 1b. Smart deduplication for client name typos/variations sharing the same phone
+        const dupes = db.prepare("SELECT telefono, COUNT(*) as cnt FROM clientes WHERE telefono IS NOT NULL AND telefono != '' GROUP BY telefono HAVING cnt > 1").all();
+        db.transaction(() => {
+            for (const d of dupes) {
+                const cls = db.prepare('SELECT id, nombre FROM clientes WHERE telefono = ?').all(d.telefono);
+                if (cls.length <= 1) continue;
+
+                const names = cls.map(c => c.nombre.toUpperCase().trim().replace(/\s+/g, ' '));
+                function isSamePerson(a, b) {
+                    if (a === b) return true;
+                    const wordsA = a.split(' ');
+                    const wordsB = b.split(' ');
+                    const surnameA = wordsA[0];
+                    const surnameB = wordsB[0];
+                    if (surnameA === surnameB || (Math.abs(surnameA.length - surnameB.length) <= 2 && surnameA.substring(0, 3) === surnameB.substring(0, 3))) {
+                        const firstA = wordsA[1] || '';
+                        const firstB = wordsB[1] || '';
+                        if (firstA && firstB && (firstA.startsWith(firstB) || firstB.startsWith(firstA))) return true;
+                    }
+                    return false;
+                }
+
+                let allSame = true;
+                for (let i = 0; i < names.length; i++) {
+                    for (let j = i + 1; j < names.length; j++) {
+                        if (!isSamePerson(names[i], names[j])) {
+                            allSame = false;
+                            break;
+                        }
+                    }
+                }
+
+                if (allSame && cls.length > 1) {
+                    cls.sort((x, y) => y.nombre.length - x.nombre.length);
+                    const master = cls[0];
+                    for (let k = 1; k < cls.length; k++) {
+                        const slave = cls[k];
+                        db.prepare('UPDATE polizas SET cliente_id = ? WHERE cliente_id = ?').run(master.id, slave.id);
+                        db.prepare('UPDATE contactos SET cliente_id = ? WHERE cliente_id = ?').run(master.id, slave.id);
+                        db.prepare('UPDATE historial_gestiones_whatsapp SET cliente_id = ? WHERE cliente_id = ?').run(master.id, slave.id);
+                        db.prepare('DELETE FROM telefonos_maestros WHERE cliente_id = ?').run(slave.id);
+                        db.prepare('DELETE FROM clientes WHERE id = ?').run(slave.id);
                     }
                 }
             }
