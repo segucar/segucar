@@ -1812,7 +1812,8 @@ async function triggerSmartWhatsApp(clientId, operacion) {
         body: JSON.stringify({
           cliente_id: clientId,
           telefono: phone,
-          mensaje: msg
+          mensaje: msg,
+          tipo_plantilla: template.tipo
         })
       });
       const dataSend = await resSend.json();
