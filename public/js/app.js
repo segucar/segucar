@@ -1838,10 +1838,8 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           })
         }).catch(err => console.error('Error logging contact:', err));
 
-        // Abrir Bandeja WA y seleccionar este cliente
-        switchView('bandejaWA');
-        selectWaChat(clientId, client.nombre, phone);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+
+
       } else {
         showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
       }
