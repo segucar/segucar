@@ -1838,7 +1838,8 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           })
         }).catch(err => console.error('Error logging contact:', err));
 
-
+        // Abrir WhatsApp Web en el chat del cliente para ver la conversación
+        window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
 
       } else {
         showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
