@@ -508,6 +508,8 @@ app.get('/api/dashboard/stats', (req, res) => {
             }
 
             // ── Cobranzas counters (⚡ Días HÁBILES — holidays_ar)
+            if (isRenewed) continue;
+
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
             if (saldoVal > 0 && !esDiaNoHabil) {
                 // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
