@@ -152,25 +152,31 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
       }
     ] : [];
 
+    const payload = {
+      messaging_product: 'whatsapp',
+      to: formattedPhone,
+      type: 'template',
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components
+      }
+    };
+
+    console.log('[360dialog Outbound HSM Payload]', JSON.stringify(payload, null, 2));
+
     const response = await fetch(getApiUrl(cfg.api_key), {
       method: 'POST',
       headers: {
         'D360-API-KEY': cfg.api_key,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        to: formattedPhone,
-        type: 'template',
-        template: {
-          name: templateName,
-          language: { code: languageCode },
-          components
-        }
-      })
+      body: JSON.stringify(payload)
     });
 
     const data = await response.json();
+    console.log('[360dialog Response]', JSON.stringify(data, null, 2));
+
     if (!response.ok) {
       console.error('[WA API Template Error]', data);
       return { ok: false, error: data.error || 'Error al enviar plantilla' };
