@@ -14,18 +14,23 @@ function getApiUrl(apiKey) {
 
 /**
  * Obtiene la configuración actual de la API de WhatsApp de la BD
+ * Defaults: Modo Oficial API con key de producción de 360dialog
  */
+const WA_DEFAULT_API_KEY = process.env.D360_API_KEY || 'tu8gwTxn2pDWW71EWJXVElDfAK';
+const WA_DEFAULT_MODO = 'oficial';
+const WA_DEFAULT_WEBHOOK = 'https://segucar-kuu2.onrender.com/api/webhooks/whatsapp';
+
 function getConfig() {
   try {
     let cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
     if (!cfg) {
-      db.prepare("INSERT INTO config_whatsapp_api (id, proveedor, modo) VALUES (1, '360dialog', 'simulacion')").run();
+      db.prepare(`INSERT INTO config_whatsapp_api (id, proveedor, api_key, modo, webhook_url) VALUES (1, '360dialog', ?, ?, ?)`).run(WA_DEFAULT_API_KEY, WA_DEFAULT_MODO, WA_DEFAULT_WEBHOOK);
       cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
     }
     return cfg;
   } catch (err) {
     console.error('[WA Service] Error leyendo config:', err);
-    return { modo: 'simulacion', api_key: '', proveedor: '360dialog' };
+    return { modo: WA_DEFAULT_MODO, api_key: WA_DEFAULT_API_KEY, proveedor: '360dialog' };
   }
 }
 
