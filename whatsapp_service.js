@@ -131,7 +131,7 @@ async function sendTextMessage(clienteId, phone, text) {
 /**
  * Envía una plantilla pre-aprobada de WhatsApp
  */
-async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es', parameters = []) {
+async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = []) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
 

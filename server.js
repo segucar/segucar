@@ -2241,15 +2241,34 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
 // POST Enviar mensaje via API (Texto o Plantilla)
 app.post('/api/whatsapp/enviar', async (req, res) => {
     try {
-        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros } = req.body;
-        console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, parametros: parametros ? 'yes' : 'no', mensaje_length: mensaje ? mensaje.length : 0 });
+        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente } = req.body;
+        console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, poliza_operacion, poliza_patente });
         
-        if (!telefono) return res.status(400).json({ error: 'Teléfono requerido' });
+        if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
 
         let result;
         if (tipo_plantilla) {
-            console.log(`[/api/whatsapp/enviar] Sending HSM template: "${tipo_plantilla}" to ${telefono}`);
-            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es', parametros || []);
+            // Auto-extraer parámetros de plantilla ({{1}} = N° póliza/operación, {{2}} = patente)
+            let templateParams = parametros || [];
+            if (templateParams.length === 0) {
+                // Si el frontend envió operación y patente, usar esos
+                if (poliza_operacion && poliza_patente) {
+                    templateParams = [poliza_operacion, poliza_patente];
+                } else {
+                    // Intentar extraer de la DB
+                    const poliza = db.prepare(`
+                        SELECT operacion, patente FROM polizas 
+                        WHERE cliente_id = ? AND LOWER(estado) != 'anulada'
+                        ORDER BY id DESC LIMIT 1
+                    `).get(cliente_id);
+                    if (poliza) {
+                        templateParams = [poliza.operacion || '', poliza.patente || ''];
+                    }
+                }
+            }
+
+            console.log(`[/api/whatsapp/enviar] Sending HSM template: "${tipo_plantilla}" to ${telefono} with params:`, templateParams);
+            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es_AR', templateParams);
         } else {
             console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono}`);
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje);
@@ -2259,7 +2278,7 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         res.json(result);
     } catch (err) {
         console.error('[/api/whatsapp/enviar] Exception:', err);
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 

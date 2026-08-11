@@ -1814,7 +1814,9 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.nombre_meta || template.tipo
+          tipo_plantilla: template.nombre_meta || template.tipo,
+          poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
+          poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
         })
       });
       const dataSend = await resSend.json();
