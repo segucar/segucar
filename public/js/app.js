@@ -1822,25 +1822,27 @@ async function triggerSmartWhatsApp(clientId, operacion) {
       if (dataSend.ok) {
         showToast(`✅ Aviso de WhatsApp enviado exitosamente a ${client.nombre}`, 'success');
         markWhatsAppAsSent(clientId, operacion);
+
+        // Registrar gestión SOLO si el envío fue exitoso
+        fetch('/api/contactos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliente_id: clientId,
+            poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
+            tipo: template.tipo,
+            medio: 'whatsapp',
+            mensaje: msg
+          })
+        }).catch(err => console.error('Error logging contact:', err));
+
         // Abrir Bandeja WA y seleccionar este cliente
         switchView('bandejaWA');
         selectWaChat(clientId, client.nombre, phone);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       } else {
-        showToast(`Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
+        showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
       }
-
-      fetch('/api/contactos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cliente_id: clientId,
-          poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
-          tipo: template.tipo,
-          medio: 'whatsapp',
-          mensaje: msg
-        })
-      }).catch(err => console.error('Error logging contact:', err));
 
       return;
     }

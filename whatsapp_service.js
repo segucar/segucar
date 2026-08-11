@@ -4,12 +4,12 @@
 
 const db = require('./database');
 
-// URL base de 360dialog API
+// URL base de 360dialog API (v2 — Cloud API)
 function getApiUrl(apiKey) {
   if (apiKey && apiKey.includes('SBN')) {
     return 'https://waba-sandbox.360dialog.io/v1/messages';
   }
-  return 'https://waba.360dialog.io/v1/messages';
+  return 'https://waba-v2.360dialog.io/messages';
 }
 
 /**
@@ -179,7 +179,11 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
 
     if (!response.ok) {
       console.error('[WA API Template Error]', data);
-      return { ok: false, error: data.error || 'Error al enviar plantilla' };
+      db.prepare(`
+        INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data)
+        VALUES (?, 'saliente', ?, ?, 'plantilla', 'fallido', ?)
+      `).run(clienteId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
+      return { ok: false, error: data.meta?.developer_message || data.error?.message || data.error || 'Error al enviar plantilla' };
     }
 
     const waMsgId = data.messages && data.messages[0] ? data.messages[0].id : null;
