@@ -437,11 +437,18 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     // Consultar pólizas con saldo pendiente registradas en la DB
     const deudoresDb = db.prepare("SELECT operacion, saldo_pendiente, cuotas_debe FROM polizas WHERE saldo_pendiente > 0").all();
 
-    // Filtrar candidatos inteligentes: pólizas que figuran con deuda en DB pero NRE ya NO las incluye en su lista de deudas (fueron saldadas o pagadas)
+    // Filtrar candidatos inteligentes: pólizas que figuran con deuda en DB pero NRE ya NO las incluye en su lista de deudas con saldo real
     let candidatos = deudoresDb;
     if (opsEnNreDeuda && opsEnNreDeuda instanceof Set && opsEnNreDeuda.size > 0) {
         candidatos = deudoresDb.filter(p => !opsEnNreDeuda.has(p.operacion));
     }
+    // Limitar a 60 candidatos por sync para no saturar NRE ni demorar demasiado el botón
+    const MAX_CANDIDATOS = 60;
+    if (candidatos.length > MAX_CANDIDATOS) {
+        console.log(`[syncPagosNRE] Limitando verificación a ${MAX_CANDIDATOS} de ${candidatos.length} candidatos`);
+        candidatos = candidatos.slice(0, MAX_CANDIDATOS);
+    }
+    console.log(`[syncPagosNRE] Verificando ${candidatos.length} pólizas candidatas...`);
 
     let saldadas = 0;
     const actualizarSaldada = db.prepare(`
@@ -452,7 +459,14 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     const cheerio = require('cheerio');
 
-    await Promise.all(candidatos.map(async (pol) => {
+    // Procesar en lotes de 5 para no saturar NRE (antes era ilimitado y tardaba mucho)
+    const CONCURRENCIA = 5;
+    const chunks = [];
+    for (let i = 0; i < candidatos.length; i += CONCURRENCIA) {
+        chunks.push(candidatos.slice(i, i + CONCURRENCIA));
+    }
+    for (const chunk of chunks) {
+    await Promise.all(chunk.map(async (pol) => {
         try {
             const res = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
                 headers: { 'Cookie': getCookieString() },
@@ -494,10 +508,12 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                 saldadas++;
             }
         } catch (e) {
-            // Ignore timeouts
+            // Ignore timeouts / NRE errors
         }
     }));
+    } // fin chunks loop
 
+    console.log(`[syncPagosNRE] Completado: ${saldadas} pólizas saldadas de ${candidatos.length} verificadas`);
     return { verificadas: candidatos.length, saldadas };
 }
 
