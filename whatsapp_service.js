@@ -22,11 +22,19 @@ const WA_DEFAULT_WEBHOOK = 'https://segucar-kuu2.onrender.com/api/webhooks/whats
 
 function getConfig() {
   try {
-    let cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
-    if (!cfg) {
-      db.prepare(`INSERT INTO config_whatsapp_api (id, proveedor, api_key, modo, webhook_url) VALUES (1, '360dialog', ?, ?, ?)`).run(WA_DEFAULT_API_KEY, WA_DEFAULT_MODO, WA_DEFAULT_WEBHOOK);
-      cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
-    }
+    // Siempre garantizar que la config de producción esté cargada correctamente
+    // (Render puede recrear la DB en cada redeploy con valores vacíos o de simulación)
+    db.prepare(`
+      INSERT INTO config_whatsapp_api (id, proveedor, api_key, modo, webhook_url)
+      VALUES (1, '360dialog', ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        modo = CASE WHEN modo IS NULL OR modo = '' OR modo = 'simulacion' THEN excluded.modo ELSE modo END,
+        api_key = CASE WHEN api_key IS NULL OR api_key = '' THEN excluded.api_key ELSE api_key END,
+        proveedor = '360dialog',
+        webhook_url = CASE WHEN webhook_url IS NULL OR webhook_url = '' THEN excluded.webhook_url ELSE webhook_url END
+    `).run(WA_DEFAULT_API_KEY, WA_DEFAULT_MODO, WA_DEFAULT_WEBHOOK);
+
+    const cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
     return cfg;
   } catch (err) {
     console.error('[WA Service] Error leyendo config:', err);
