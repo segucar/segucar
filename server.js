@@ -2761,6 +2761,35 @@ app.post('/api/sync-nre/deudores', async (req, res) => {
     }
 });
 
+// ─── LIMPIEZA MANUAL DE SALDO FALSO POSITIVO ────────────────────────────────
+// Permite corregir pólizas donde NRE reportó deuda pero Saldo Cli = $0
+// (el Saldo Broker queda pendiente pero NO es deuda del cliente)
+app.post('/api/admin/polizas/limpiar-saldo', (req, res) => {
+    try {
+        const { operaciones } = req.body; // array de strings de operación
+        if (!Array.isArray(operaciones) || operaciones.length === 0) {
+            return res.status(400).json({ error: 'Se requiere array de operaciones' });
+        }
+        const stmt = db.prepare(`
+            UPDATE polizas
+            SET cuotas_debe = 0, saldo_pendiente = 0
+            WHERE operacion = ?
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `);
+        const results = [];
+        for (const op of operaciones) {
+            const info = stmt.run(String(op));
+            results.push({ operacion: op, updated: info.changes });
+            if (info.changes > 0) {
+                console.log(`[Admin] Saldo limpiado manualmente para operación ${op} (Saldo Cli = $0, era falso positivo de Saldo Broker)`);
+            }
+        }
+        res.json({ ok: true, results });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/sync-nre/general', async (req, res) => {
     try {
         const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
