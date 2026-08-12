@@ -394,7 +394,16 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
         db.evaluarAtribucionMetricas();
     }
 
-    return { actualizados, deudores_totales: Object.keys(deudasPorOp).length, opsEnDeudaSet: new Set(Object.keys(deudasPorOp)) };
+    // ⚡ CRITICAL: Solo incluir en opsEnDeudaSet las que tienen saldo REAL > 0.
+    // Si NRE lista una póliza pero su Saldo Cli = $0 (pagada por cliente, broker aún no acreditó),
+    // NO debe excluirse de la verificación individual de syncPagosNRE.
+    const opsConDeudaReal = new Set(
+        Object.entries(deudasPorOp)
+            .filter(([op, info]) => info.totalSaldo > 0)
+            .map(([op]) => op)
+    );
+
+    return { actualizados, deudores_totales: Object.keys(deudasPorOp).length, opsEnDeudaSet: opsConDeudaReal };
 }
 
 /**
