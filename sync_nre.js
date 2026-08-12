@@ -299,17 +299,37 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     const d = new Date();
     const hoyStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
+    // Detectar dinámicamente el índice de columna para "Saldo Cli" del header de la tabla.
+    // NUNCA usar Saldo Broker — solo importa la deuda del cliente, no la del intermediario.
+    let colIdxOperacion = 1;
+    let colIdxNroCuota = 6;
+    let colIdxVtoCuota = 7;
+    let colIdxSaldoCli = 9; // fallback por si no se detecta header
+    const headerCols = $('thead tr th, thead tr td').map((j, th) => $(th).text().trim().toLowerCase()).get();
+    if (headerCols.length > 0) {
+        const iOp = headerCols.findIndex(h => h.includes('oper'));
+        if (iOp >= 0) colIdxOperacion = iOp;
+        const iNro = headerCols.findIndex(h => h === 'nro' || h === 'nro cuota' || h === 'n°cuota' || h.includes('cuota') && !h.includes('vto'));
+        if (iNro >= 0) colIdxNroCuota = iNro;
+        const iVto = headerCols.findIndex(h => h.includes('vto') || h.includes('vencim'));
+        if (iVto >= 0) colIdxVtoCuota = iVto;
+        // 🔑 Buscar "Saldo Cli" explícitamente — ignorar "Saldo Broker"
+        const iSaldoCli = headerCols.findIndex(h => h.includes('saldo') && h.includes('cli'));
+        if (iSaldoCli >= 0) colIdxSaldoCli = iSaldoCli;
+    }
+    console.log(`[syncDeudasNRE] Headers detectados: op=${colIdxOperacion} nrocuota=${colIdxNroCuota} vto=${colIdxVtoCuota} saldoCli=${colIdxSaldoCli}`);
+
     // Group cuotas count, first unpaid vtoCuota, saldoCli, and full cuotas history per operacion
     const deudasPorOp = {};
     $('tbody tr').each((i, tr) => {
         const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
         if (cols.length >= 8) {
-            const nroCuotaStr = cols[6] || '1';
-            const operacion = cols[1];
-            const saldoCliText = cols[9] || '0';
+            const nroCuotaStr = cols[colIdxNroCuota] || '1';
+            const operacion = cols[colIdxOperacion];
+            const saldoCliText = cols[colIdxSaldoCli] || '0';
             const cleanSaldo = saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.');
             const saldoCli = parseFloat(cleanSaldo) || 0;
-            const vtoCuota = parseFechaArg(cols[7]);
+            const vtoCuota = parseFechaArg(cols[colIdxVtoCuota]);
             const fechaPago = null;
             const lote = '';
 
