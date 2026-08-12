@@ -16,7 +16,7 @@ let state = {
   },
   pagination: {
     page: 1,
-    limit: 50,
+    limit: 25,
     total: 0,
     pages: 1
   },
@@ -1416,25 +1416,89 @@ function getTipoBadge(tipo) {
 function renderPagination() {
   const container = getEl('paginationControls');
   if (!container) return;
-  const { page, pages } = state.pagination;
+  const { page, pages, total, limit } = state.pagination;
 
-  if (pages <= 1) {
+  if (!total || total === 0) {
     container.innerHTML = '';
     return;
   }
 
-  let html = `
-    <button class="btn btn-sm btn-ghost" ${page === 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})">← Ant</button>
-    <span style="font-size:0.9rem; font-weight:600;">Página ${page} de ${pages}</span>
-    <button class="btn btn-sm btn-ghost" ${page === pages ? 'disabled' : ''} onclick="goToPage(${page + 1})">Sig →</button>
+  const startItem = (page - 1) * limit + 1;
+  const endItem = Math.min(page * limit, total);
+
+  // Generate numbered page buttons (e.g., 1, 2, 3... 10)
+  let pageButtons = '';
+  const maxButtons = 5;
+  let startPage = Math.max(1, page - Math.floor(maxButtons / 2));
+  let endPage = Math.min(pages, startPage + maxButtons - 1);
+
+  if (endPage - startPage + 1 < maxButtons) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+
+  if (startPage > 1) {
+    pageButtons += `<button class="pagination-btn" onclick="goToPage(1)">1</button>`;
+    if (startPage > 2) {
+      pageButtons += `<span style="color:var(--text-muted); padding:0 4px;">...</span>`;
+    }
+  }
+
+  for (let i = startPage; i <= endPage; i++) {
+    const isActive = i === page ? 'active' : '';
+    pageButtons += `<button class="pagination-btn ${isActive}" onclick="goToPage(${i})">${i}</button>`;
+  }
+
+  if (endPage < pages) {
+    if (endPage < pages - 1) {
+      pageButtons += `<span style="color:var(--text-muted); padding:0 4px;">...</span>`;
+    }
+    pageButtons += `<button class="pagination-btn" onclick="goToPage(${pages})">${pages}</button>`;
+  }
+
+  const html = `
+    <div class="pagination-wrapper">
+      <div class="pagination-info">
+        Mostrando <strong>${startItem} - ${endItem}</strong> de <strong>${total}</strong> registros
+      </div>
+
+      <div class="pagination-controls-group">
+        <button class="pagination-btn" ${page <= 1 ? 'disabled' : ''} onclick="goToPage(${page - 1})" title="Página Anterior">
+          ◀ Anterior
+        </button>
+        ${pageButtons}
+        <button class="pagination-btn" ${page >= pages ? 'disabled' : ''} onclick="goToPage(${page + 1})" title="Página Siguiente">
+          Siguiente ▶
+        </button>
+      </div>
+
+      <div class="pagination-select-group">
+        <label for="pageSizeSelect">Filas por página:</label>
+        <select id="pageSizeSelect" class="pagination-select" onchange="changePageSize(this.value)">
+          <option value="25" ${limit === 25 ? 'selected' : ''}>25</option>
+          <option value="50" ${limit === 50 ? 'selected' : ''}>50</option>
+          <option value="100" ${limit === 100 ? 'selected' : ''}>100</option>
+          <option value="200" ${limit === 200 ? 'selected' : ''}>200 (Todos)</option>
+        </select>
+      </div>
+    </div>
   `;
   container.innerHTML = html;
+}
+
+function changePageSize(newLimit) {
+  state.pagination.limit = parseInt(newLimit, 10) || 25;
+  state.pagination.page = 1;
+  fetchClientes();
 }
 
 function goToPage(p) {
   if (p < 1 || p > state.pagination.pages) return;
   state.pagination.page = p;
   fetchClientes();
+  const table = getEl('clientsTable');
+  if (table) {
+    table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
 }
 
 function calcularAccionCobranza(polizaInput) {
