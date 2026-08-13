@@ -2294,6 +2294,41 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje);
         }
 
+        if (result && result.ok) {
+            try {
+                const poliza = db.prepare(`
+                    SELECT id FROM polizas 
+                    WHERE cliente_id = ? AND LOWER(COALESCE(estado,'')) != 'anulada'
+                    ORDER BY id DESC LIMIT 1
+                `).get(cliente_id);
+                const poliza_id = poliza ? poliza.id : null;
+                const plantillaTipo = tipo_plantilla || 'recordatorio_48hs';
+
+                db.prepare('INSERT INTO contactos (cliente_id, poliza_id, tipo, medio, mensaje) VALUES (?, ?, ?, ?, ?)').run(cliente_id, poliza_id, plantillaTipo, 'whatsapp', mensaje || '');
+
+                let saldoAlEnviar = 0;
+                if (poliza_id) {
+                    const polRes = db.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo FROM polizas WHERE id = ?").get(poliza_id);
+                    saldoAlEnviar = polRes ? parseFloat(polRes.saldo || 0) : 0;
+                }
+
+                db.prepare(`
+                    UPDATE historial_gestiones_whatsapp
+                    SET estado_resultado = 'reemplazada', fecha_resolucion = CURRENT_TIMESTAMP
+                    WHERE cliente_id = ? AND (poliza_id = ? OR poliza_id IS NULL OR ? IS NULL) AND estado_resultado = 'pendiente'
+                `).run(cliente_id, poliza_id, poliza_id);
+
+                db.prepare(`
+                    INSERT INTO historial_gestiones_whatsapp (cliente_id, poliza_id, tipo_plantilla, saldo_al_enviar, estado_resultado)
+                    VALUES (?, ?, ?, ?, 'pendiente')
+                `).run(cliente_id, poliza_id, plantillaTipo, saldoAlEnviar);
+
+                console.log(`[/api/whatsapp/enviar] 📊 Gestión registrada en métricas para cliente ${cliente_id} (plantilla: ${plantillaTipo})`);
+            } catch (metricErr) {
+                console.error('[/api/whatsapp/enviar] Error registrando métrica:', metricErr.message);
+            }
+        }
+
         console.log('[/api/whatsapp/enviar] Result:', JSON.stringify(result));
         res.json(result);
     } catch (err) {
@@ -2543,7 +2578,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         if (boundsStart && boundsEnd) {
             const sStr = toSqliteDateStr(boundsStart);
             const eStr = toSqliteDateStr(boundsEnd);
-            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, 'localtime') >= ? AND datetime(fecha_envio, 'localtime') <= ?`).all(sStr, eStr);
+            gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(sStr, eStr);
         } else {
             gestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp`).all();
         }
@@ -2677,7 +2712,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         if (prevStart && prevEnd) {
             const psStr = toSqliteDateStr(prevStart);
             const peStr = toSqliteDateStr(prevEnd);
-            gestionesPrevRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, 'localtime') >= ? AND datetime(fecha_envio, 'localtime') <= ?`).all(psStr, peStr);
+            gestionesPrevRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(psStr, peStr);
         }
 
 
