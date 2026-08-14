@@ -26,11 +26,23 @@ function _getFeriadosDelAnio(anio) {
     return _cacheHolidays[anio];
 }
 
+function getArgentinaNow() {
+    const d = new Date();
+    const argStr = d.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
+    return new Date(argStr);
+}
+
 /**
- * Normaliza una fecha a medianoche local (sin horas) para comparaciones correctas.
+ * Normaliza una fecha a medianoche local en huso horario de Argentina (sin horas) para comparaciones correctas.
  */
 function _normalizarFecha(fecha) {
     if (!fecha) return new Date(NaN);
+    if (fecha instanceof Date) {
+        const argStr = fecha.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
+        const d = new Date(argStr);
+        d.setHours(0, 0, 0, 0);
+        return d;
+    }
     if (typeof fecha === 'string') {
         const str = fecha.trim().slice(0, 10);
         const parts = str.split('-');
@@ -164,7 +176,7 @@ function diasHabilesEntre(desde, hasta) {
  * @param {Date} [fechaHoy=new Date()] - Fecha de referencia (por defecto hoy)
  * @returns {string} estado
  */
-function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy = new Date()) {
+function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy = getArgentinaNow()) {
     if (!fechaVencimiento || parseFloat(saldoPendiente || 0) <= 0) return 'al_dia';
 
     const hoy = _normalizarFecha(fechaHoy);
@@ -234,6 +246,7 @@ function obtenerCuotasParaNotificarHoy(cuotas, fechaHoy = new Date()) {
 
 // ─── Exports ──────────────────────────────────────────────────────────────────
 module.exports = {
+    getArgentinaNow,
     esNoHabil,
     esHabil,
     obtenerSiguienteDiaHabil,

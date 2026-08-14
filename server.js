@@ -9,7 +9,7 @@ const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
 const { syncAGS } = require('./sync_ags');
-const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString } = require('./holidays_ar');
+const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
 const waService = require('./whatsapp_service');
 
 // ─── MIGRACIÓN AUTOMÁTICA: Alinear plantillas con nombres de Meta ────────────
@@ -438,9 +438,9 @@ app.get('/api/dashboard/stats', (req, res) => {
             )
         `).get().count;
 
-        const todayStr = toLocalISOString(new Date());
+        const todayStr = toLocalISOString(getArgentinaNow());
         const lastSync = getLastSyncDate();
-        const hoy = new Date();
+        const hoy = getArgentinaNow();
 
         // ── Días hábiles: si hoy es finde o feriado, los contadores de cobranza muestran 0
         //    El panel permanece visible pero no genera alertas falsas en días no laborables.
@@ -1112,9 +1112,9 @@ app.get('/api/clientes', (req, res) => {
         const limit = parseInt(req.query.limit) || 50;
         const offset = (page - 1) * limit;
 
-        const todayStr = toLocalISOString(new Date());
+        const todayStr = toLocalISOString(getArgentinaNow());
         const lastSync = getLastSyncDate();
-        const hoyClientes = new Date();
+        const hoyClientes = getArgentinaNow();
         const esDiaNoHabilClientes = esNoHabil(hoyClientes);
 
         // ── Clientes contactados HOY (fuente de verdad multi-dispositivo para el botón "Enviado") ──
