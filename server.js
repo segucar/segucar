@@ -1338,9 +1338,7 @@ app.get('/api/clientes', (req, res) => {
             ${where} 
             GROUP BY c.id 
             ORDER BY ${orderByClause}
-            LIMIT ? OFFSET ?
         `;
-        params.push(limit, offset);
         const clientes = db.prepare(query).all(...params);
 
         const polizaSort = (sortBy === 'vencimiento' || sortBy === 'estado')
@@ -1498,7 +1496,11 @@ app.get('/api/clientes', (req, res) => {
             finalClientes = clientes.filter(c => c.polizas && c.polizas.length > 0);
         }
 
-        res.json({ clientes: finalClientes, total: finalClientes.length, page, pages: Math.ceil(finalClientes.length / limit) });
+        const totalMatching = finalClientes.length;
+        const totalPages = Math.ceil(totalMatching / limit) || 1;
+        const paginatedClientes = finalClientes.slice(offset, offset + limit);
+
+        res.json({ clientes: paginatedClientes, total: totalMatching, page, pages: totalPages });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
