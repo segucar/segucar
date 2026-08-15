@@ -416,17 +416,7 @@ function getSaldoExigible(poliza) {
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.get('/api/debug-eval', (req, res) => {
-    const hoyStr = getArgentinaNow();
-    const hoy = _normalizarFecha(hoyStr);
-    const vtoNominal = _normalizarFecha('2026-08-16');
-    const vtoEfectivo = obtenerSiguienteDiaHabil(vtoNominal);
-    const calDiff = Math.round((vtoEfectivo - hoy) / (1000 * 60 * 60 * 24));
-    const diaSemana = hoy.getUTCDay();
-    const noHabil = esNoHabil(hoy);
-    const st = evaluarEstadoCobranzaHabil('2026-08-16', 30240, hoyStr);
-    res.json({ hoyStr, hoyISO: hoy.toISOString(), vtoNominalISO: vtoNominal.toISOString(), vtoEfectivoISO: vtoEfectivo.toISOString(), calDiff, diaSemana, noHabil, st });
-});
+
 
 app.get('/api/dashboard/stats', (req, res) => {
     try {
