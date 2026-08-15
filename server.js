@@ -1480,7 +1480,7 @@ app.get('/api/clientes', (req, res) => {
                 const saldoP = parseFloat(p.saldo_pendiente || 0);
                 p.estado_habil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoP, hoyClientes);
                 p.fecha_vencimiento_efectiva = p.fecha_vencimiento
-                    ? toLocalDateString(obtenerSiguienteDiaHabil(new Date(p.fecha_vencimiento + 'T00:00:00')))
+                    ? toLocalDateString(obtenerSiguienteDiaHabil(p.fecha_vencimiento))
                     : p.fecha_vencimiento;
                 p.es_dia_no_habil = esDiaNoHabilClientes;
             }
