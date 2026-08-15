@@ -1189,7 +1189,7 @@ app.get('/api/clientes', (req, res) => {
                     const vtos = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
                     if (vtos.length > 0) {
                         const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
                         params.push(...vtos);
                     } else {
                         where += ` AND 1=0`;
@@ -1202,7 +1202,7 @@ app.get('/api/clientes', (req, res) => {
                     const vtos = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
                     if (vtos.length > 0) {
                         const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
                         params.push(...vtos);
                     } else {
                         where += ` AND 1=0`;
@@ -1215,7 +1215,7 @@ app.get('/api/clientes', (req, res) => {
                     const vtos = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
                     if (vtos.length > 0) {
                         const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
                         params.push(...vtos);
                     } else {
                         where += ` AND 1=0`;
@@ -1225,13 +1225,13 @@ app.get('/api/clientes', (req, res) => {
                 const vtos = getFechasTargetCobranza('mora_critica', hoyClientes);
                 if (vtos.length > 0) {
                     const placeholders = vtos.map(() => '?').join(',');
-                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})`;
+                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
                     params.push(...vtos);
                 } else {
                     where += ` AND 1=0`;
                 }
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
-                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0)`;
+                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0)` + notRenewedClause;
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;
                 params.push(estado);
