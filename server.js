@@ -417,16 +417,15 @@ function getSaldoExigible(poliza) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 app.get('/api/debug-eval', (req, res) => {
-    const hoy = getArgentinaNow();
-    const pols = db.prepare("SELECT fecha_vencimiento, saldo_pendiente FROM polizas WHERE saldo_pendiente > 0 AND LOWER(COALESCE(estado,'')) NOT IN ('anulada','baja')").all();
-    const debugList = [];
-    for (const p of pols) {
-        const st = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, p.saldo_pendiente, hoy);
-        if (p.fecha_vencimiento >= '2026-08-15' && p.fecha_vencimiento <= '2026-08-19') {
-            debugList.push({ fv: p.fecha_vencimiento, saldo: p.saldo_pendiente, st });
-        }
-    }
-    res.json({ hoy, total: debugList.length, debugList: debugList.slice(0, 20) });
+    const hoyStr = getArgentinaNow();
+    const hoy = _normalizarFecha(hoyStr);
+    const vtoNominal = _normalizarFecha('2026-08-16');
+    const vtoEfectivo = obtenerSiguienteDiaHabil(vtoNominal);
+    const calDiff = Math.round((vtoEfectivo - hoy) / (1000 * 60 * 60 * 24));
+    const diaSemana = hoy.getUTCDay();
+    const noHabil = esNoHabil(hoy);
+    const st = evaluarEstadoCobranzaHabil('2026-08-16', 30240, hoyStr);
+    res.json({ hoyStr, hoyISO: hoy.toISOString(), vtoNominalISO: vtoNominal.toISOString(), vtoEfectivoISO: vtoEfectivo.toISOString(), calDiff, diaSemana, noHabil, st });
 });
 
 app.get('/api/dashboard/stats', (req, res) => {
