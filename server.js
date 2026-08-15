@@ -1150,16 +1150,29 @@ app.get('/api/clientes', (req, res) => {
             params.push(tipo_vehiculo);
         }
         let orderOverride = null;
+
+        // 🔒 BLINDAJE BASE: excluir siempre pólizas anuladas/baja y renovadas,
+        // incluso cuando no hay filtro de estado activo (búsqueda libre por nombre/patente).
+        const notRenewedClauseBase = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
+        if (!estado || ['todos', 'all', 'todas', ''].includes((estado || '').toLowerCase())) {
+            where += ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')`;
+            where += notRenewedClauseBase;
+        }
         if (estado) {
             const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
 
-            // ── RENOVACIONES ────────────────────────────────────────────────
-            // Exclude policies that have been renewed (superseded by a newer operation for the same patente)
+            // ── RENOVACIONES ─────────────────────────────────────────────────
+            // SIEMPRE excluir pólizas viejas cuando existe una más nueva para
+            // la misma patente — sin importar qué filtro o dropdown usa el usuario.
             const notRenewedClause = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
 
             const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
             if (!isHistoricoFilter) {
                 where += ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')`;
+                // 🔒 BLINDAJE: aplicar notRenewedClause SIEMPRE en vistas activas
+                // Esto evita que aparezcan pólizas viejas/renovadas en cualquier filtro,
+                // incluyendo "Estado (Todos)", búsquedas libres, etc.
+                where += notRenewedClause;
             }
 
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
