@@ -427,6 +427,19 @@ app.get('/api/dashboard/stats', (req, res) => {
         const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
         const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
 
+app.get('/api/debug-eval', (req, res) => {
+    const hoy = getArgentinaNow();
+    const pols = db.prepare("SELECT fecha_vencimiento, saldo_pendiente FROM polizas WHERE saldo_pendiente > 0 AND LOWER(COALESCE(estado,'')) NOT IN ('anulada','baja')").all();
+    const debugList = [];
+    for (const p of pols) {
+        const st = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, p.saldo_pendiente, hoy);
+        if (p.fecha_vencimiento >= '2026-08-15' && p.fecha_vencimiento <= '2026-08-19') {
+            debugList.push({ fv: p.fecha_vencimiento, saldo: p.saldo_pendiente, st });
+        }
+    }
+    res.json({ hoy, total: debugList.length, debugList: debugList.slice(0, 20) });
+});
+
         const total_polizas = db.prepare('SELECT COUNT(*) as count FROM polizas').get().count;
         const total_recuperar = db.prepare(`
             SELECT COUNT(*) as count FROM polizas_historicas ph
