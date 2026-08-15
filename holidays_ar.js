@@ -27,9 +27,8 @@ function _getFeriadosDelAnio(anio) {
 }
 
 function getArgentinaNow() {
-    const d = new Date();
-    const argStr = d.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
-    return new Date(argStr);
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(new Date());
 }
 
 /**
@@ -37,28 +36,23 @@ function getArgentinaNow() {
  */
 function _normalizarFecha(fecha) {
     if (!fecha) return new Date(NaN);
-    if (fecha instanceof Date) {
-        const argStr = fecha.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
-        const d = new Date(argStr);
-        d.setHours(0, 0, 0, 0);
-        return d;
-    }
+    let str = '';
     if (typeof fecha === 'string') {
-        const str = fecha.trim().slice(0, 10);
-        const parts = str.split('-');
-        if (parts.length === 3) {
-            const y = parseInt(parts[0], 10);
-            const m = parseInt(parts[1], 10) - 1;
-            const day = parseInt(parts[2], 10);
-            if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
-                return new Date(y, m, day, 0, 0, 0, 0);
-            }
+        str = fecha.trim().slice(0, 10);
+    } else if (fecha instanceof Date) {
+        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' });
+        str = formatter.format(fecha);
+    }
+    const parts = str.split('-');
+    if (parts.length === 3) {
+        const y = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+        if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+            return new Date(y, m, day, 0, 0, 0, 0);
         }
     }
-    const d = new Date(fecha);
-    if (isNaN(d.getTime())) return d;
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return new Date(NaN);
 }
 
 function toLocalDateString(fecha) {

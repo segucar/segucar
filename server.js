@@ -228,10 +228,9 @@ function parseLocalDate(dateStr) {
 
 function toLocalISOString(date) {
     if (!date) return null;
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+    if (typeof date === 'string') return date.trim().slice(0, 10);
+    const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' });
+    return formatter.format(date);
 }
 
 /**
