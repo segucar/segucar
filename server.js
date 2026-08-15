@@ -2262,7 +2262,79 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
 });
 
 // POST Enviar mensaje via API (Texto o Plantilla)
+// ─── PRE-FLIGHT CHECK ANTES DE ENVIAR WHATSAPP ────────────────────────────
+// Valida en tiempo real contra la DB antes de permitir el envío.
+// Evita mandar mensajes a clientes que ya pagaron, tienen póliza anulada,
+// o cuya póliza fue renovada por una más nueva.
+app.post('/api/whatsapp/preflight', (req, res) => {
+    try {
+        const { cliente_id, poliza_operacion } = req.body;
+
+        if (!cliente_id) return res.json({ ok: false, razon: 'Falta cliente_id' });
+
+        const cliente = db.prepare('SELECT id, nombre, telefono FROM clientes WHERE id = ?').get(cliente_id);
+        if (!cliente) return res.json({ ok: false, razon: 'Cliente no encontrado en la base de datos' });
+
+        // ✅ CHECK 1: Tiene teléfono válido
+        if (!cliente.telefono || cliente.telefono.length < 10) {
+            return res.json({ ok: false, razon: `${cliente.nombre} no tiene un número de WhatsApp válido registrado` });
+        }
+
+        if (poliza_operacion) {
+            const poliza = db.prepare('SELECT * FROM polizas WHERE operacion = ?').get(poliza_operacion);
+
+            // ✅ CHECK 2: La póliza existe
+            if (!poliza) return res.json({ ok: false, razon: `Póliza ${poliza_operacion} no encontrada en la base de datos` });
+
+            // ✅ CHECK 3: No está anulada ni dada de baja
+            const estadoPol = (poliza.estado || '').toLowerCase();
+            if (estadoPol === 'anulada' || estadoPol === 'baja') {
+                return res.json({
+                    ok: false,
+                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) está ${estadoPol.toUpperCase()} en el sistema. No se debe notificar al cliente.`
+                });
+            }
+
+            // ✅ CHECK 4: Tiene saldo pendiente real > 0
+            const saldo = parseFloat(poliza.saldo_pendiente || 0);
+            if (saldo <= 0) {
+                return res.json({
+                    ok: false,
+                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura con SALDO $0 en la base de datos. El cliente puede haber pagado. Verificá en NRE antes de enviar.`
+                });
+            }
+
+            // ✅ CHECK 5: Es la póliza más nueva para esa patente (no fue renovada)
+            if (poliza.patente) {
+                const polizaMasNueva = db.prepare(`
+                    SELECT operacion FROM polizas
+                    WHERE UPPER(TRIM(patente)) = UPPER(TRIM(?))
+                      AND id != ?
+                      AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
+                      AND LOWER(COALESCE(estado,'')) NOT IN ('anulada','baja')
+                    LIMIT 1
+                `).get(poliza.patente, poliza.id, poliza.operacion);
+
+                if (polizaMasNueva) {
+                    return res.json({
+                        ok: false,
+                        razon: `La póliza ${poliza_operacion} fue RENOVADA. La nueva póliza activa para ${poliza.patente} es la Op. ${polizaMasNueva.operacion}. No enviar aviso sobre la póliza vieja.`
+                    });
+                }
+            }
+        }
+
+        // Todas las verificaciones pasaron ✅
+        return res.json({ ok: true });
+
+    } catch (e) {
+        console.error('[preflight] Error:', e);
+        return res.json({ ok: false, razon: 'Error interno al verificar estado de la póliza: ' + e.message });
+    }
+});
+
 app.post('/api/whatsapp/enviar', async (req, res) => {
+
     try {
         const { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente } = req.body;
         console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, poliza_operacion, poliza_patente });

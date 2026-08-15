@@ -1849,6 +1849,35 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // 🛡️ PRE-FLIGHT: Verificar estado real de la póliza antes de enviar
+  // Bloquea el envío si: póliza anulada, saldo=$0 (ya pagó), o renovada
+  // ═══════════════════════════════════════════════════════════════════
+  try {
+    const preflightRes = await fetch('/api/whatsapp/preflight', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cliente_id: clientId, poliza_operacion: poliza.operacion })
+    });
+    const preflight = await preflightRes.json();
+    if (!preflight.ok) {
+      // Bloquear envío y mostrar razón clara
+      showModal({
+        title: '⚠️ No se puede enviar el mensaje',
+        message: preflight.razon,
+        confirmText: 'Entendido',
+        cancelText: null,
+        onConfirm: () => {}
+      });
+      return; // ← ABORTAR sin enviar
+    }
+  } catch (preflightErr) {
+    console.warn('[preflight] Error al verificar:', preflightErr);
+    // Si el preflight falla por red, igual advertimos pero no bloqueamos
+    showToast('⚠️ No se pudo verificar el estado de la póliza. Verificá manualmente antes de enviar.', 'warning');
+  }
+  // ═══════════════════════════════════════════════════════════════════
+
   const recAccion = getAccionPorVista(poliza, state.activeView);
   const templateType = (recAccion && recAccion.plantilla) 
     ? recAccion.plantilla 
