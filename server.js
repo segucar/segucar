@@ -1374,26 +1374,35 @@ app.get('/api/clientes', (req, res) => {
                 FROM polizas p
                 LEFT JOIN cuotas_admin ca ON p.id = ca.poliza_id
                 WHERE p.cliente_id = ? 
-                ORDER BY p.fecha_vencimiento ASC
+                ORDER BY CAST(p.operacion AS INTEGER) DESC, p.fecha_vencimiento DESC
             `).all(cliente.id);
 
-            if (estado) {
-                const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
-                const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
+            const estadoNorm = (estado || '').toLowerCase().replace(/\s+/g, '_');
+            const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
+
+            // 🔒 SIEMPRE descartar pólizas viejas cuando hay una renovación más nueva para la misma patente
+            if (!isHistoricoFilter) {
                 rawPolizas = rawPolizas.filter(p => {
                     const est = (p.estado || '').toLowerCase();
-                    if ((est === 'anulada' || est === 'baja') && !isHistoricoFilter) return false;
+                    if (est === 'anulada' || est === 'baja') return false;
+                    if (p.patente) {
+                        const hasSuccessor = rawPolizas.some(p2 => 
+                            p2.patente && p2.patente.trim().toUpperCase() === p.patente.trim().toUpperCase() && 
+                            p2.id !== p.id && 
+                            parseInt(p2.operacion || 0) > parseInt(p.operacion || 0) &&
+                            !['anulada', 'baja'].includes((p2.estado || '').toLowerCase())
+                        );
+                        if (hasSuccessor) return false;
+                    }
+                    return true;
+                });
+            }
 
+            if (estado) {
+                rawPolizas = rawPolizas.filter(p => {
                     const fv = p.fecha_vencimiento || '';
                     const cd = parseInt(p.cuotas_debe || 0);
                     const fvRen = p.fin_vigencia_poliza || fv;
-
-                    // Check if this poliza has been superseded by a newer operation for the same patente
-                    const isRenovacionFilter = ['por_vencer', 'renovacion_7_dias', 'vencida', 'poliza_vencida', 'vigente', 'contrato_vigente'].includes(estadoNorm);
-                    if (isRenovacionFilter && p.patente) {
-                        const hasSuccessor = rawPolizas.some(p2 => p2.patente === p.patente && p2.id !== p.id && parseInt(p2.operacion || 0) > parseInt(p.operacion || 0));
-                        if (hasSuccessor) return false;
-                    }
 
                     if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                         const saldo = parseFloat(p.saldo_pendiente || 0);

@@ -128,8 +128,8 @@ function parseFechaArg(dateStr) {
  */
 async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     const curYear = new Date().getFullYear();
-    desdeStr = desdeStr || `01/01/${curYear}`;
-    hastaStr = hastaStr || `31/12/${curYear}`;
+    desdeStr = desdeStr || `01/01/${curYear - 1}`;
+    hastaStr = hastaStr || `31/12/${curYear + 1}`;
     const { baseUrl, getCookieString } = await loginNRE(usuario, password);
 
     const params = new URLSearchParams();
@@ -172,6 +172,12 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     const updatePoliza = db.prepare(`
         UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, cuotas_debe = ?, estado = ?
         WHERE operacion = ?
+    `);
+    const anularAnterioresPorPatente = db.prepare(`
+        UPDATE polizas 
+        SET estado = 'anulada', saldo_pendiente = 0, cuotas_debe = 0 
+        WHERE UPPER(TRIM(patente)) = UPPER(TRIM(?)) 
+          AND CAST(operacion AS INTEGER) < CAST(? AS INTEGER)
     `);
 
     const rows = [];
@@ -258,6 +264,11 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
                     `).run(item.nombre, item.telefono || '', item.operacion, item.seccion, tipoVehiculo, item.patente, item.vehiculo, finVig);
                 }
             }
+
+            // 🔒 Al insertar/actualizar una póliza, anular cualquier operación anterior para la misma patente
+            if (item.patente && item.patente.trim().length >= 3 && estado !== 'anulada' && estado !== 'baja') {
+                anularAnterioresPorPatente.run(item.patente.trim(), item.operacion);
+            }
         }
     });
 
@@ -273,8 +284,8 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
  */
 async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     const curYear = new Date().getFullYear();
-    desdeStr = desdeStr || `01/01/${curYear}`;
-    hastaStr = hastaStr || `31/12/${curYear}`;
+    desdeStr = desdeStr || `01/01/${curYear - 1}`;
+    hastaStr = hastaStr || `31/12/${curYear + 1}`;
     const { baseUrl, getCookieString } = await loginNRE(usuario, password);
 
     const params = new URLSearchParams();
@@ -633,10 +644,10 @@ async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
 async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     const currentYear = new Date().getFullYear();
     // 1. Sync Vencimientos
-    const vtoRes = await syncVencimientosNRE(usuario, password, `01/01/${currentYear}`, `31/12/${currentYear}`);
+    const vtoRes = await syncVencimientosNRE(usuario, password, `01/01/${currentYear - 1}`, `31/12/${currentYear + 1}`);
 
     // 2. Sync Deudas Real NRE
-    const deudasRes = await syncDeudasNRE(usuario, password, `01/01/${currentYear}`, `31/12/${currentYear}`);
+    const deudasRes = await syncDeudasNRE(usuario, password, `01/01/${currentYear - 1}`, `31/12/${currentYear + 1}`);
 
     // 3. ⚡ Verificar Pagos instantáneamente solo para candidatos (pólizas que NRE ya no reporta como deudoras)
     const opsEnDeuda = deudasRes.opsEnDeudaSet || null;
