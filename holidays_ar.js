@@ -32,61 +32,63 @@ function getArgentinaNow() {
 }
 
 /**
- * Normaliza una fecha a medianoche local en huso horario de Argentina (sin horas) para comparaciones correctas.
+ * Normaliza una fecha a medianoche UTC para comparaciones puras de calendario sin desfasajes horarios.
  */
 function _normalizarFecha(fecha) {
     if (!fecha) return new Date(NaN);
-    let str = '';
     if (typeof fecha === 'string') {
-        str = fecha.trim().slice(0, 10);
-    } else if (fecha instanceof Date) {
-        const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' });
-        str = formatter.format(fecha);
-    }
-    const parts = str.split('-');
-    if (parts.length === 3) {
-        const y = parseInt(parts[0], 10);
-        const m = parseInt(parts[1], 10) - 1;
-        const day = parseInt(parts[2], 10);
-        if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
-            return new Date(y, m, day, 0, 0, 0, 0);
+        const str = fecha.trim().slice(0, 10);
+        const parts = str.split('-');
+        if (parts.length === 3) {
+            const y = parseInt(parts[0], 10);
+            const m = parseInt(parts[1], 10) - 1;
+            const day = parseInt(parts[2], 10);
+            if (!isNaN(y) && !isNaN(m) && !isNaN(day)) {
+                return new Date(Date.UTC(y, m, day, 0, 0, 0, 0));
+            }
         }
     }
-    return new Date(NaN);
+    if (fecha instanceof Date) {
+        if (isNaN(fecha.getTime())) return new Date(NaN);
+        return new Date(Date.UTC(fecha.getUTCFullYear(), fecha.getUTCMonth(), fecha.getUTCDate(), 0, 0, 0, 0));
+    }
+    const d = new Date(fecha);
+    if (isNaN(d.getTime())) return d;
+    return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 0, 0, 0, 0));
 }
 
 function toLocalDateString(fecha) {
-    const d = new Date(fecha);
+    const d = _normalizarFecha(fecha);
     if (isNaN(d.getTime())) return '';
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
+    const yyyy = d.getUTCFullYear();
+    const mm = String(d.getUTCMonth() + 1).padStart(2, '0');
+    const dd = String(d.getUTCDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
 }
 
 /**
  * Verifica si una fecha es Domingo o Feriado en Argentina.
  * NOTA: SEGUCar trabaja los SÁBADOS — solo se pausa los Domingos y Feriados.
- * @param {Date} fecha
+ * @param {Date|string} fecha
  * @returns {boolean}
  */
 function esNoHabil(fecha) {
     const d = _normalizarFecha(fecha);
     if (isNaN(d.getTime())) return false;
-    const diaSemana = d.getDay(); // 0 = Domingo, 6 = Sábado
+    const diaSemana = d.getUTCDay(); // 0 = Domingo, 6 = Sábado
     // Solo Domingo es no hábil (SEGUCar trabaja los sábados)
     if (diaSemana === 0) return true;
 
     const fechaStr = toLocalDateString(d);
     if (!fechaStr) return false;
-    const anio = d.getFullYear();
+    const anio = d.getUTCFullYear();
     const feriados = _getFeriadosDelAnio(anio);
     return feriados.has(fechaStr);
 }
 
 /**
- * Verifica si una fecha es día hábil (Lunes–Viernes, no feriado).
- * @param {Date} fecha
+ * Verifica si una fecha es día hábil.
+ * @param {Date|string} fecha
  * @returns {boolean}
  */
 function esHabil(fecha) {
@@ -95,7 +97,7 @@ function esHabil(fecha) {
 
 /**
  * Si la fecha cae en finde o feriado, la traslada al PRIMER DÍA HÁBIL SIGUIENTE.
- * @param {Date} fecha
+ * @param {Date|string} fecha
  * @returns {Date}
  */
 function obtenerSiguienteDiaHabil(fecha) {
@@ -103,15 +105,14 @@ function obtenerSiguienteDiaHabil(fecha) {
     if (isNaN(f.getTime())) return new Date();
     let maxSafety = 30;
     while (esNoHabil(f) && maxSafety-- > 0) {
-        f = new Date(f);
-        f.setDate(f.getDate() + 1);
+        f = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), f.getUTCDate() + 1, 0, 0, 0, 0));
     }
     return f;
 }
 
 /**
  * Retrocede hasta el ÚLTIMO DÍA HÁBIL ANTERIOR (si el actual es no hábil).
- * @param {Date} fecha
+ * @param {Date|string} fecha
  * @returns {Date}
  */
 function obtenerAnteriorDiaHabil(fecha) {
@@ -119,17 +120,16 @@ function obtenerAnteriorDiaHabil(fecha) {
     if (isNaN(f.getTime())) return new Date();
     let maxSafety = 30;
     while (esNoHabil(f) && maxSafety-- > 0) {
-        f = new Date(f);
-        f.setDate(f.getDate() - 1);
+        f = new Date(Date.UTC(f.getUTCFullYear(), f.getUTCMonth(), f.getUTCDate() - 1, 0, 0, 0, 0));
     }
     return f;
 }
 
 /**
  * Cuenta días hábiles entre dos fechas (excluyendo fecha inicio, incluyendo fecha fin).
- * @param {Date} desde
- * @param {Date} hasta
- * @returns {number} días hábiles (positivo si hasta > desde, negativo si hasta < desde)
+ * @param {Date|string} desde
+ * @param {Date|string} hasta
+ * @returns {number} días hábiles
  */
 function diasHabilesEntre(desde, hasta) {
     const d = _normalizarFecha(desde);
@@ -137,37 +137,23 @@ function diasHabilesEntre(desde, hasta) {
     if (isNaN(d.getTime()) || isNaN(h.getTime())) return 0;
     const avanzar = h >= d ? 1 : -1;
     let actual = new Date(d);
-    actual.setDate(actual.getDate() + avanzar);
+    actual = new Date(Date.UTC(actual.getUTCFullYear(), actual.getUTCMonth(), actual.getUTCDate() + avanzar, 0, 0, 0, 0));
     let contador = 0;
     let maxSafety = 365;
     while (toLocalDateString(actual) !== toLocalDateString(h) && maxSafety-- > 0) {
         if (esHabil(actual)) contador += avanzar;
-        actual = new Date(actual);
-        actual.setDate(actual.getDate() + avanzar);
+        actual = new Date(Date.UTC(actual.getUTCFullYear(), actual.getUTCMonth(), actual.getUTCDate() + avanzar, 0, 0, 0, 0));
     }
     if (esHabil(h)) contador += avanzar;
     return contador;
 }
 
 /**
- * Evalúa el estado de cobranza de una cuota considerando días hábiles.
- *
- * Lógica:
- *  - Si HOY no es hábil → AL_DIA (no se notifica)
- *  - Calcula la "fecha efectiva de vencimiento" (primer día hábil desde el vencimiento nominal)
- *  - Calcula calDiff en días hábiles entre hoy y el vencimiento efectivo
- *  - Aplica los mismos umbrales que el sistema actual pero en días hábiles
- *
- * Estados devueltos (alineados con ESTADOS del stateManager):
- *  'recordatorio_48hs'     → vence en 2 días hábiles
- *  'cuota_vencida_0_48hs'  → venció hace 2 días hábiles
- *  'cuota_vencida_48_96hs' → venció hace 4 días hábiles
- *  'mora_critica'          → venció hace más de 4 días hábiles
- *  'al_dia'                → cualquier otro caso
+ * Evalúa el estado de cobranza de una cuota considerando días hábiles y feriados.
  *
  * @param {string|Date} fechaVencimiento - Fecha de vencimiento nominal de la cuota
  * @param {number} saldoPendiente - Monto con saldo impago (0 = al día)
- * @param {Date} [fechaHoy=new Date()] - Fecha de referencia (por defecto hoy)
+ * @param {string|Date} [fechaHoy=getArgentinaNow()] - Fecha de referencia (por defecto hoy Argentina)
  * @returns {string} estado
  */
 function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy = getArgentinaNow()) {
@@ -184,7 +170,7 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
 
     // Días calendario respecto al vencimiento efectivo (aplazado por feriado)
     const calDiff = Math.round((vtoEfectivo - hoy) / (1000 * 60 * 60 * 24));
-    const diaSemana = hoy.getDay(); // 0=Dom, 1=Lun, 5=Vie, 6=Sáb
+    const diaSemana = hoy.getUTCDay(); // 0=Dom, 1=Lun, 5=Vie, 6=Sáb
 
     // ── RECORDATORIO PREVENTIVO: vence en 2 días del vencimiento efectivo ──────
     // 🟡 Cuotas con vencimiento efectivo en 2 días (calDiff = 2)
