@@ -278,14 +278,31 @@ function renderPolizas(polizas) {
         const suma = p.suma_asegurada || `$ ${parseFloat(p.monto || 0).toLocaleString('es-AR')}`;
         const estadoVal = p.estado || 'vigente';
 
+        // Detectar si esta póliza fue reemplazada por una más nueva para la misma patente
+        const isAnulada = estadoVal === 'anulada' || estadoVal === 'baja';
+        const patenteMatch = p.patente && polizas.filter(x =>
+            x.patente && x.patente.trim().toUpperCase() === p.patente.trim().toUpperCase() &&
+            parseInt(x.operacion) > parseInt(p.operacion)
+        );
+        const polizaNueva = patenteMatch && patenteMatch.length > 0
+            ? patenteMatch.sort((a, b) => parseInt(b.operacion) - parseInt(a.operacion))[0]
+            : null;
+        const fueRenovada = isAnulada && polizaNueva;
+
+        // El botón cuotas de la póliza vieja redirige a la nueva si fue renovada
+        const cuotasTarget = fueRenovada ? polizaNueva : p;
+        const renovadaBadge = fueRenovada
+            ? `<span style="margin-left:6px; font-size:0.75rem; background:rgba(0,180,216,0.15); color:#48cae4; border:1px solid rgba(0,180,216,0.3); border-radius:4px; padding:2px 6px; font-weight:600;">↪ Op. ${polizaNueva.operacion}</span>`
+            : '';
+
         tr.innerHTML = `
-            <td><strong>${p.operacion}</strong></td>
+            <td><strong>${p.operacion}</strong>${renovadaBadge}</td>
             <td>${tipoStr}</td>
             <td>${formatDate(fVenc)}</td>
             <td><strong>${suma}</strong></td>
             <td><span class="badge badge-${estadoVal}">${estadoVal.toUpperCase()}</span></td>
             <td>
-                <button class="btn btn-ghost" onclick="showCuotasModal(${p.id}, '${p.operacion}')" style="color:#00b4d8; font-weight:700; border: 1px solid rgba(0, 180, 216, 0.3); padding: 4px 8px;">🧾 Cuotas</button>
+                <button class="btn btn-ghost" onclick="showCuotasModal(${cuotasTarget.id}, '${cuotasTarget.operacion}')" style="color:#00b4d8; font-weight:700; border: 1px solid rgba(0, 180, 216, 0.3); padding: 4px 8px;" title="${fueRenovada ? 'Ver cuotas de la póliza renovada ' + polizaNueva.operacion : 'Ver cuotas'}">🧾 Cuotas${fueRenovada ? ' ↪' : ''}</button>
                 <button class="btn btn-ghost" onclick="openPolizaModal(${p.id})">Editar</button>
                 <button class="btn btn-danger" onclick="deletePoliza(${p.id})">Eliminar</button>
             </td>
