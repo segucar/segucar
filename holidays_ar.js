@@ -194,9 +194,8 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
 
     // ── RECORDATORIO PREVENTIVO: vence en 2 días calendario ──────────────────
     // 🟡 Ej: hoy=Mié → recordatorio para cuotas del Vie
-    // 🟡 Lunes catch-up: recordatorio para cuotas del Lun siguiente (calDiff=3 el Vie)
+    // 🟡 Como SEGUCar trabaja los sábados: el Viernes notifica el Domingo (calDiff=2) y el Sábado notifica el Lunes (calDiff=2)
     if (calDiff === 2) return 'recordatorio_48hs';
-    if (esViernes && calDiff === 3) return 'recordatorio_48hs'; // Viernes notifica para el lunes
 
     // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días calendario ───────
     // 🟠 Ej: hoy=Mié → cuotas del Lun (Hace 2 días)
