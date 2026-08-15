@@ -185,16 +185,22 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     if (esNoHabil(hoy)) return 'al_dia';
 
     const vtoNominal = _normalizarFecha(fechaVencimiento);
+    // ⚡ Vencimiento efectivo: si cae en Domingo o Feriado, se traslada al primer día hábil siguiente (ej: Lunes 17/08 feriado → Martes 18/08)
+    const vtoEfectivo = obtenerSiguienteDiaHabil(vtoNominal);
 
-    // Días calendario respecto al vencimiento nominal impreso en la póliza (ej: 17/08 - 15/08 = 2 días)
-    const calDiff = Math.round((vtoNominal - hoy) / (1000 * 60 * 60 * 24));
+    // Días calendario respecto al vencimiento efectivo (aplazado por feriado)
+    const calDiff = Math.round((vtoEfectivo - hoy) / (1000 * 60 * 60 * 24));
+    const diaSemana = hoy.getDay(); // 0=Dom, 1=Lun, 5=Vie, 6=Sáb
 
-    // ── RECORDATORIO PREVENTIVO: vence en 2 días calendario (48 hs exactas) ──────
-    // 🟡 Ej: hoy=Sáb (15/08) → recordatorio para cuotas del Lunes (17/08) (calDiff = 2)
+    // ── RECORDATORIO PREVENTIVO: vence en 2 días del vencimiento efectivo ──────
+    // 🟡 Cuotas con vencimiento efectivo en 2 días (calDiff = 2)
+    // 🟡 Sábado previo a feriado: notifica las cuotas que vencen efectivamente el Martes post-feriado (calDiff = 3)
     if (calDiff === 2) return 'recordatorio_48hs';
+    if (diaSemana === 6 && calDiff === 3) return 'recordatorio_48hs'; // Sábado notifica el Martes post-feriado Lunes
 
     // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días ───────
     if (calDiff === -2) return 'cuota_vencida_0_48hs';
+    if (diaSemana === 1 && (calDiff === -3 || calDiff === -4)) return 'cuota_vencida_0_48hs';
 
     // ── SEGUNDO AVISO (96 hs): venció hace EXACTAMENTE 4 días ──────
     if (calDiff === -4) return 'cuota_vencida_48_96hs';
