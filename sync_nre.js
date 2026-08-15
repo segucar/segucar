@@ -503,9 +503,49 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                 }
             });
 
-            if (cuotasSaldoCli.length > 0 && cuotasSaldoCli.every(s => s === 0)) {
+            if (cuotasSaldoCli.length === 0) return;
+
+            const todasSaldadas = cuotasSaldoCli.every(s => s === 0);
+
+            if (todasSaldadas) {
+                // Caso 1: 100% pagado → saldo = 0
                 actualizarSaldada.run(JSON.stringify(historialActualizado), pol.operacion);
                 saldadas++;
+            } else {
+                // Caso 2: Pago parcial → recalcular saldo_pendiente y fecha_vencimiento
+                // desde las cuotas efectivamente pagadas (por ej. cuota 1 pagada, 2 y 3 pendientes)
+                const cuotasPendientes = historialActualizado.filter(c => c.saldo_cli > 0);
+                const nuevoSaldo = cuotasPendientes.reduce((acc, c) => acc + c.saldo_cli, 0);
+                const dbSaldo = pol.saldo_pendiente;
+
+                // Solo actualizar si el saldo real de NRE difiere del registrado en la DB
+                if (Math.abs(nuevoSaldo - dbSaldo) > 1) {
+                    const primerVtoPendiente = cuotasPendientes.length > 0
+                        ? cuotasPendientes.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
+                        : null;
+                    const primerNroPendiente = cuotasPendientes.length > 0
+                        ? cuotasPendientes.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                        : null;
+                    const cantDebe = cuotasPendientes.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
+
+                    db.prepare(`
+                        UPDATE polizas
+                        SET saldo_pendiente = ?,
+                            cuotas_debe = ?,
+                            nro_cuota = COALESCE(?, nro_cuota),
+                            fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                            cuotas_historial = ?
+                        WHERE operacion = ?
+                    `).run(
+                        nuevoSaldo,
+                        cantDebe,
+                        primerNroPendiente,
+                        primerVtoPendiente,
+                        JSON.stringify(historialActualizado),
+                        pol.operacion
+                    );
+                    saldadas++; // cuenta como "verificada/actualizada"
+                }
             }
         } catch (e) {
             // Ignore timeouts / NRE errors
@@ -513,7 +553,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     }));
     } // fin chunks loop
 
-    console.log(`[syncPagosNRE] Completado: ${saldadas} pólizas saldadas de ${candidatos.length} verificadas`);
+    console.log(`[syncPagosNRE] Completado: ${saldadas} pólizas saldadas/actualizadas de ${candidatos.length} verificadas`);
     return { verificadas: candidatos.length, saldadas };
 }
 
