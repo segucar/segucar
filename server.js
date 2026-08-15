@@ -416,17 +416,6 @@ function getSaldoExigible(poliza) {
 //  DASHBOARD
 // ═══════════════════════════════════════════════════════════════════════════
 
-app.get('/api/dashboard/stats', (req, res) => {
-    try {
-        if (typeof db.restaurarTelefonosMaestros === 'function') {
-            db.restaurarTelefonosMaestros();
-        }
-
-        const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
-        const clientes_con_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().count;
-        const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
-        const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
-
 app.get('/api/debug-eval', (req, res) => {
     const hoy = getArgentinaNow();
     const pols = db.prepare("SELECT fecha_vencimiento, saldo_pendiente FROM polizas WHERE saldo_pendiente > 0 AND LOWER(COALESCE(estado,'')) NOT IN ('anulada','baja')").all();
@@ -439,6 +428,17 @@ app.get('/api/debug-eval', (req, res) => {
     }
     res.json({ hoy, total: debugList.length, debugList: debugList.slice(0, 20) });
 });
+
+app.get('/api/dashboard/stats', (req, res) => {
+    try {
+        if (typeof db.restaurarTelefonosMaestros === 'function') {
+            db.restaurarTelefonosMaestros();
+        }
+
+        const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
+        const clientes_con_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().count;
+        const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
+        const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
 
         const total_polizas = db.prepare('SELECT COUNT(*) as count FROM polizas').get().count;
         const total_recuperar = db.prepare(`
