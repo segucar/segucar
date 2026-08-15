@@ -64,7 +64,7 @@ const waService = require('./whatsapp_service');
 })();
 
 
-function getFechasTargetCobranza(targetState, hoyDate = new Date()) {
+function getFechasTargetCobranza(targetState, hoyDate = getArgentinaNow()) {
     const allPol = db.prepare("SELECT DISTINCT fecha_vencimiento FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento IS NOT NULL AND length(fecha_vencimiento) > 0").all();
     const matchingVtos = [];
     for (const row of allPol) {
