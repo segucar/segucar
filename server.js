@@ -140,6 +140,12 @@ function cleanupDatabaseDuplicationsAndSuperseded() {
                     const masterId = ids[0];
                     for (let i = 1; i < ids.length; i++) {
                         const slaveId = ids[i];
+                        // Heredar teléfono válido si el master no lo tenía
+                        db.prepare(`
+                            UPDATE clientes 
+                            SET telefono = COALESCE(NULLIF(telefono, ''), (SELECT telefono FROM clientes WHERE id = ?)) 
+                            WHERE id = ? AND (telefono IS NULL OR telefono = '' OR length(telefono) < 10)
+                        `).run(slaveId, masterId);
                         db.prepare('UPDATE polizas SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
                         db.prepare('UPDATE contactos SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
                         db.prepare('UPDATE historial_gestiones_whatsapp SET cliente_id = ? WHERE cliente_id = ?').run(masterId, slaveId);
