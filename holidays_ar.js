@@ -171,12 +171,11 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     const diaSemana = hoy.getUTCDay(); // 0=Dom, 1=Lun, 5=Vie, 6=Sáb
 
     // ── RECORDATORIO PREVENTIVO: vence en EXACTAMENTE 2 días calendario (48 hs exactas) ──────
-    // 🟡 Caso normal: hoy=Sáb (15/08) → recordatorio para cuotas del Lunes (17/08) (calDiff = 2)
+    // 🟡 Miércoles -> cuotas del Viernes (calDiff = 2)
+    // 🟡 Jueves    -> cuotas del Sábado (calDiff = 2)
+    // 🟡 Viernes   -> cuotas del Domingo (calDiff = 2)
+    // 🟡 Sábado    -> cuotas del Lunes (calDiff = 2)
     if (calDiff === 2) return 'recordatorio_48hs';
-    // 🟡 Caso feriado: si la cuota vence en 3 días nominales PERO ese día es Domingo o Feriado,
-    //    su vencimiento efectivo cae 2 días después (ej: Sáb → Lunes feriado → Martes efectivo)
-    //    Se avisa igual porque es el último día hábil antes del vencimiento efectivo.
-    if (calDiff === 3 && esNoHabil(vtoNominal)) return 'recordatorio_48hs';
 
     // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días ───────
     if (calDiff === -2) return 'cuota_vencida_0_48hs';
