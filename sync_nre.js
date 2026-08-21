@@ -440,26 +440,37 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
 /**
  * Verifica pólizas con deuda contra la pestaña Pagos/Cuotas de muestro-polizas.php.
  * Si NRE muestra Saldo Cli = $0 en TODAS las cuotas → la póliza está saldada.
- * Solo consulta pólizas que figuren con saldo_pendiente > 0 O cuotas_debe > 0 en la DB.
+ * Verifica prioritariamente toda la ventana activa de cobranzas (últimos 30 días y próximos vencimientos).
  */
 async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = null) {
     const { baseUrl, getCookieString } = await loginNRE(usuario, password);
 
-    // Consultar pólizas con saldo pendiente registradas en la DB
-    const deudoresDb = db.prepare("SELECT operacion, saldo_pendiente, cuotas_debe FROM polizas WHERE saldo_pendiente > 0").all();
+    // Priorizar pólizas con saldo pendiente en la ventana de cobranza activa (últimos 30 días a próximos 15 días)
+    const candidatosVentana = db.prepare(`
+        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento 
+        FROM polizas 
+        WHERE saldo_pendiente > 0 
+          AND fecha_vencimiento >= date('now', 'localtime', '-30 days')
+          AND fecha_vencimiento <= date('now', 'localtime', '+15 days')
+        ORDER BY fecha_vencimiento DESC
+    `).all();
 
-    // Filtrar candidatos inteligentes: pólizas que figuran con deuda en DB pero NRE ya NO las incluye en su lista de deudas con saldo real
-    let candidatos = deudoresDb;
-    if (opsEnNreDeuda && opsEnNreDeuda instanceof Set && opsEnNreDeuda.size > 0) {
-        candidatos = deudoresDb.filter(p => !opsEnNreDeuda.has(p.operacion));
-    }
-    // Limitar a 60 candidatos por sync para no saturar NRE ni demorar demasiado el botón
-    const MAX_CANDIDATOS = 60;
-    if (candidatos.length > MAX_CANDIDATOS) {
-        console.log(`[syncPagosNRE] Limitando verificación a ${MAX_CANDIDATOS} de ${candidatos.length} candidatos`);
-        candidatos = candidatos.slice(0, MAX_CANDIDATOS);
-    }
-    console.log(`[syncPagosNRE] Verificando ${candidatos.length} pólizas candidatas...`);
+    // Otras pólizas con saldo
+    const otrosDeudores = db.prepare(`
+        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento 
+        FROM polizas 
+        WHERE saldo_pendiente > 0 
+          AND (fecha_vencimiento < date('now', 'localtime', '-30 days') OR fecha_vencimiento > date('now', 'localtime', '+15 days') OR fecha_vencimiento IS NULL)
+        ORDER BY fecha_vencimiento DESC
+        LIMIT 100
+    `).all();
+
+    const mapaCandidatos = new Map();
+    for (const p of candidatosVentana) mapaCandidatos.set(p.operacion, p);
+    for (const p of otrosDeudores) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
+
+    const candidatos = Array.from(mapaCandidatos.values());
+    console.log(`[syncPagosNRE] Verificando ${candidatos.length} pólizas candidatas contra NRE muestro-polizas...`);
 
     let saldadas = 0;
     const actualizarSaldada = db.prepare(`
@@ -469,100 +480,101 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     `);
 
     const cheerio = require('cheerio');
-
-    // Procesar en lotes de 5 para no saturar NRE (antes era ilimitado y tardaba mucho)
-    const CONCURRENCIA = 5;
+    const CONCURRENCIA = 10;
     const chunks = [];
     for (let i = 0; i < candidatos.length; i += CONCURRENCIA) {
         chunks.push(candidatos.slice(i, i + CONCURRENCIA));
     }
+
     for (const chunk of chunks) {
-    await Promise.all(chunk.map(async (pol) => {
-        try {
-            const res = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?&prop=${pol.operacion}`, {
-                headers: { 'Cookie': getCookieString() },
-                signal: AbortSignal.timeout(4000)
-            });
-            if (!res.ok) return;
-            const html = await res.text();
-            const $ = cheerio.load(html);
+        await Promise.all(chunk.map(async (pol) => {
+            try {
+                const res = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?prop=${pol.operacion}`, {
+                    headers: { 'Cookie': getCookieString() },
+                    signal: AbortSignal.timeout(5000)
+                });
+                if (!res.ok) return;
+                const html = await res.text();
+                const $ = cheerio.load(html);
 
-            let cuotasSaldoCli = [];
-            let historialActualizado = [];
+                let cuotasHistorial = [];
+                let totalSaldoCli = 0;
+                let todasSaldadas = true;
+                let hayCuotas = false;
 
-            $('table').each((i, t) => {
-                const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
-                if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
-                    $(t).find('tbody tr').each((i, tr) => {
-                        const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
-                        if (cols.length >= 4) {
-                            const nroCuota = parseInt(cols[0]) || (i + 1);
-                            const vtoCuota = parseFechaArg(cols[1]) || '';
-                            const saldoCliText = cols[3] || '0';
-                            const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-                            cuotasSaldoCli.push(saldoCli);
-                            historialActualizado.push({
-                                nro_cuota: nroCuota,
-                                vto_cuota: vtoCuota,
-                                saldo_cli: saldoCli,
-                                estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
-                                fecha_pago: null,
-                                lote: ''
-                            });
+                $('table').each((i, t) => {
+                    const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
+                    if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
+                        $(t).find('tbody tr').each((j, tr) => {
+                            const cols = $(tr).find('td').map((k, td) => $(td).text().trim()).get();
+                            if (cols.length >= 4) {
+                                const nro = parseInt(cols[0]);
+                                const vto = parseFechaArg(cols[1]) || '';
+                                const saldoCliText = cols[3] || '$ 0,00';
+                                const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+
+                                if (!isNaN(nro) && nro > 0) {
+                                    hayCuotas = true;
+                                    totalSaldoCli += saldoCli;
+                                    if (saldoCli > 0) todasSaldadas = false;
+                                    cuotasHistorial.push({
+                                        nro_cuota: nro,
+                                        vto_cuota: vto,
+                                        saldo_cli: saldoCli,
+                                        estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
+                                        fecha_pago: saldoCli === 0 ? 'Registrado en NRE' : null,
+                                        lote: ''
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
+
+                if (hayCuotas) {
+                    if (todasSaldadas || totalSaldoCli === 0) {
+                        actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
+                        saldadas++;
+                    } else {
+                        // Pago parcial → actualizar saldo_pendiente al saldo real de cliente
+                        const cuotasPendientes = cuotasHistorial.filter(c => c.saldo_cli > 0);
+                        const nuevoSaldo = totalSaldoCli;
+                        const dbSaldo = pol.saldo_pendiente;
+
+                        if (Math.abs(nuevoSaldo - dbSaldo) > 1) {
+                            const primerVtoPendiente = cuotasPendientes.length > 0
+                                ? cuotasPendientes.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
+                                : null;
+                            const primerNroPendiente = cuotasPendientes.length > 0
+                                ? cuotasPendientes.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                                : null;
+                            const cantDebe = cuotasPendientes.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
+
+                            db.prepare(`
+                                UPDATE polizas
+                                SET saldo_pendiente = ?,
+                                    cuotas_debe = ?,
+                                    nro_cuota = COALESCE(?, nro_cuota),
+                                    fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                                    cuotas_historial = ?
+                                WHERE operacion = ?
+                            `).run(
+                                nuevoSaldo,
+                                cantDebe,
+                                primerNroPendiente,
+                                primerVtoPendiente,
+                                JSON.stringify(cuotasHistorial),
+                                pol.operacion
+                            );
+                            saldadas++;
                         }
-                    });
+                    }
                 }
-            });
-
-            if (cuotasSaldoCli.length === 0) return;
-
-            const todasSaldadas = cuotasSaldoCli.every(s => s === 0);
-
-            if (todasSaldadas) {
-                // Caso 1: 100% pagado → saldo = 0
-                actualizarSaldada.run(JSON.stringify(historialActualizado), pol.operacion);
-                saldadas++;
-            } else {
-                // Caso 2: Pago parcial → recalcular saldo_pendiente y fecha_vencimiento
-                // desde las cuotas efectivamente pagadas (por ej. cuota 1 pagada, 2 y 3 pendientes)
-                const cuotasPendientes = historialActualizado.filter(c => c.saldo_cli > 0);
-                const nuevoSaldo = cuotasPendientes.reduce((acc, c) => acc + c.saldo_cli, 0);
-                const dbSaldo = pol.saldo_pendiente;
-
-                // Solo actualizar si el saldo real de NRE difiere del registrado en la DB
-                if (Math.abs(nuevoSaldo - dbSaldo) > 1) {
-                    const primerVtoPendiente = cuotasPendientes.length > 0
-                        ? cuotasPendientes.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
-                        : null;
-                    const primerNroPendiente = cuotasPendientes.length > 0
-                        ? cuotasPendientes.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
-                        : null;
-                    const cantDebe = cuotasPendientes.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
-
-                    db.prepare(`
-                        UPDATE polizas
-                        SET saldo_pendiente = ?,
-                            cuotas_debe = ?,
-                            nro_cuota = COALESCE(?, nro_cuota),
-                            fecha_vencimiento = COALESCE(?, fecha_vencimiento),
-                            cuotas_historial = ?
-                        WHERE operacion = ?
-                    `).run(
-                        nuevoSaldo,
-                        cantDebe,
-                        primerNroPendiente,
-                        primerVtoPendiente,
-                        JSON.stringify(historialActualizado),
-                        pol.operacion
-                    );
-                    saldadas++; // cuenta como "verificada/actualizada"
-                }
+            } catch (e) {
+                // Ignore timeouts / NRE errors
             }
-        } catch (e) {
-            // Ignore timeouts / NRE errors
-        }
-    }));
-    } // fin chunks loop
+        }));
+    }
 
     console.log(`[syncPagosNRE] Completado: ${saldadas} pólizas saldadas/actualizadas de ${candidatos.length} verificadas`);
     return { verificadas: candidatos.length, saldadas };
