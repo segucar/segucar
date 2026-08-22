@@ -538,17 +538,18 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                     } else {
                         // Pago parcial → actualizar saldo_pendiente al saldo real de cliente
                         const cuotasPendientes = cuotasHistorial.filter(c => c.saldo_cli > 0);
+                        const cuotasPendientesPrincipales = cuotasHistorial.filter(c => c.saldo_cli > 2500);
                         const nuevoSaldo = totalSaldoCli;
                         const dbSaldo = pol.saldo_pendiente;
 
-                        if (Math.abs(nuevoSaldo - dbSaldo) > 1) {
-                            const primerVtoPendiente = cuotasPendientes.length > 0
-                                ? cuotasPendientes.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
-                                : null;
-                            const primerNroPendiente = cuotasPendientes.length > 0
-                                ? cuotasPendientes.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
-                                : null;
-                            const cantDebe = cuotasPendientes.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
+                        if (Math.abs(nuevoSaldo - dbSaldo) > 1 || cuotasPendientesPrincipales.length > 0) {
+                            const primerVtoPendiente = cuotasPendientesPrincipales.length > 0
+                                ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
+                                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+                            const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+                                ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+                            const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
 
                             db.prepare(`
                                 UPDATE polizas

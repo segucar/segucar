@@ -1467,7 +1467,8 @@ app.get('/api/clientes', (req, res) => {
                     }
 
                     // ⚡ Días hábiles — filtro con evaluarEstadoCobranzaHabil
-                    const estadoHabilP = evaluarEstadoCobranzaHabil(fv, saldoVal, hoyClientes);
+                    const saldoExigibleP = getSaldoExigible(p);
+                    const estadoHabilP = evaluarEstadoCobranzaHabil(fv, saldoExigibleP, hoyClientes);
 
                     const isRecordatorio48 = estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio');
                     const isPrimerAviso = estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso' || estadoNorm.includes('vencio_48h') || estadoNorm.includes('primer');
@@ -1488,7 +1489,7 @@ app.get('/api/clientes', (req, res) => {
                         return estadoHabilP === 'mora_critica';
                     }
                     if (isAlDia) {
-                        return saldoVal <= 0 || estadoHabilP === 'al_dia';
+                        return saldoVal <= 0 || saldoExigibleP <= 2500 || estadoHabilP === 'al_dia';
                     }
                     return true;
                 });
@@ -1507,7 +1508,7 @@ app.get('/api/clientes', (req, res) => {
             for (let p of polizasDeduplicadas) {
                 p.saldo_exigible = getSaldoExigible(p);
                 // ⚡ Opción B: enriquecer cada póliza con estado hábil precalculado
-                const saldoP = parseFloat(p.saldo_pendiente || 0);
+                const saldoP = parseFloat(p.saldo_exigible !== undefined ? p.saldo_exigible : (p.saldo_pendiente || 0));
                 p.estado_habil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoP, hoyClientes);
                 p.fecha_vencimiento_efectiva = p.fecha_vencimiento
                     ? toLocalDateString(obtenerSiguienteDiaHabil(p.fecha_vencimiento))
@@ -2323,12 +2324,13 @@ app.post('/api/whatsapp/preflight', (req, res) => {
                 });
             }
 
-            // ✅ CHECK 4: Tiene saldo pendiente real > 0
+            // ✅ CHECK 4: Tiene saldo pendiente real > 0 y saldo exigible > $2.500
             const saldo = parseFloat(poliza.saldo_pendiente || 0);
-            if (saldo <= 0) {
+            const saldoExigible = getSaldoExigible(poliza);
+            if (saldo <= 0 || (saldoExigible > 0 && saldoExigible <= 2500)) {
                 return res.json({
                     ok: false,
-                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura con SALDO $0 en la base de datos. El cliente puede haber pagado. Verificá en NRE antes de enviar.`
+                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura con saldo exigible de solo $${saldoExigible || 0} (la prima principal de seguro ya fue abonada). No corresponde enviar aviso de mora ni suspensión de cobertura.`
                 });
             }
 

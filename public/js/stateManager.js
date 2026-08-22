@@ -195,7 +195,8 @@ const SeguroStateManager = (function () {
     if (!poliza || !poliza.fecha_vencimiento) return ESTADOS.AL_DIA;
 
     const saldoPendiente = parseFloat(poliza.saldo_pendiente || 0);
-    if (saldoPendiente <= 0) return ESTADOS.AL_DIA;
+    const saldoExigible = parseFloat(poliza.saldo_exigible !== undefined ? poliza.saldo_exigible : saldoPendiente);
+    if (saldoPendiente <= 0 || (saldoExigible > 0 && saldoExigible <= 2500)) return ESTADOS.AL_DIA;
 
     const cuotasAdeudadas = poliza.cuotas_debe ? parseInt(poliza.cuotas_debe) : 0;
     

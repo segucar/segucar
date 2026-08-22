@@ -159,6 +159,9 @@ function diasHabilesEntre(desde, hasta) {
 function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy = getArgentinaNow()) {
     if (!fechaVencimiento || parseFloat(saldoPendiente || 0) <= 0) return 'al_dia';
 
+    // Saldo residual menor (<= $2.500 de auxilio mecánico / Grucar): el seguro principal está cubierto
+    if (parseFloat(saldoPendiente || 0) <= 2500) return 'al_dia';
+
     const hoy = _normalizarFecha(fechaHoy);
 
     // Si hoy no es hábil → no se notifica nada
