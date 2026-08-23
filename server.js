@@ -68,7 +68,7 @@ function getFechasTargetCobranza(targetState, hoyDate = getArgentinaNow()) {
     const allPol = db.prepare("SELECT DISTINCT fecha_vencimiento FROM polizas WHERE saldo_pendiente > 0 AND fecha_vencimiento IS NOT NULL AND length(fecha_vencimiento) > 0").all();
     const matchingVtos = [];
     for (const row of allPol) {
-        if (evaluarEstadoCobranzaHabil(row.fecha_vencimiento, 100, hoyDate) === targetState) {
+        if (evaluarEstadoCobranzaHabil(row.fecha_vencimiento, 35000, hoyDate) === targetState) {
             matchingVtos.push(row.fecha_vencimiento);
         }
     }

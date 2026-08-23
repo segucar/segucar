@@ -1207,7 +1207,7 @@ function renderTable() {
   tableBody.innerHTML = '';
 
   if (!state.clients || state.clients.length === 0) {
-    if (emptyState) emptyState.classList.remove('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
     const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
       ? 'No se encontraron pólizas vencidas'
       : 'No se encontraron clientes para los filtros seleccionados';
@@ -1236,7 +1236,7 @@ function renderTable() {
   });
 
   if (items.length === 0) {
-    if (emptyState) emptyState.classList.remove('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
     const emptyMsg = (state.filters.estado === 'poliza_vencida' || state.filters.estado === 'vencida')
       ? 'No se encontraron pólizas vencidas'
       : 'No se encontraron cuotas o pólizas para el filtro seleccionado';
