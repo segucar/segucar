@@ -486,7 +486,6 @@ app.get('/api/dashboard/stats', (req, res) => {
         let vence_48h = 0;
         let vencio_48h = 0;
         let vencio_96h = 0;
-        let mora_critica = 0;
         let al_dia = 0;
 
         let polizas_vencen_semana = 0;
@@ -541,7 +540,6 @@ app.get('/api/dashboard/stats', (req, res) => {
                 if (estadoHabil === 'recordatorio_48hs')     vence_48h++;
                 else if (estadoHabil === 'cuota_vencida_0_48hs')  vencio_48h++;
                 else if (estadoHabil === 'cuota_vencida_48_96hs') vencio_96h++;
-                else if (estadoHabil === 'mora_critica')           mora_critica++;
                 else                                               al_dia++;
             } else {
                 al_dia++;
@@ -559,12 +557,12 @@ app.get('/api/dashboard/stats', (req, res) => {
             polizas_vencidas,
             polizas_vigentes,
             al_dia,
-            cuotas_deuda: mora_critica, 
-            total_deudores: mora_critica, 
+            cuotas_deuda: 0, 
+            total_deudores: 0, 
             vence_48h,
             vencio_48h,
             vencio_96h,
-            mora_critica,
+            mora_critica: 0,
             total_recuperar,
             last_sync_date: lastSync,
             es_dia_no_habil: esDiaNoHabil
@@ -1266,14 +1264,9 @@ app.get('/api/clientes', (req, res) => {
                     }
                 }
             } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica' || estadoNorm.includes('mora')) {
-                const vtos = getFechasTargetCobranza('mora_critica', hoyClientes);
-                if (vtos.length > 0) {
-                    const placeholders = vtos.map(() => '?').join(',');
-                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
-                    params.push(...vtos);
-                } else {
-                    where += ` AND 1=0`;
-                }
+                // Mora Crítica (+96 hs) eliminada del flujo de cobranzas (Opción A).
+                // Estos contratos ya no generan acción ni aparecen en listados.
+                where += ` AND 1=0`;
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
                 where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0)` + notRenewedClause;
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
@@ -1480,16 +1473,11 @@ app.get('/api/clientes', (req, res) => {
 
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);
 
-                    // ⚡ Días hábiles — si hoy es no hábil, solo mora_critica sigue visible
+                    // ⚡ Días hábiles — si hoy es no hábil, suprimir todo excepto al_dia
                     if (esDiaNoHabilClientes) {
                         if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                            // Mora crítica: siempre visible (el cliente ya tiene cobertura suspendida)
-                            const parts2 = fv.split('-');
-                            if (parts2.length !== 3) return false;
-                            const vtoDate2 = new Date(parseInt(parts2[0]), parseInt(parts2[1]) - 1, parseInt(parts2[2]));
-                            const todayDate2 = parseLocalDate(hoyStr);
-                            const calDiff2 = Math.round((vtoDate2 - todayDate2) / (1000 * 60 * 60 * 24));
-                            return saldoVal > 0 && calDiff2 < -4;
+                            // Mora Crítica eliminada del flujo (Opción A) — no mostrar nunca
+                            return false;
                         }
                         if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') return saldoVal <= 0;
                         return false; // Suprimir recordatorio/primer/segundo aviso en días no hábiles
@@ -1515,7 +1503,8 @@ app.get('/api/clientes', (req, res) => {
                         return estadoHabilP === 'cuota_vencida_48_96hs';
                     }
                     if (isMoraCritica) {
-                        return estadoHabilP === 'mora_critica';
+                        // Mora Crítica eliminada del flujo (Opción A)
+                        return false;
                     }
                     if (isAlDia) {
                         return saldoVal <= 0 || saldoExigibleP <= 2500 || estadoHabilP === 'al_dia';
@@ -3532,8 +3521,10 @@ app.get('/api/automation/pendientes-hoy', (req, res) => {
                 { tipo = 'primer_aviso'; plantilla = 'primer_aviso_vencida_48hs'; }
             else if (diffHoras < -48 && diffHoras >= -96 && cuotasDebe >= 1)
                 { tipo = 'segundo_aviso'; plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs'; }
-            else if (diffHoras < -96 && cuotasDebe >= 2)
-                { tipo = 'mora_critica'; plantilla = 'mora_critica_impaga'; }
+            // Mora Crítica (+96 hs) eliminada del flujo de cobranzas (Opción A).
+            // Los contratos en mora >96hs ya no generan plantilla de WhatsApp.
+            // else if (diffHoras < -96 && cuotasDebe >= 2)
+            //     { tipo = 'mora_critica'; plantilla = 'mora_critica_impaga'; }
 
             // Renovación en 7 días (usa fin_vigencia_poliza)
             if (!tipo && p.fin_vigencia_poliza) {
