@@ -225,3 +225,4 @@ npm test
 12. ❌ **NO usar condiciones dispares para pólizas saldadas**: El umbral del remanente debe ser siempre `<= 2500` de forma unificada en queries, controladores y servicios.
 13. ❌ **NO usar SQLite LIKE básico sobre campos de texto con acentos o eñes**: Utilizar siempre la función personalizada `norm()` en `database.js` / `server.js` para búsquedas insensibles a mayúsculas, minúsculas, tildes y diacríticos.
 14. ❌ **NO limitar el filtro de renovación a exactamente 7 días (`diff = 7`)**: La ventana activa de renovación comprende de **0 a 7 días** (`diff BETWEEN 0 AND 7`) para capturar vencimientos inminentes y del día (ej. Ferreyra).
+15. ❌ **NO sobreescribir `gestionseguro.db` con `seed.db` si el archivo ya existe**: `seed.db` solo debe copiarse cuando `dbPath` no existe (`!fs.existsSync(dbPath)`), para no destruir datos vivos de sincronización en reinicios.
