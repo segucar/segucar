@@ -215,6 +215,12 @@ function renderMetricasUI(data) {
 
     </div>
 
+    <!-- CARTERA & DESGLOSE POR ASEGURADORA -->
+    ${renderDesgloseAseguradoras(data.desglose_aseguradora, data.cobertura_contacto)}
+
+    <!-- HISTÓRICO SEMANAL TRAJECTORY CHART -->
+    ${renderHistoricoSemanalChart(data.historico_semanal)}
+
     <!-- COMPARATIVE TABLE BY TEMPLATE -->
     <div class="card mb-3" style="padding: 24px;">
       <div style="font-size: 0.9rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; margin-bottom: 16px;">
@@ -238,6 +244,127 @@ function renderMetricasUI(data) {
           </tbody>
         </table>
       </div>
+    </div>
+  `;
+}
+
+function renderHistoricoSemanalChart(historico) {
+  if (!historico || historico.length === 0) return '';
+  const maxDinero = Math.max(1, ...historico.map(h => h.dinero_recuperado || 0));
+
+  const bars = historico.map(h => {
+    const barHeightPct = Math.round(((h.dinero_recuperado || 0) / maxDinero) * 100);
+    const dineroFmt = (h.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    return `
+      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 8px; min-width: 65px;">
+        <div style="font-size: 0.72rem; font-weight: 800; color: #2ed573;">${dineroFmt}</div>
+        <div style="font-size: 0.68rem; font-weight: 700; color: #00b4d8; background: rgba(0, 180, 216, 0.15); padding: 2px 6px; border-radius: 4px;">${h.tasa_conversion}%</div>
+        <div style="width: 100%; max-width: 42px; height: 110px; background: rgba(255,255,255,0.04); border-radius: 6px; display: flex; align-items: flex-end; overflow: hidden; position: relative;">
+          <div style="width: 100%; height: ${Math.max(4, barHeightPct)}%; background: linear-gradient(180deg, #2ed573 0%, #00b4d8 100%); border-radius: 4px 4px 0 0; transition: height 0.3s ease;" title="${h.semana} (${h.label}): ${dineroFmt} recuperados en ${h.exitosos} pagos de ${h.envios} envíos"></div>
+        </div>
+        <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin-top: 2px;">${h.semana}</div>
+        <div style="font-size: 0.68rem; color: var(--text-secondary);">${h.label}</div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="card mb-3" style="padding: 24px; margin-bottom: 24px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px;">
+            📈 Trayectoria Histórica Semanal (Últimas 8 Semanas)
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            Evolución del dinero recuperado y porcentaje de conversión comercial semana a semana
+          </div>
+        </div>
+        <div style="display: flex; gap: 14px; font-size: 0.78rem; font-weight: 700;">
+          <span style="display: flex; align-items: center; gap: 6px; color: #2ed573;">
+            <span style="width: 10px; height: 10px; background: #2ed573; border-radius: 2px; display: inline-block;"></span> Dinero Recuperado
+          </span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #00b4d8;">
+            <span style="width: 10px; height: 10px; background: #00b4d8; border-radius: 2px; display: inline-block;"></span> Tasa Conversión
+          </span>
+        </div>
+      </div>
+      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 10px 0; overflow-x: auto;">
+        ${bars}
+      </div>
+    </div>
+  `;
+}
+
+function renderDesgloseAseguradoras(desglose, cobertura) {
+  if (!desglose) return '';
+  const nre = desglose.nre || {};
+  const ags = desglose.ags || {};
+  const nreDinero = (nre.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const agsDinero = (ags.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+  return `
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px;">
+      
+      <!-- NRE PERFORMANCE CARD -->
+      <div class="card" style="padding: 18px; border-left: 4px solid #2ed573;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <div style="font-size: 0.88rem; font-weight: 800; color: #2ed573;">
+            🟢 TRIUNVIRATO SEGUROS (NRE)
+          </div>
+          <span class="badge" style="background: rgba(46, 213, 115, 0.15); color: #2ed573; font-weight: 800;">${nre.tasa_conversion}% conv.</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Recuperado</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-primary);">${nreDinero}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos / Éxitos</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">${nre.total_envios} / <span style="color:#2ed573;">${nre.exitosos}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AGS PERFORMANCE CARD -->
+      <div class="card" style="padding: 18px; border-left: 4px solid #1e88e5;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <div style="font-size: 0.88rem; font-weight: 800; color: #64b5f6;">
+            🔵 AGROSALTA (AGS)
+          </div>
+          <span class="badge" style="background: rgba(30, 136, 229, 0.15); color: #64b5f6; font-weight: 800;">${ags.tasa_conversion}% conv.</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Recuperado</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-primary);">${agsDinero}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos / Éxitos</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">${ags.total_envios} / <span style="color:#64b5f6;">${ags.exitosos}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTACT COVERAGE KPI CARD -->
+      <div class="card" style="padding: 18px; border-left: 4px solid #a29bfe;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+          <div style="font-size: 0.88rem; font-weight: 800; color: #a29bfe;">
+            📱 COBERTURA DE TELÉFONOS
+          </div>
+          <span class="badge" style="background: rgba(162, 155, 254, 0.15); color: #a29bfe; font-weight: 800;">${cobertura?.porcentaje || 0}% total</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Con Teléfono Válido</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #00b894;">${(cobertura?.con_telefono || 0).toLocaleString('es-AR')}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Faltantes</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #ff7675;">${(cobertura?.sin_telefono || 0).toLocaleString('es-AR')}</div>
+          </div>
+        </div>
+      </div>
+
     </div>
   `;
 }

@@ -370,23 +370,42 @@ function addCalendarDays(dateStr, days) {
     return toLocalISOString(d);
 }
 
-// Helper to check if NRE sync ran today
-function getLastSyncDate() {
-    const syncFile = path.join(__dirname, 'data', 'last_sync.json');
+const syncDataDir = process.env.DATA_DIR || path.join(__dirname, 'data');
+const syncFile = path.join(syncDataDir, 'last_sync.json');
+
+function getLastSyncInfo() {
     if (fs.existsSync(syncFile)) {
         try {
-            const content = JSON.parse(fs.readFileSync(syncFile, 'utf8'));
-            return content.last_sync_date || null;
+            return JSON.parse(fs.readFileSync(syncFile, 'utf8'));
         } catch (e) {
-            return null;
+            return {};
         }
     }
-    return null;
+    return {};
 }
 
-function updateLastSyncDate() {
-    const syncFile = path.join(__dirname, 'data', 'last_sync.json');
-    fs.writeFileSync(syncFile, JSON.stringify({ last_sync_date: toLocalISOString(new Date()) }));
+function getLastSyncDate() {
+    return getLastSyncInfo().last_sync_date || null;
+}
+
+function updateLastSyncDate(provider = 'nre', status = 'ok', details = null) {
+    try {
+        const current = getLastSyncInfo();
+        const now = new Date().toISOString();
+        if (provider === 'nre') {
+            current.last_sync_nre = now;
+            current.last_sync_nre_status = status;
+            if (details) current.last_sync_nre_details = details;
+        } else if (provider === 'ags') {
+            current.last_sync_ags = now;
+            current.last_sync_ags_status = status;
+            if (details) current.last_sync_ags_details = details;
+        }
+        current.last_sync_date = now;
+        fs.writeFileSync(syncFile, JSON.stringify(current, null, 2));
+    } catch(e) {
+        console.error('Error guardando sync info:', e);
+    }
 }
 
 function getSaldoExigible(poliza) {
@@ -450,7 +469,11 @@ app.get('/api/dashboard/stats', (req, res) => {
         //    El panel permanece visible pero no genera alertas falsas en días no laborables.
         const esDiaNoHabil = esNoHabil(hoy);
 
-        const allPolizas = db.prepare('SELECT id, operacion, patente, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, estado, saldo_pendiente FROM polizas').all();
+        const allPolizas = db.prepare(`
+            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+            FROM polizas p 
+            LEFT JOIN clientes c ON p.cliente_id = c.id
+        `).all();
 
         // Build set of poliza IDs that have been superseded by a newer operation for the same patente
         const renewedPolizaIds = new Set();
@@ -460,17 +483,17 @@ app.get('/api/dashboard/stats', (req, res) => {
             if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
             polizasByPatente[p.patente].push(p);
         }
-        for (const pat of Object.keys(polizasByPatente)) {
+        for (const pat in polizasByPatente) {
             const group = polizasByPatente[pat];
             if (group.length <= 1) continue;
             // Ordenar primero por fecha de fin de vigencia (el más nuevo en el tiempo gana)
             // y solo por número de operación si es dentro de la misma aseguradora
             group.sort((a, b) => {
-                const dateA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
-                const dateB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
-                if (dateA !== dateB) return dateB.localeCompare(dateA);
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
                 if (a.aseguradora === b.aseguradora) {
-                    return parseInt(b.operacion || 0) - parseInt(a.operacion || 0);
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
                 }
                 return 0;
             });
@@ -490,12 +513,15 @@ app.get('/api/dashboard/stats', (req, res) => {
         let polizas_vencidas = 0;
         let polizas_vigentes = 0;
 
+        let renovaciones_sin_telefono = 0;
+        let cobranzas_sin_telefono = 0;
+
         for (const p of allPolizas) {
             const est = (p.estado || '').toLowerCase();
             if (est === 'anulada' || est === 'baja') continue;
 
             const fv = p.fecha_vencimiento;
-            const cd = parseInt(p.cuotas_debe || 0);
+            const hasPhone = p.cliente_telefono && String(p.cliente_telefono).replace(/\D/g, '').length >= 10;
 
             // ── Renovaciones counters (Calendar days)
             const isRenewed = renewedPolizaIds.has(p.id);
@@ -518,7 +544,10 @@ app.get('/api/dashboard/stats', (req, res) => {
                     }
                     const tieneMoraVencida = cuotaVencida;
 
-                    if (calDiffRen >= 0 && calDiffRen <= 7 && !tieneMoraVencida) polizas_vencen_semana++;
+                    if (calDiffRen >= 0 && calDiffRen <= 7 && !tieneMoraVencida) {
+                        polizas_vencen_semana++;
+                        if (!hasPhone) renovaciones_sin_telefono++;
+                    }
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
                     if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
@@ -534,10 +563,18 @@ app.get('/api/dashboard/stats', (req, res) => {
                 // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
                 const estadoHabil = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
 
-                if (estadoHabil === 'recordatorio_48hs')     vence_48h++;
-                else if (estadoHabil === 'cuota_vencida_0_48hs')  vencio_48h++;
-                else if (estadoHabil === 'cuota_vencida_48_96hs') vencio_96h++;
-                else                                               al_dia++;
+                if (estadoHabil === 'recordatorio_48hs') {
+                    vence_48h++;
+                    if (!hasPhone) cobranzas_sin_telefono++;
+                } else if (estadoHabil === 'cuota_vencida_0_48hs') {
+                    vencio_48h++;
+                    if (!hasPhone) cobranzas_sin_telefono++;
+                } else if (estadoHabil === 'cuota_vencida_48_96hs') {
+                    vencio_96h++;
+                    if (!hasPhone) cobranzas_sin_telefono++;
+                } else {
+                    al_dia++;
+                }
             } else {
                 al_dia++;
             }
@@ -560,8 +597,14 @@ app.get('/api/dashboard/stats', (req, res) => {
             vencio_48h,
             vencio_96h,
             mora_critica: 0,
+            renovaciones_sin_telefono,
+            cobranzas_sin_telefono,
             total_recuperar,
             last_sync_date: lastSync,
+            last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
+            last_sync_ags: syncInfo.last_sync_ags || null,
+            last_sync_nre_status: syncInfo.last_sync_nre_status || 'ok',
+            last_sync_ags_status: syncInfo.last_sync_ags_status || 'ok',
             es_dia_no_habil: esDiaNoHabil
         });
     } catch (error) {
@@ -1714,13 +1757,14 @@ app.post('/api/sync-nre', async (req, res) => {
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
         
         const result = await syncGeneralNRE(usuario, password);
-        updateLastSyncDate();
+        updateLastSyncDate('nre', 'ok', result);
         res.json({
             success: true,
             message: 'Sincronización en vivo con portal NRE completada exitosamente.',
             detalles: result
         });
     } catch (error) {
+        updateLastSyncDate('nre', 'error', { error: error.message });
         console.error('Error en sync-nre:', error);
         res.status(500).json({ error: 'Error al sincronizar con portal NRE: ' + error.message });
     } finally {
@@ -1731,12 +1775,14 @@ app.post('/api/sync-nre', async (req, res) => {
 app.post('/api/sync-ags', async (req, res) => {
     try {
         const result = await syncAGS();
+        updateLastSyncDate('ags', 'ok', result);
         res.json({
             success: true,
             message: 'Sincronización con portal AGS completada.',
             detalles: result
         });
     } catch (error) {
+        updateLastSyncDate('ags', 'error', { error: error.message });
         console.error('Error en sync-ags:', error);
         res.status(500).json({ error: 'Error al sincronizar con portal AGS: ' + error.message });
     }
@@ -2878,6 +2924,95 @@ app.get('/api/metricas/resumen', (req, res) => {
             var_conversion_pts: parseFloat(varConversionPts)
         };
 
+        // ── DESGLOSE POR ASEGURADORA (NRE vs AGS) ──
+        let nreDinero = 0, nreExitosos = 0, nreTotal = 0, nreReemp = 0;
+        let agsDinero = 0, agsExitosos = 0, agsTotal = 0, agsReemp = 0;
+        const getAsegStmt = db.prepare("SELECT aseguradora FROM polizas WHERE id = ?");
+        for (const g of gestiones) {
+            let aseg = 'NRE';
+            if (g.poliza_id) {
+                const pol = getAsegStmt.get(g.poliza_id);
+                if (pol && (pol.aseguradora === 'AGS' || pol.aseguradora === 'Agrosalta')) aseg = 'AGS';
+            }
+            const isExitoso = g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial';
+            const rec = isExitoso ? calcularMontoRecuperadoGestion(g) : 0;
+            if (aseg === 'AGS') {
+                agsTotal++;
+                if (isExitoso) { agsExitosos++; agsDinero += rec; }
+                if (g.estado_resultado === 'reemplazada') agsReemp++;
+            } else {
+                nreTotal++;
+                if (isExitoso) { nreExitosos++; nreDinero += rec; }
+                if (g.estado_resultado === 'reemplazada') nreReemp++;
+            }
+        }
+        const nreValidos = Math.max(1, nreTotal - nreReemp);
+        const agsValidos = Math.max(1, agsTotal - agsReemp);
+        const desglose_aseguradora = {
+            nre: {
+                total_envios: nreTotal,
+                exitosos: nreExitosos,
+                dinero_recuperado: nreDinero,
+                tasa_conversion: nreTotal > 0 ? parseFloat(((nreExitosos / nreValidos) * 100).toFixed(1)) : 0
+            },
+            ags: {
+                total_envios: agsTotal,
+                exitosos: agsExitosos,
+                dinero_recuperado: agsDinero,
+                tasa_conversion: agsTotal > 0 ? parseFloat(((agsExitosos / agsValidos) * 100).toFixed(1)) : 0
+            }
+        };
+
+        // ── HISTÓRICO SEMANAL (ÚLTIMAS 8 SEMANAS) ──
+        const historico_semanal = [];
+        for (let w = 7; w >= 0; w--) {
+            const wStart = new Date(todayStart);
+            wStart.setDate(wStart.getDate() - (w * 7 + ((todayStart.getDay() + 6) % 7)));
+            const wEnd = new Date(wStart);
+            wEnd.setDate(wEnd.getDate() + 6);
+            wEnd.setHours(23, 59, 59, 999);
+
+            const wsStr = toSqliteDateStr(wStart);
+            const weStr = toSqliteDateStr(wEnd);
+
+            const wGestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(wsStr, weStr);
+            const wGestiones = wGestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
+
+            let wDinero = 0;
+            let wExitosos = 0;
+            let wReemplazadas = 0;
+            for (const g of wGestiones) {
+                if (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') {
+                    wExitosos++;
+                    wDinero += calcularMontoRecuperadoGestion(g);
+                } else if (g.estado_resultado === 'reemplazada') {
+                    wReemplazadas++;
+                }
+            }
+            const wValidos = Math.max(1, wGestiones.length - wReemplazadas);
+            const wTasa = wGestiones.length > 0 ? ((wExitosos / wValidos) * 100).toFixed(1) : '0';
+            const label = `${String(wStart.getDate()).padStart(2, '0')}/${String(wStart.getMonth() + 1).padStart(2, '0')}`;
+            
+            historico_semanal.push({
+                semana: `Sem ${8 - w}`,
+                label,
+                envios: wGestiones.length,
+                exitosos: wExitosos,
+                dinero_recuperado: wDinero,
+                tasa_conversion: parseFloat(wTasa)
+            });
+        }
+
+        // ── COBERTURA DE CONTACTO ──
+        const totalClientes = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
+        const conTel = db.prepare("SELECT COUNT(*) as c FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().c;
+        const cobertura_contacto = {
+            total_clientes: totalClientes,
+            con_telefono: conTel,
+            sin_telefono: totalClientes - conTel,
+            porcentaje: totalClientes > 0 ? parseFloat(((conTel / totalClientes) * 100).toFixed(1)) : 0
+        };
+
         res.json({
             rango,
             total_envios,
@@ -2891,7 +3026,10 @@ app.get('/api/metricas/resumen', (req, res) => {
             dinero_recuperado_total,
             tiempo_promedio_dias,
             comparativa,
-            plantillas_performance
+            plantillas_performance,
+            desglose_aseguradora,
+            historico_semanal,
+            cobertura_contacto
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -3611,9 +3749,10 @@ if (require.main === module) {
             const password = process.env.SISTEMA_PASSWORD || 'sua';
             console.log(`🔄 Auto-sync NRE iniciado (${hora}hs ARG)...`);
             const result = await syncGeneralNRE(usuario, password);
-            updateLastSyncDate();
+            updateLastSyncDate('nre', 'ok', result);
             console.log(`✅ Auto-sync NRE — ${result?.vencimientos_sincronizados || 0} pólizas, ${result?.polizas_saldadas_verificadas || 0} saldadas detectadas`);
         } catch (err) {
+            updateLastSyncDate('nre', 'error', { error: err.message });
             console.error('❌ Auto-sync NRE error:', err.message);
         } finally {
             isSyncingNRE = false;
@@ -3623,10 +3762,10 @@ if (require.main === module) {
     // Correr al inicio del servidor con 3 min de delay para que Render arranque limpio
     setTimeout(correrAutoSync, 3 * 60 * 1000);
 
-    // Repetir cada 1 hora
-    setInterval(correrAutoSync, INTERVALO_MS);
+    // Repetir cada 2 horas en horario hábil para no competir con requests web
+    setInterval(correrAutoSync, 2 * 60 * 60 * 1000);
 
-    console.log('⏰ Auto-sync NRE programado: cada 1hs en días hábiles (7am-8pm hora Argentina)');
+    console.log('⏰ Auto-sync NRE programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
 })();
 
 // ─── AUTO-SYNC AGS CADA 2 HORAS (días hábiles, 7am-8pm hora Argentina) ──────
@@ -3653,14 +3792,16 @@ if (require.main === module) {
         try {
             console.log(`🔵 Auto-sync AGS iniciado (${hora}hs ARG)...`);
             const result = await syncAGS();
+            updateLastSyncDate('ags', 'ok', result);
             console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas} actualizadas, ${result.con_deuda} con deuda`);
         } catch (err) {
+            updateLastSyncDate('ags', 'error', { error: err.message });
             console.error('❌ Auto-sync AGS error:', err.message);
         }
     }
 
-    // Delay de 5min para no solaparse con NRE ni bloquear el arranque de Render
-    setTimeout(correrAutoSyncAGS, 5 * 60 * 1000);
+    // Delay de 8min para no solaparse con NRE ni bloquear el arranque de Render
+    setTimeout(correrAutoSyncAGS, 8 * 60 * 1000);
     setInterval(correrAutoSyncAGS, INTERVALO_MS);
     console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
 })();

@@ -961,6 +961,29 @@ async function fetchStats() {
     setStatValue('statVencio96hCob', (stats.vencio_96h || 0).toLocaleString('es-AR'));
 
 
+    // Update live sync badges
+    state.lastSyncNre = stats.last_sync_nre || stats.last_sync_date || null;
+    state.lastSyncAgs = stats.last_sync_ags || null;
+
+    const navNre = getEl('navSyncNreTime');
+    if (navNre) {
+      navNre.innerText = `(${formatTimeAgo(state.lastSyncNre)})`;
+    }
+    const navAgs = getEl('navSyncAgsTime');
+    if (navAgs) {
+      navAgs.innerText = `(${formatTimeAgo(state.lastSyncAgs)})`;
+    }
+
+    // Risk alerts (Renovaciones & Cobranzas sin teléfono)
+    const dashRenSinTel = getEl('dashRenovacionesSinTel');
+    if (dashRenSinTel) {
+      dashRenSinTel.innerText = (stats.renovaciones_sin_telefono || 0).toLocaleString('es-AR');
+    }
+    const dashCobSinTel = getEl('dashCobranzasSinTel');
+    if (dashCobSinTel) {
+      dashCobSinTel.innerText = (stats.cobranzas_sin_telefono || 0).toLocaleString('es-AR');
+    }
+
     // Modular View Counters - Renovaciones
     setStatValue('statPolizasVigentesRen', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
     setStatValue('statVencenSemanaRen', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
@@ -2420,11 +2443,40 @@ function formatClientName(name) {
     .join(' ');
 }
 
+function formatTimeAgo(isoString) {
+  if (!isoString) return 'sin datos';
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return 'sin datos';
+    const now = new Date();
+    const diffSec = Math.max(0, Math.floor((now - d) / 1000));
+    if (diffSec < 60) return 'recién';
+    const diffMin = Math.floor(diffSec / 60);
+    if (diffMin < 60) return `hace ${diffMin}m`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `hace ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    return `hace ${diffD}d`;
+  } catch(e) {
+    return 'sin datos';
+  }
+}
+
+function openModalGuiaEstados() {
+  const m = getEl('modalGuiaEstados');
+  if (m) m.style.display = 'flex';
+}
+
+function closeModalGuiaEstados() {
+  const m = getEl('modalGuiaEstados');
+  if (m) m.style.display = 'none';
+}
+
 async function triggerSyncNRE() {
   const btn = document.getElementById('btnSyncNRE');
   if (btn) {
     btn.disabled = true;
-    btn.innerHTML = '⏳ Sincronizando...';
+    btn.innerHTML = '⏳ NRE...';
   }
 
   showToast('Conectando en vivo con portal NRE para sincronizar emisiones y pagos...', 'info');
@@ -2441,7 +2493,7 @@ async function triggerSyncNRE() {
     const data = await res.json();
 
     if (data.success) {
-      showToast(data.message || '¡Sincronización en vivo completada con éxito!', 'success');
+      showToast(data.message || '¡Sincronización en vivo con NRE completada!', 'success');
       await fetchStats();
       await fetchClientes(state.pagination ? state.pagination.page : 1);
     } else {
@@ -2459,7 +2511,55 @@ async function triggerSyncNRE() {
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.innerHTML = '🔄 NRE';
+      const nreTime = formatTimeAgo(state.lastSyncNre);
+      btn.innerHTML = `🔄 NRE <span id="navSyncNreTime" style="font-size:0.7rem; font-weight:400; opacity:0.85;">(${nreTime})</span>`;
+    }
+  }
+}
+
+async function triggerSyncAGS() {
+  const btn = document.getElementById('btnSyncAGS');
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '⏳ AGS...';
+  }
+
+  showToast('Conectando en vivo con portal AGS (Agrosalta) para sincronizar pólizas...', 'info');
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+  try {
+    const res = await fetch('/api/sync-ags', { 
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(data.message || '¡Sincronización con AGS completada con éxito!', 'success');
+      await fetchStats();
+      await fetchClientes(state.pagination ? state.pagination.page : 1);
+    } else {
+      showToast(data.error || 'Error al sincronizar con AGS', 'error');
+    }
+  } catch (e) {
+    clearTimeout(timeoutId);
+    if (e.name === 'AbortError') {
+      showToast('⏱️ La sincronización AGS se está completando en segundo plano.', 'info');
+      await fetchStats();
+      await fetchClientes(state.pagination ? state.pagination.page : 1);
+    } else {
+      showToast('Error de conexión al sincronizar con AGS', 'error');
+    }
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      const agsTime = formatTimeAgo(state.lastSyncAgs);
+      btn.innerHTML = `🔄 AGS <span id="navSyncAgsTime" style="font-size:0.7rem; font-weight:400; opacity:0.85;">(${agsTime})</span>`;
     }
   }
 }

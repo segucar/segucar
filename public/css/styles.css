@@ -1004,19 +1004,22 @@ textarea.form-control {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .template-title-input {
   background: transparent;
   border: 1px solid transparent;
   color: #ffffff;
-  font-size: 1.15rem;
+  font-size: 0.94rem;
   font-weight: 700;
-  padding: 4px 8px;
+  padding: 6px 10px;
   border-radius: 6px;
   width: 100%;
-
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  overflow: hidden;
 }
 
 .template-title-input:hover, .template-title-input:focus {

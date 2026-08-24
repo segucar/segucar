@@ -50,7 +50,7 @@ function renderPlantillas(plantillas) {
 
         card.innerHTML = `
             <div class="template-header">
-                <input type="text" class="template-title-input" value="${escapeHtml(p.nombre)}" id="nombre_${p.id}" onchange="updatePreview(${p.id})">
+                <input type="text" class="template-title-input" value="${escapeHtml(p.nombre)}" title="${escapeHtml(p.nombre)}" id="nombre_${p.id}" onchange="updatePreview(${p.id})">
                 <span class="badge ${badgeClass}">${tipoText}</span>
             </div>
 
