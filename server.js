@@ -466,9 +466,18 @@ app.get('/api/dashboard/stats', (req, res) => {
         for (const pat of Object.keys(polizasByPatente)) {
             const group = polizasByPatente[pat];
             if (group.length <= 1) continue;
-            // Sort by operacion descending (newest first)
-            group.sort((a, b) => parseInt(b.operacion || 0) - parseInt(a.operacion || 0));
-            // All except the first (newest) are superseded
+            // Ordenar primero por fecha de fin de vigencia (el más nuevo en el tiempo gana)
+            // y solo por número de operación si es dentro de la misma aseguradora
+            group.sort((a, b) => {
+                const dateA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const dateB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (dateA !== dateB) return dateB.localeCompare(dateA);
+                if (a.aseguradora === b.aseguradora) {
+                    return parseInt(b.operacion || 0) - parseInt(a.operacion || 0);
+                }
+                return 0;
+            });
+            // Todas excepto la primera (activa más reciente) quedan marcadas como reemplazadas
             for (let i = 1; i < group.length; i++) {
                 renewedPolizaIds.add(group[i].id);
             }
@@ -492,8 +501,7 @@ app.get('/api/dashboard/stats', (req, res) => {
             const fv = p.fecha_vencimiento;
             const cd = parseInt(p.cuotas_debe || 0);
 
-            // ── Renovaciones counters (Calendar days — sin cambio)
-            // Skip policies that have been renewed (superseded by a newer operation for the same patente)
+            // ── Renovaciones counters (Calendar days)
             const isRenewed = renewedPolizaIds.has(p.id);
             const fvRen = p.fin_vigencia_poliza || fv;
             if (fvRen && !isRenewed) {
@@ -504,13 +512,21 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
 
                     const saldo = parseFloat(p.saldo_pendiente || 0);
-                    const tieneDeuda = saldo > 2500 || parseInt(p.cuotas_debe || 0) > 0;
+                    let cuotaVencida = false;
+                    if (fv && saldo > 2500) {
+                        const partsCuota = fv.split('-');
+                        if (partsCuota.length === 3) {
+                            const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
+                            cuotaVencida = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < 0;
+                        }
+                    }
+                    const tieneMoraVencida = cuotaVencida;
 
-                    if (calDiffRen === 7 && !tieneDeuda) polizas_vencen_semana++;
+                    if (calDiffRen === 7 && !tieneMoraVencida) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
                     if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
-                    if (calDiffRen >= 0 && !tieneDeuda) polizas_vigentes++;
+                    if (calDiffRen >= 0 && !tieneMoraVencida) polizas_vigentes++;
                 }
             }
 
@@ -1158,8 +1174,21 @@ app.get('/api/clientes', (req, res) => {
         let orderOverride = null;
 
         // 🔒 BLINDAJE BASE: excluir siempre pólizas anuladas/baja y renovadas,
-        // incluso cuando no hay filtro de estado activo (búsqueda libre por nombre/patente).
-        const notRenewedClauseBase = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
+        // ordenando por fecha de fin de vigencia (para no mezclar operaciones NRE con AGS).
+        const notRenewedClauseBase = ` AND NOT EXISTS (
+            SELECT 1 FROM polizas p2 
+            WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(p.patente))
+              AND p2.id != p.id 
+              AND p.patente IS NOT NULL AND p.patente != ''
+              AND (
+                  COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) > COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
+                  OR (
+                      COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) = COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
+                      AND p2.aseguradora = p.aseguradora
+                      AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER)
+                  )
+              )
+        )`;
         if (!estado || ['todos', 'all', 'todas', ''].includes((estado || '').toLowerCase())) {
             where += ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')`;
             where += notRenewedClauseBase;
@@ -1168,38 +1197,29 @@ app.get('/api/clientes', (req, res) => {
             const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
 
             // ── RENOVACIONES ─────────────────────────────────────────────────
-            // SIEMPRE excluir pólizas viejas cuando existe una más nueva para
-            // la misma patente — sin importar qué filtro o dropdown usa el usuario.
-            const notRenewedClause = ` AND NOT EXISTS (SELECT 1 FROM polizas p2 WHERE p2.patente = p.patente AND p2.id != p.id AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER))`;
+            const notRenewedClause = notRenewedClauseBase;
 
             const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);
             if (!isHistoricoFilter) {
                 where += ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')`;
-                // 🔒 BLINDAJE: aplicar notRenewedClause SIEMPRE en vistas activas
-                // Esto evita que aparezcan pólizas viejas/renovadas en cualquier filtro,
-                // incluyendo "Estado (Todos)", búsquedas libres, etc.
                 where += notRenewedClause;
             }
 
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
                 // AL DIA (sin deuda) Y vence en EXACTAMENTE 7 dias
-                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) = 0) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
+                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) <= 2500) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                 // Vencida = expiró hace entre 1 y 30 días. Más de 30 días → Recuperación.
-                // Solo muestra los que tienen 0 o 1 cuota pendiente:
-                //   0 cuotas → al dia, candidatos prime (arriba)
-                //   1 cuota  → parcial, candidatos secundarios (abajo)
-                //   2+ cuotas → ya están en mora, no son candidatos de renovación, se excluyen
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1`
                        + ` AND COALESCE(p.cuotas_debe, 0) <= 1`
                        + notRenewedClause;
-                // Ensure al-dia rows come first, 1-cuota-pending rows last
                 orderOverride = `COALESCE(p.cuotas_debe, 0) ASC, COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) DESC`;
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
+                // Contrato vigente = vigencia activa (>= hoy) y sin cuotas vencidas impagas en mora
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`
-                       + ` AND (COALESCE(p.saldo_pendiente, 0) <= 2500 AND COALESCE(p.cuotas_debe, 0) = 0)`
+                       + ` AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime'))`
                        + notRenewedClause;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
@@ -1449,8 +1469,9 @@ app.get('/api/clientes', (req, res) => {
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
                         const saldo = parseFloat(p.saldo_pendiente || 0);
-                        const cuotas = parseInt(p.cuotas_debe || 0);
-                        return calDiffRen >= 0 && saldo <= 2500 && cuotas === 0;
+                        const fvCuota = p.fecha_vencimiento;
+                        const cuotaVencida = fvCuota && fvCuota < hoyStr && saldo > 2500;
+                        return calDiffRen >= 0 && !cuotaVencida;
                     }
 
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);

@@ -218,9 +218,18 @@ const addColumnCuotas = (colName, colDef) => {
     try {
         db.exec(`ALTER TABLE cuotas_admin ADD COLUMN ${colName} ${colDef}`);
     } catch (e) {
-        // Column exists
+        // Ignorar si la columna ya existe
     }
 };
+const addColumnClientes = (colName, colDef) => {
+    try {
+        db.exec(`ALTER TABLE clientes ADD COLUMN ${colName} ${colDef}`);
+    } catch (e) {
+        // Ignorar si la columna ya existe
+    }
+};
+
+addColumnClientes('origen', "TEXT DEFAULT 'NRE'");
 addColumnCuotas('pdf_nre_url', 'TEXT');
 addColumnCuotas('pdf_grucar_url', 'TEXT');
 addColumn('total_cuotas', 'INTEGER DEFAULT 3');
@@ -233,13 +242,6 @@ addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
 addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 
 // ─── Migraciones de Columnas para Clientes ──────────────────────────────────
-const addColumnClientes = (colName, colDef) => {
-    try {
-        db.exec(`ALTER TABLE clientes ADD COLUMN ${colName} ${colDef}`);
-    } catch (e) {
-        // Column exists
-    }
-};
 addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
 
 // ─── Seed plantillas por defecto ────────────────────────────────────────────

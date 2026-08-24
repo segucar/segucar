@@ -274,33 +274,37 @@ const SeguroStateManager = (function () {
     const fvRen = poliza ? (poliza.fin_vigencia_poliza || poliza.fecha_vencimiento) : null;
     if (!fvRen) return ESTADOS.CONTRATO_VIGENTE;
 
-    const dias = calcularDiasVencimiento(fvRen);
+    const diasRen = calcularDiasVencimiento(fvRen);
     const saldo = parseFloat(poliza ? (poliza.saldo_pendiente || 0) : 0);
     const saldoExigible = parseFloat(poliza && poliza.saldo_exigible !== undefined ? poliza.saldo_exigible : saldo);
-    const cuotas = parseInt(poliza ? (poliza.cuotas_debe || 0) : 0);
-    const tieneDeuda = (saldo > 2500 || saldoExigible > 2500) || cuotas > 0;
+    const fvCuota = poliza ? poliza.fecha_vencimiento : null;
+    const diasCuota = fvCuota ? calcularDiasVencimiento(fvCuota) : 999;
 
-    if (dias < 0) {
+    // Mora vencida real: saldo > $2.500 Y la cuota ya venció (diasCuota < 0)
+    // Clientes con cuotas futuras a vencer (diasCuota >= 0) están en término.
+    const tieneMoraVencida = (saldo > 2500 || saldoExigible > 2500) && diasCuota < 0;
+
+    if (diasRen < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
-    // Clientes CON deuda en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
-    if (tieneDeuda && dias <= 7 && dias >= 0) {
+    // Clientes CON mora vencida en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
+    if (tieneMoraVencida && diasRen <= 7 && diasRen >= 0) {
       return ESTADOS.RENOVACION_DEUDA;
     }
 
-    // Clientes CON deuda con más de 7 días de vigencia -> VIGENTE_CON_DEUDA (Mora activa en cobranzas)
-    if (tieneDeuda && dias > 7) {
+    // Clientes CON mora vencida con más de 7 días de vigencia -> VIGENTE_CON_DEUDA (Mora activa en cobranzas)
+    if (tieneMoraVencida && diasRen > 7) {
       return ESTADOS.VIGENTE_CON_DEUDA;
     }
 
-    // Clientes AL DÍA — vence en EXACTAMENTE 7 días → Aviso preventivo normal
-    if (!tieneDeuda && dias === 7) {
+    // Clientes en término — vence en EXACTAMENTE 7 días -> Aviso preventivo normal
+    if (!tieneMoraVencida && diasRen === 7) {
       return ESTADOS.RENOVACION_7_DIAS;
     }
 
-    // Clientes AL DÍA — vence en 0–6 días → Urgente, renovación inmediata
-    if (!tieneDeuda && dias >= 0 && dias <= 6) {
+    // Clientes en término — vence en 0–6 días -> Urgente, renovación inmediata
+    if (!tieneMoraVencida && diasRen >= 0 && diasRen <= 6) {
       return ESTADOS.VENCE_PRONTO;
     }
 
