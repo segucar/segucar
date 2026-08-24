@@ -559,7 +559,7 @@ db.inicializarCuotasAdmin = () => {
 
 db.recalcularCuotasAGSYVencimientos = () => {
     try {
-        const { generarCronogramaCuotasAGS } = require('./sync_ags');
+        const { generarCronogramaCuotasAGS } = require('./ags_helpers');
         const agsPolizas = db.prepare("SELECT * FROM polizas WHERE aseguradora = 'AGS' OR aseguradora = 'Agrosalta'").all();
         const updateStmt = db.prepare(`
             UPDATE polizas SET
