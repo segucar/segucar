@@ -472,8 +472,10 @@ function showCuotasModal(polizaId, operacion) {
     const opStr = targetPoliza ? (targetPoliza.operacion || operacion) : operacion;
     const clienteName = currentClient ? currentClient.nombre : '';
 
+    const isAGSPoliza = (targetPoliza && (targetPoliza.aseguradora === 'AGS' || targetPoliza.aseguradora === 'Agrosalta')) || (currentClient && currentClient.origen === 'AGS');
+
     if (title) {
-        title.innerHTML = `<span>🧾</span> <span>Historial de Cuotas NRE — Póliza N° ${opStr}</span>`;
+        title.innerHTML = `<span>🧾</span> <span>Historial de Cuotas ${isAGSPoliza ? 'AGS' : 'NRE'} — Póliza N° ${opStr}</span>`;
     }
 
     let historial = [];
@@ -485,9 +487,9 @@ function showCuotasModal(polizaId, operacion) {
         }
     }
 
-    // Fallback if no JSON history stored yet: construct 3 sample/estimated cuotas from DB values
+    // Fallback if no JSON history stored yet: construct sample/estimated cuotas from DB values
     if (!historial || historial.length === 0) {
-        const totalCuotas = targetPoliza ? (targetPoliza.total_cuotas || 3) : 3;
+        const totalCuotas = targetPoliza ? (targetPoliza.total_cuotas || (isAGSPoliza ? 4 : 3)) : (isAGSPoliza ? 4 : 3);
         const cuotasDebe = targetPoliza ? (targetPoliza.cuotas_debe || 0) : 0;
         const vtoCuota = targetPoliza ? targetPoliza.fecha_vencimiento : null;
         const saldo = targetPoliza ? (parseFloat(targetPoliza.saldo_pendiente || targetPoliza.monto) || 0) : 0;
@@ -500,8 +502,8 @@ function showCuotasModal(polizaId, operacion) {
                 vto_cuota: esImpaga ? vtoCuota : null,
                 saldo_cli: esImpaga ? (saldo / Math.max(1, cuotasDebe)) : 0,
                 estado: esImpaga ? 'PENDIENTE' : 'PAGADA',
-                fecha_pago: esImpaga ? null : 'Registrado en NRE',
-                lote: esImpaga ? '-' : 'Lote NRE Sincronizado'
+                fecha_pago: esImpaga ? null : (isAGSPoliza ? 'Registrado en AGS' : 'Registrado en NRE'),
+                lote: esImpaga ? '-' : (isAGSPoliza ? 'Sincronizado con AGS' : 'Lote NRE Sincronizado')
             });
         }
     }
@@ -512,11 +514,14 @@ function showCuotasModal(polizaId, operacion) {
         const estadoBadge = getCuotaEstadoBadge(item);
 
         const vtoFormatted = item.vto_cuota ? formatDate(item.vto_cuota) : '-';
-        const pagoFormatted = item.fecha_pago ? formatDate(item.fecha_pago) : (isPend ? '-' : 'Abonada');
+        let rawPago = item.fecha_pago;
+        if (rawPago === 'Registrado en NRE' && isAGSPoliza) rawPago = 'Registrado en AGS';
+        const pagoFormatted = rawPago ? (rawPago.startsWith('Registrado') ? rawPago : formatDate(rawPago)) : (isPend ? '-' : 'Abonada');
         const saldoFormatted = item.saldo_cli > 0 
             ? `$ ${parseFloat(item.saldo_cli).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 })}` 
             : '$ 0,00';
-        const loteStr = item.lote || '-';
+        let loteStr = item.lote || '-';
+        if (loteStr === 'Lote NRE Sincronizado' && isAGSPoliza) loteStr = 'Sincronizado con AGS';
 
         rowsHtml += `
             <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">

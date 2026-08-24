@@ -447,7 +447,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     // Priorizar pólizas con saldo pendiente en la ventana de cobranza activa (últimos 30 días a próximos 15 días)
     const candidatosVentana = db.prepare(`
-        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento 
+        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
           AND fecha_vencimiento >= date('now', 'localtime', '-30 days')
@@ -455,9 +455,20 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
         ORDER BY fecha_vencimiento DESC
     `).all();
 
+    // Pólizas activas en la ventana actual sin historial de cuotas cargado
+    const candidatosSinHistorial = db.prepare(`
+        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza
+        FROM polizas
+        WHERE (cuotas_historial IS NULL OR cuotas_historial = '' OR cuotas_historial = '[]')
+          AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+          AND COALESCE(fin_vigencia_poliza, fecha_vencimiento) >= date('now', 'localtime', '-30 days')
+        ORDER BY fecha_vencimiento DESC
+        LIMIT 100
+    `).all();
+
     // Otras pólizas con saldo
     const otrosDeudores = db.prepare(`
-        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento 
+        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
           AND (fecha_vencimiento < date('now', 'localtime', '-30 days') OR fecha_vencimiento > date('now', 'localtime', '+15 days') OR fecha_vencimiento IS NULL)
@@ -467,6 +478,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     const mapaCandidatos = new Map();
     for (const p of candidatosVentana) mapaCandidatos.set(p.operacion, p);
+    for (const p of candidatosSinHistorial) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
     for (const p of otrosDeudores) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
 
     const candidatos = Array.from(mapaCandidatos.values());
@@ -475,7 +487,11 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     let saldadas = 0;
     const actualizarSaldada = db.prepare(`
         UPDATE polizas 
-        SET cuotas_debe = 0, saldo_pendiente = 0, cuotas_historial = ?
+        SET cuotas_debe = 0, 
+            saldo_pendiente = 0, 
+            nro_cuota = COALESCE(total_cuotas, 3),
+            fecha_vencimiento = COALESCE(fin_vigencia_poliza, fecha_vencimiento),
+            cuotas_historial = ?
         WHERE operacion = ?
     `);
 

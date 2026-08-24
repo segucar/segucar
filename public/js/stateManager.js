@@ -64,6 +64,30 @@ const SeguroStateManager = (function () {
     },
 
     // 🛡️ RENOVACIONES
+    RENOVACION_DEUDA: {
+      code: 'RENOVACION_DEUDA',
+      modulo: 'renovaciones',
+      label: '📄 Renovación + Deuda Pendiente',
+      accion: '📄 Renovación + Deuda Pendiente',
+      accionDetalle: 'Aviso de renovación condicionado a regularización de saldo impago',
+      prioridadRank: 2,
+      prioridadLevel: 'alta',
+      tagClass: 'tag-blue',
+      badgeColor: '#00b4d8',
+      plantilla: 'renovacion_deuda'
+    },
+    VIGENTE_CON_DEUDA: {
+      code: 'VIGENTE_CON_DEUDA',
+      modulo: 'renovaciones',
+      label: '⚠️ Contrato con Mora (Cobranzas)',
+      accion: '⚠️ Deuda Pendiente',
+      accionDetalle: '🚨 Contrato vigente con cuotas impagas en gestión de cobranza',
+      prioridadRank: 3,
+      prioridadLevel: 'alta',
+      tagClass: 'tag-red',
+      badgeColor: '#ff4757',
+      plantilla: 'mora_critica'
+    },
     RENOVACION_7_DIAS: {
       code: 'RENOVACION_7_DIAS',
       modulo: 'renovaciones',
@@ -252,27 +276,22 @@ const SeguroStateManager = (function () {
 
     const dias = calcularDiasVencimiento(fvRen);
     const saldo = parseFloat(poliza ? (poliza.saldo_pendiente || 0) : 0);
+    const saldoExigible = parseFloat(poliza && poliza.saldo_exigible !== undefined ? poliza.saldo_exigible : saldo);
     const cuotas = parseInt(poliza ? (poliza.cuotas_debe || 0) : 0);
-    const tieneDeuda = saldo > 0 || cuotas > 0;
+    const tieneDeuda = (saldo > 2500 || saldoExigible > 2500) || cuotas > 0;
 
     if (dias < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
-    // Clientes CON deuda en cualquier ventana de aviso → RENOVACION_DEUDA (urgente)
+    // Clientes CON deuda en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
     if (tieneDeuda && dias <= 7 && dias >= 0) {
-      return {
-        code: 'RENOVACION_DEUDA',
-        modulo: 'renovaciones',
-        label: '📄 Renovación + Deuda Pendiente',
-        accion: '📄 Renovación + Deuda Pendiente',
-        accionDetalle: 'Aviso de renovación condicionado a regularización de saldo impago',
-        prioridadRank: 2,
-        prioridadLevel: 'alta',
-        tagClass: 'tag-blue',
-        badgeColor: '#00b4d8',
-        plantilla: 'renovacion_deuda'
-      };
+      return ESTADOS.RENOVACION_DEUDA;
+    }
+
+    // Clientes CON deuda con más de 7 días de vigencia -> VIGENTE_CON_DEUDA (Mora activa en cobranzas)
+    if (tieneDeuda && dias > 7) {
+      return ESTADOS.VIGENTE_CON_DEUDA;
     }
 
     // Clientes AL DÍA — vence en EXACTAMENTE 7 días → Aviso preventivo normal

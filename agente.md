@@ -32,18 +32,35 @@ Cualquier agente de IA o desarrollador que intervenga en esta base de código **
    - `traigo-polizas.php`: Búsqueda histórica de operaciones por patente o asegurado.
 
 2. **AGS (Agrosalta - `https://www.agsnet.com.ar`)**:
-   - Facturación en **4 cuotas fijas** por contrato (`total_cuotas = 4`).
+   - Facturación en **4 cuotas fijas** por contrato cuatrimestral (`total_cuotas = 4`).
+   - **Cronograma Mensual Automático**: Cada cuota vence mensualmente antes del fin de vigencia:
+     - Cuota 1: $M - 4$ meses
+     - Cuota 2: $M - 3$ meses
+     - Cuota 3: $M - 2$ meses
+     - Cuota 4: $M - 1$ mes
+   - **Importe de Cuota**: `premio > 0 ? premio / 4 : 0`.
+   - **Cuota Activa Operativa**: `nro_cuota` y `fecha_vencimiento` deben corresponder a la próxima cuota a vencer o a la primera cuota impaga/vencida, **NUNCA a `fin_vigencia`**.
    - Sin servicio de auxilio mecánico Grucar (`grucar_activo = 0`).
    - Códigos de productor activos: `123701054` y `123901054`.
    - Endpoint de vigencias: `consulvigprod3.php`.
 
-### 🚗 Composición de Cuota y Regla del Remanente `<= $2.500` (Grucar)
+### 🛡️ Separación Estricta: Cobranzas (Cuotas) vs Renovaciones (Vigencia)
+- **Regla Anti-Falsos Negativos**: Un cliente con vigencia de contrato activa (vence en más de 7 días) pero con **deuda impaga (`saldo > $2.500` o `cuotas_debe > 0`)** NUNCA debe clasificarse como `🟢 Contrato Vigente (sin alerta)`.
+  - Se clasifica como `VIGENTE_CON_DEUDA` (`⚠️ Contrato con Mora (Cobranzas)`) y se gestiona prioritariamente en el módulo de Cobranzas / Mora Crítica.
+  - El contador de `polizas_vigentes` y el filtro `?estado=vigente` solo incluyen pólizas al día (`saldo <= 2500` y `cuotas_debe = 0`).
+- **Regla Anti-Falsos Positivos**: Cuando una póliza está 100% saldada (`Saldo Cli $0,00`):
+  - `nro_cuota` se fija en el total de cuotas (`Cuota 3/3` en NRE o `Cuota 4/4` en AGS).
+  - `fecha_vencimiento` se actualiza a `fin_vigencia_poliza` para evitar que la UI interprete vencimientos de cuotas anteriores ya pagadas como mora.
+  - La tabla de cobranza muestra el badge `🟢 Al día`.
+
+### 🚗 Composición de Cuota y Regla Unificada del Remanente `<= $2.500` (Grucar)
 - Una cuota típica de NRE se compone de: **Prima de Seguro ($30.240)** + **Auxilio Mecánico Grucar ($1.760 - $2.000)** = Total **$32.240**.
 - **Regla del Remanente (`<= $2.500`)**: Cuando el cliente abona los $30.240 de la prima principal y en NRE queda un saldo de $2.000 (auxilio no rendido o diferencia menor):
   1. La cobertura de seguro está **100% ACTIVA y PAGADA**.
-  2. La cuota se considera **cumplida**.
+  2. La cuota se considera **cumplida / al día**.
   3. El sistema avanza automáticamente la fecha de vencimiento a la **siguiente cuota principal**.
-  4. **NUNCA** disparar alertas de *Segundo Aviso* ni *Mora Crítica* (suspensión de cobertura) por saldos menores a `$2.500`.
+  4. **NUNCA** disparar alertas de *Segundo Aviso* ni *Mora Crítica* (suspensión de cobertura) por saldos menores o iguales a `$2.500`.
+  5. **Unificación de Umbral**: En todo el backend (`server.js`, `database.js` -> `sincronizarPolizasSaldadasNRE`, `stateManager.js` y `holidays_ar.js`), el umbral se valida de forma idéntica como `saldo_pendiente <= 2500`.
 
 ### 🔄 Regla de Reemplazo por Renovación
 - Cuando una póliza vence y se renueva en NRE, se emite una operación con **número secuencial mayor** (`CAST(operacion AS INTEGER)` más alto).
@@ -72,6 +89,9 @@ Cualquier agente de IA o desarrollador que intervenga en esta base de código **
 | **Rodriguez Laura / Arecha / Fenoy** | Figuraban en *Primer Aviso* con cuotas que ya habían pagado. | `syncPagosNRE` salteaba pólizas listadas en `lisdeupmo.php` (deuda broker) y tenía tope de 60 candidatos. | Se auditó en vivo `muestro-polizas.php` (`Saldo Cli`), purgando 52 pólizas saldadas, y se eliminó la exclusión. |
 | **Bertolot Daniel (`Op. 12015621`)** | Recibió mensaje de *"suspensión de cobertura (96 hs)"* habiendo pagado $30.240. | La cuota era de $32.240 (con $2.000 de Grucar). Al restar $2.000, el sistema la trató como mora crítica. | Se implementó la regla `<= $2.500` en `holidays_ar.js`, `server.js` y `stateManager.js`, avanzando el vencimiento a Cuota 2. |
 | **Tabla Vacía con Badge en 16** | La tarjeta mostraba 16 clientes pero la tabla decía *"No se encontraron resultados"*. | `getFechasTargetCobranza` evaluaba fechas con un saldo dummy de `$100`, que era absorbido por la nueva regla `<= $2.500`. | Se corrigió el saldo de evaluación de fechas a `$35.000` y se ocultó el emptyState duplicado. |
+| **Guzman / Mansilla (Mora Oculta)** | Clientes con 3 cuotas impagas ($90.720) aparecían como *Contrato Vigente (sin alerta)*. | `evaluarRenovacion` retornaba `CONTRATO_VIGENTE` si faltaban > 7 días para fin de contrato ignorando la deuda; `/api/clientes` y stats no validaban deuda. | Se creó `VIGENTE_CON_DEUDA`, se excluyeron deudores de `Contrato Vigente`, y se añadió tarjeta *Mora Crítica* en el Dashboard. |
+| **Bergallo / Castro (Fechas AGS)** | Pólizas AGS mostraban vencimientos y cuotas incorrectas (ej. fin de contrato como cuota). | `sync_ags.js` asignaba `fecha_vencimiento = fin_vigencia` y no generaba cronograma mensual de 4 cuotas. | Se implementó el generador de cronograma de 4 cuotas (M-4 a M-1, `premio/4`), fijando la cuota activa y fecha operativa real. |
+| **Barreiro / Cannata / Dinelli** | Pólizas 100% saldadas mostraban textos de mora vieja o "Cuota 1/3 vencida". | `nro_cuota` nulo y `fecha_vencimiento` reteniendo cuota anterior pagada. | Se sincronizan a `nro_cuota = 3/3`, `fecha_vencimiento = fin_vigencia` y badge `🟢 Al día`. |
 
 ---
 
@@ -199,3 +219,7 @@ npm test
 6. ❌ **NO hardcodear números de prueba menores a `$2.500` en funciones de target**: `getFechasTargetCobranza` debe usar `$35.000`.
 7. ❌ **NO usar `new Date().getDay()` en backend sin conversión de zona horaria**: Provoca desfasajes de domingo a partir de las 21:00 hs ARG.
 8. ❌ **NO desincronizar `stateManager.js` (frontend) de `holidays_ar.js` (backend)**: Los códigos de estado deben coincidir exactamente.
+9. ❌ **NO clasificar clientes con deuda en `Contrato Vigente (sin alerta)` ni contarlos en `polizas_vigentes`**: Si tienen deuda (`saldo > 2500` o `cuotas_debe > 0`), deben derivarse a `VIGENTE_CON_DEUDA` y gestionarse en Cobranzas / Mora Crítica.
+10. ❌ **NO asignar `fin_vigencia` como fecha de vencimiento de cuota en AGS**: En AGS deben calcularse los 4 vencimientos mensuales ($M-4$ a $M-1$) y fijar la cuota activa real.
+11. ❌ **NO dejar pólizas saldadas con `nro_cuota` en 1 o reteniendo fechas de cuotas anteriores**: Deben sincronizarse a `total_cuotas` (ej. 3/3 o 4/4), con `fecha_vencimiento = fin_vigencia` y badge `🟢 Al día`.
+12. ❌ **NO usar condiciones dispares para pólizas saldadas**: El umbral del remanente debe ser siempre `<= 2500` de forma unificada en queries, controladores y servicios.

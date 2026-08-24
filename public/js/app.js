@@ -813,9 +813,7 @@ function setupEventListeners() {
   const filterEstado = getEl('filterEstado');
   if (filterEstado) {
     filterEstado.addEventListener('change', (e) => {
-      state.filters.estado = e.target.value;
-      state.pagination.page = 1;
-      fetchClientes();
+      filterByState(e.target.value);
     });
   }
 
@@ -884,13 +882,13 @@ function filterByState(estadoVal) {
         summary.innerText = '— Cuotas con vencimiento exacto en 48 hs.';
       } else if (estadoVal === 'vencio_48h') {
         label.innerText = '💳 GESTIÓN DE CUOTAS → 🟠 Primer Aviso (Vencida hace 48 hs)';
-        summary.innerText = '— 1 cuota impaga (48 hs vencida).';
+        summary.innerText = '— Vencida hace 48 hs.';
       } else if (estadoVal === 'vencio_96h') {
         label.innerText = '💳 GESTIÓN DE CUOTAS → 🔴 Segundo Aviso (Vencida hace 96 hs)';
-        summary.innerText = '— 1 cuota impaga (96 hs / Período de gracia).';
+        summary.innerText = '— Vencida hace 96 hs (período de gracia).';
       } else if (estadoVal === 'cuota_deuda') {
-        label.innerText = '💳 GESTIÓN DE CUOTAS → 🚨 Mora Crítica (+96 hs / Perdió Período de Gracia)';
-        summary.innerText = '— Cobertura suspendida / 2+ cuotas o >96 hs.';
+        label.innerText = '💳 GESTIÓN DE CUOTAS → 🚨 Mora Crítica (+96 hs / Cobertura Suspendida)';
+        summary.innerText = '— Cobertura suspendida / 2+ cuotas o >96 hs de mora.';
       } else if (estadoVal === 'por_vencer') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 📄 Aviso Renovación (7 Días)';
         summary.innerText = '— Propuesta de renovación / Vence en 7 días.';
@@ -899,7 +897,10 @@ function filterByState(estadoVal) {
         summary.innerText = '— Vencimiento en los últimos 30 días.';
       } else if (estadoVal === 'vigente') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 🟢 Contrato Vigente';
-        summary.innerText = '— Vence en más de 7 días.';
+        summary.innerText = '— Contratos activos al día (sin deuda).';
+      } else if (estadoVal === 'vigente_con_deuda' || estadoVal === 'renovacion_deuda') {
+        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚠️ Contrato con Mora (Cobranza)';
+        summary.innerText = '— Contratos vigentes con cuotas pendientes en gestión de cobranzas.';
       }
     }
   }
@@ -947,7 +948,7 @@ async function fetchStats() {
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio96', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-
+    setStatValue('dashMoraCritica', (stats.mora_critica || 0).toLocaleString('es-AR'));
 
     // Dashboard Executive Counters - Renovaciones
     setStatValue('dashPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
@@ -1308,18 +1309,21 @@ function createClientRow(client, poliza, isSecondary = false) {
   if (cols.vehiculo) cells += `<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${poliza ? escapeHtml(poliza.vehiculo || '') : ''}">${poliza ? escapeHtml(poliza.vehiculo || '-') : '-'}</td>`;
 
   if (isCobranza) {
-    const nroCuota = poliza ? (poliza.nro_cuota || 1) : 1;
     const defaultTotal = isAGS ? 4 : 3;
     const totalCuotas = poliza ? (poliza.total_cuotas || defaultTotal) : defaultTotal;
+    const saldoVal = getSaldoExigible(poliza);
+    const estaAlDia = saldoVal <= 2500;
+    const nroCuota = poliza ? (poliza.nro_cuota || (estaAlDia ? totalCuotas : 1)) : (estaAlDia ? totalCuotas : 1);
     const cuotaStr = `Cuota ${nroCuota}/${totalCuotas}`;
 
-    const saldoVal = getSaldoExigible(poliza);
     const saldoStr = saldoVal > 0 
       ? `$ ${saldoVal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` 
       : '$ 0,00';
 
     let diasMoraHtml = '-';
-    if (poliza && poliza.fecha_vencimiento && typeof SeguroStateManager !== 'undefined') {
+    if (estaAlDia) {
+      diasMoraHtml = `<span class="badge" style="background:rgba(46,213,115,0.15); color:#2ed573; border:1px solid rgba(46,213,115,0.3);">🟢 Al día</span>`;
+    } else if (poliza && poliza.fecha_vencimiento && typeof SeguroStateManager !== 'undefined') {
       const clean = String(poliza.fecha_vencimiento).split('T')[0].split(' ')[0];
       const parts = clean.split('-');
       if (parts.length === 3) {

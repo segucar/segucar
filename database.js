@@ -560,8 +560,93 @@ db.inicializarCuotasAdmin = () => {
     }
 };
 
+db.recalcularCuotasAGSYVencimientos = () => {
+    try {
+        const { generarCronogramaCuotasAGS } = require('./sync_ags');
+        const agsPolizas = db.prepare("SELECT * FROM polizas WHERE aseguradora = 'AGS' OR aseguradora = 'Agrosalta'").all();
+        const updateStmt = db.prepare(`
+            UPDATE polizas SET
+                fecha_vencimiento = ?,
+                nro_cuota = ?,
+                cuotas_debe = ?,
+                saldo_pendiente = ?,
+                cuotas_historial = ?,
+                total_cuotas = 4
+            WHERE id = ?
+        `);
+
+        db.transaction(() => {
+            for (const p of agsPolizas) {
+                const finVig = p.fin_vigencia_poliza || p.fecha_vencimiento;
+                if (!finVig) continue;
+                const cronograma = generarCronogramaCuotasAGS(finVig, 0, p.cuotas_historial);
+                updateStmt.run(
+                    cronograma.fecha_vencimiento,
+                    cronograma.nro_cuota,
+                    cronograma.cuotas_debe,
+                    cronograma.saldo_pendiente,
+                    JSON.stringify(cronograma.cuotas),
+                    p.id
+                );
+            }
+        })();
+        console.log(`✅ ${agsPolizas.length} pólizas AGS recalculadas con cronograma de 4 cuotas y fechas operativas reales.`);
+    } catch(e) {
+        console.error('Error en recalcularCuotasAGSYVencimientos:', e);
+    }
+};
+
+db.sincronizarPolizasSaldadasNRE = () => {
+    try {
+        const saldadas = db.prepare(`
+            SELECT id, fin_vigencia_poliza, fecha_vencimiento, total_cuotas, nro_cuota, cuotas_historial, aseguradora, saldo_pendiente
+            FROM polizas 
+            WHERE (saldo_pendiente IS NULL OR saldo_pendiente <= 2500)
+              AND (cuotas_debe IS NULL OR cuotas_debe <= 0)
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).all();
+
+        const updatePol = db.prepare(`
+            UPDATE polizas SET
+                nro_cuota = COALESCE(?, total_cuotas, 3),
+                fecha_vencimiento = COALESCE(fin_vigencia_poliza, fecha_vencimiento),
+                cuotas_historial = COALESCE(?, cuotas_historial)
+            WHERE id = ?
+        `);
+
+        db.transaction(() => {
+            for (const p of saldadas) {
+                const total = p.total_cuotas || (p.aseguradora === 'AGS' ? 4 : 3);
+                let histJson = p.cuotas_historial;
+
+                if (!histJson && p.fin_vigencia_poliza) {
+                    const cuotas = [];
+                    for (let i = 1; i <= total; i++) {
+                        cuotas.push({
+                            nro_cuota: i,
+                            vto_cuota: p.fin_vigencia_poliza,
+                            saldo_cli: 0,
+                            estado: 'PAGADA',
+                            fecha_pago: p.aseguradora === 'AGS' ? 'Registrado en AGS' : 'Registrado en NRE',
+                            lote: p.aseguradora === 'AGS' ? 'Sincronizado con AGS' : 'Lote NRE Sincronizado'
+                        });
+                    }
+                    histJson = JSON.stringify(cuotas);
+                }
+
+                updatePol.run(total, histJson, p.id);
+            }
+        })();
+        console.log(`✅ ${saldadas.length} pólizas saldadas sincronizadas con cuota completa y sin mora falsa.`);
+    } catch(e) {
+        console.error('Error en sincronizarPolizasSaldadasNRE:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.sincronizarSaldosCuotasHistorial();
+db.recalcularCuotasAGSYVencimientos();
+db.sincronizarPolizasSaldadasNRE();
 db.inicializarCuotasAdmin();
 
 module.exports = db;

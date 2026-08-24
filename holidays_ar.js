@@ -182,7 +182,7 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
 
     // ── PRIMER AVISO (48 hs): venció hace EXACTAMENTE 2 días ───────
     if (calDiff === -2) return 'cuota_vencida_0_48hs';
-    if (diaSemana === 1 && (calDiff === -3 || calDiff === -4)) return 'cuota_vencida_0_48hs';
+    if (diaSemana === 1 && calDiff === -3) return 'cuota_vencida_0_48hs';
 
     // ── SEGUNDO AVISO (96 hs): venció hace EXACTAMENTE 4 días ──────
     if (calDiff === -4) return 'cuota_vencida_48_96hs';

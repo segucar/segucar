@@ -111,12 +111,107 @@ async function fetchPolizasVigentes(cookie, orga, fecha) {
     return polizas;
 }
 
+// ─── Helpers de Cronograma AGS (4 cuotas fijas) ──────────────────────────────
+function calcularFechaCuotaAGS(finVigenciaStr, mesesAntes) {
+    const parts = String(finVigenciaStr).split('T')[0].split('-');
+    if (parts.length !== 3) return finVigenciaStr;
+    let y = parseInt(parts[0], 10);
+    let m = parseInt(parts[1], 10) - 1; // 0-indexed
+    let d = parseInt(parts[2], 10);
+
+    let targetMonth = m - mesesAntes;
+    while (targetMonth < 0) {
+        targetMonth += 12;
+        y -= 1;
+    }
+    const daysInMonth = new Date(y, targetMonth + 1, 0).getDate();
+    const safeDay = Math.min(d, daysInMonth);
+
+    const mm = String(targetMonth + 1).padStart(2, '0');
+    const dd = String(safeDay).padStart(2, '0');
+    return `${y}-${mm}-${dd}`;
+}
+
+function generarCronogramaCuotasAGS(finVigencia, premio, historialExistente = null) {
+    const hoyStr = new Date().toISOString().slice(0, 10);
+    const montoCuota = premio > 0 ? Math.round((premio / AGS_TOTAL_CUOTAS) * 100) / 100 : 0;
+    
+    let histMap = {};
+    if (historialExistente) {
+        try {
+            const parsed = typeof historialExistente === 'string' ? JSON.parse(historialExistente) : historialExistente;
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) {
+                    if (item && item.nro_cuota) histMap[item.nro_cuota] = item;
+                }
+            }
+        } catch(e) {}
+    }
+
+    const cuotas = [];
+    for (let i = 1; i <= AGS_TOTAL_CUOTAS; i++) {
+        const vto = calcularFechaCuotaAGS(finVigencia, AGS_TOTAL_CUOTAS - i + 1);
+        const existing = histMap[i];
+
+        if (existing) {
+            cuotas.push({
+                nro_cuota: i,
+                vto_cuota: existing.vto_cuota || vto,
+                saldo_cli: existing.saldo_cli !== undefined ? existing.saldo_cli : (existing.estado === 'PAGADA' ? 0 : montoCuota),
+                estado: existing.estado || (vto < hoyStr ? 'PAGADA' : 'PENDIENTE'),
+                fecha_pago: existing.fecha_pago || (existing.estado === 'PAGADA' ? 'Registrado en AGS' : null),
+                lote: existing.lote || 'Sincronizado con AGS'
+            });
+        } else {
+            // Por defecto: cuotas pasadas que no están en mora se consideran pagadas; la cuota actual/futura está pendiente
+            const esPasada = vto < hoyStr;
+            cuotas.push({
+                nro_cuota: i,
+                vto_cuota: vto,
+                saldo_cli: esPasada ? 0 : montoCuota,
+                estado: esPasada ? 'PAGADA' : 'PENDIENTE',
+                fecha_pago: esPasada ? 'Registrado en AGS' : null,
+                lote: 'Sincronizado con AGS'
+            });
+        }
+    }
+
+    // Determinar próxima cuota activa / cuota impaga
+    const cuotasImpagas = cuotas.filter(c => c.estado === 'PENDIENTE' || c.saldo_cli > 0);
+    const cuotasVencidas = cuotasImpagas.filter(c => c.vto_cuota && c.vto_cuota < hoyStr);
+
+    let nroCuotaActiva = AGS_TOTAL_CUOTAS;
+    let fechaVtoActiva = finVigencia;
+    let cuotasDebe = cuotasVencidas.length;
+    let saldoPendiente = cuotasImpagas.reduce((sum, c) => sum + (parseFloat(c.saldo_cli) || 0), 0);
+
+    if (cuotasVencidas.length > 0) {
+        // Hay cuotas vencidas impagas -> la activa es la primera vencida
+        cuotasVencidas.sort((a, b) => (a.vto_cuota < b.vto_cuota ? -1 : 1));
+        nroCuotaActiva = cuotasVencidas[0].nro_cuota;
+        fechaVtoActiva = cuotasVencidas[0].vto_cuota;
+    } else if (cuotasImpagas.length > 0) {
+        // No hay mora, próxima cuota a vencer
+        cuotasImpagas.sort((a, b) => (a.vto_cuota < b.vto_cuota ? -1 : 1));
+        nroCuotaActiva = cuotasImpagas[0].nro_cuota;
+        fechaVtoActiva = cuotasImpagas[0].vto_cuota;
+    }
+
+    return {
+        cuotas,
+        nro_cuota: nroCuotaActiva,
+        fecha_vencimiento: fechaVtoActiva,
+        cuotas_debe: cuotasDebe,
+        saldo_pendiente: saldoPendiente
+    };
+}
+
 // ─── Migración DB ─────────────────────────────────────────────────────────────
 function migrarDB() {
-    // Agregar columna origen si no existe
     try { db.prepare("ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'NRE'").run(); } catch (e) {}
-    // Agregar columna total_cuotas si no existe
     try { db.prepare("ALTER TABLE polizas ADD COLUMN total_cuotas INTEGER DEFAULT 4").run(); } catch (e) {}
+    try { db.prepare("ALTER TABLE polizas ADD COLUMN nro_cuota INTEGER DEFAULT 1").run(); } catch (e) {}
+    try { db.prepare("ALTER TABLE polizas ADD COLUMN cuotas_historial TEXT").run(); } catch (e) {}
 }
 
 // ─── Upsert cliente AGS ───────────────────────────────────────────────────────
@@ -130,45 +225,53 @@ function upsertClienteAGS(asegurado) {
 }
 
 // ─── Upsert póliza AGS ───────────────────────────────────────────────────────
-// IMPORTANTE:
-//  - cuotas_debe: NO se actualiza automáticamente (necesita Saldo Cli, no Saldo Broker)
-//  - grucar_activo: siempre 0 (AGS no usa Grucar)
-//  - total_cuotas: siempre 4 (AGS usa 4 cuotas fijas)
-//  - fecha_vencimiento = fin_vigencia (para el sistema de renovación)
 function upsertPolizaAGS(clienteId, p) {
-    const existente = db.prepare("SELECT id, cuotas_debe, saldo_pendiente FROM polizas WHERE operacion = ? AND aseguradora = 'AGS'").get(p.poliza);
+    const existente = db.prepare("SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial, nro_cuota FROM polizas WHERE operacion = ? AND aseguradora = 'AGS'").get(p.poliza);
+
+    const cronograma = generarCronogramaCuotasAGS(p.fin_vigencia, p.premio, existente ? existente.cuotas_historial : null);
+    const cuotasHistorialJson = JSON.stringify(cronograma.cuotas);
 
     if (existente) {
-        // Actualiza datos de vigencia y vehículo, pero NO toca cuotas_debe/saldo_pendiente
-        // (esos solo se actualizan por sincronización manual o cuando tengamos Saldo Cli real)
         db.prepare(`
             UPDATE polizas SET
-                cliente_id        = ?,
-                vehiculo          = ?,
-                patente           = ?,
+                cliente_id          = ?,
+                vehiculo            = ?,
+                patente             = ?,
                 fin_vigencia_poliza = ?,
-                fecha_vencimiento = ?,
-                suma_asegurada    = ?,
-                total_cuotas      = ?,
-                aseguradora       = 'AGS',
-                grucar_activo     = 0
+                fecha_vencimiento   = ?,
+                nro_cuota           = ?,
+                cuotas_debe         = ?,
+                saldo_pendiente     = ?,
+                suma_asegurada      = ?,
+                total_cuotas        = ?,
+                cuotas_historial    = ?,
+                aseguradora         = 'AGS',
+                grucar_activo       = 0
             WHERE operacion = ? AND aseguradora = 'AGS'
-        `).run(clienteId, p.vehiculo, p.patente, p.fin_vigencia, p.fin_vigencia,
-               p.suma_asegurada, AGS_TOTAL_CUOTAS, p.poliza);
+        `).run(
+            clienteId, p.vehiculo, p.patente, p.fin_vigencia, 
+            cronograma.fecha_vencimiento, cronograma.nro_cuota,
+            cronograma.cuotas_debe, cronograma.saldo_pendiente,
+            p.suma_asegurada, AGS_TOTAL_CUOTAS, cuotasHistorialJson,
+            p.poliza
+        );
         return { accion: 'actualizada' };
     } else {
         db.prepare(`
             INSERT INTO polizas (
                 cliente_id, operacion, vehiculo, patente,
-                fin_vigencia_poliza, fecha_vencimiento,
-                cuotas_debe, saldo_pendiente,
+                fin_vigencia_poliza, fecha_vencimiento, nro_cuota,
+                cuotas_debe, saldo_pendiente, cuotas_historial,
                 suma_asegurada, total_cuotas,
                 aseguradora, grucar_activo,
                 estado, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
-        `).run(clienteId, p.poliza, p.vehiculo, p.patente,
-               p.fin_vigencia, p.fin_vigencia,
-               p.suma_asegurada, AGS_TOTAL_CUOTAS);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
+        `).run(
+            clienteId, p.poliza, p.vehiculo, p.patente,
+            p.fin_vigencia, cronograma.fecha_vencimiento, cronograma.nro_cuota,
+            cronograma.cuotas_debe, cronograma.saldo_pendiente, cuotasHistorialJson,
+            p.suma_asegurada, AGS_TOTAL_CUOTAS
+        );
         return { accion: 'creada' };
     }
 }
@@ -211,7 +314,7 @@ async function syncAGS() {
     return resultado;
 }
 
-module.exports = { syncAGS };
+module.exports = { syncAGS, generarCronogramaCuotasAGS, calcularFechaCuotaAGS };
 
 if (require.main === module) {
     syncAGS().then(r => {

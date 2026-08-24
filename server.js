@@ -504,13 +504,13 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
 
                     const saldo = parseFloat(p.saldo_pendiente || 0);
-                    const tieneDeuda = saldo > 0 || parseInt(p.cuotas_debe || 0) > 0;
+                    const tieneDeuda = saldo > 2500 || parseInt(p.cuotas_debe || 0) > 0;
 
                     if (calDiffRen === 7 && !tieneDeuda) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
                     if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
-                    if (calDiffRen >= 0) polizas_vigentes++;
+                    if (calDiffRen >= 0 && !tieneDeuda) polizas_vigentes++;
                 }
             }
 
@@ -1198,7 +1198,9 @@ app.get('/api/clientes', (req, res) => {
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
-                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0` + notRenewedClause;
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`
+                       + ` AND (COALESCE(p.saldo_pendiente, 0) <= 2500 AND COALESCE(p.cuotas_debe, 0) = 0)`
+                       + notRenewedClause;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio')) {
@@ -1446,7 +1448,9 @@ app.get('/api/clientes', (req, res) => {
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen >= 0;
+                        const saldo = parseFloat(p.saldo_pendiente || 0);
+                        const cuotas = parseInt(p.cuotas_debe || 0);
+                        return calDiffRen >= 0 && saldo <= 2500 && cuotas === 0;
                     }
 
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);
