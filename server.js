@@ -580,6 +580,8 @@ app.get('/api/dashboard/stats', (req, res) => {
             }
         }
 
+        const syncInfo = getLastSyncInfo();
+
         res.json({ 
             total_clientes, 
             total_polizas, 
