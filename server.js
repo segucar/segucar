@@ -36,17 +36,14 @@ const waService = require('./whatsapp_service');
                 mensaje: 'Hola, ¿cómo estás? Te informamos que la cuota de tu seguro ({operacion} - Patente {patente}) venció hace 96 hs y si no se regulariza antes de las 12hs de mañana se suspende la cobertura por falta de pago. Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
             },
             {
-                tipo: 'mora_critica',
-                nombre_meta: 'mora_critica_impaga',
-                activa: 1,
-                mensaje: 'Hola, te avisamos que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace más de 4 días y registrás cuotas impagas. La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
-            },
-            {
                 tipo: 'renovacion_7_dias',
                 nombre_meta: 'aviso_renovacion_7_dias',
                 mensaje: 'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
             }
         ];
+
+        // Eliminar plantilla huérfana de mora crítica y renovación con deuda
+        db.prepare("DELETE FROM plantillas WHERE tipo = 'mora_critica' OR tipo = 'renovacion_deuda' OR nombre LIKE '%Mora Crítica%' OR nombre LIKE '%mora critica%'").run();
 
         for (const u of updates) {
             if (u.activa !== undefined) {
@@ -1287,18 +1284,24 @@ app.get('/api/clientes', (req, res) => {
         const sortBy = req.query.sort_by || 'nombre';
         const sortDir = (req.query.sort_dir || 'ASC').toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
+        const isRenovacionesView = req.query.view === 'renovaciones' || req.query.tipo_vista === 'renovaciones';
+
         let sortCol = 'c.nombre';
         if (sortBy === 'nombre') sortCol = 'c.nombre';
         else if (sortBy === 'telefono') sortCol = 'c.telefono';
         else if (sortBy === 'patente') sortCol = 'p.patente';
         else if (sortBy === 'vehiculo') sortCol = 'p.vehiculo';
         else if (sortBy === 'tipo') sortCol = 'p.tipo_vehiculo';
-        else if (sortBy === 'vencimiento') sortCol = 'p.fecha_vencimiento';
+        else if (sortBy === 'vencimiento') {
+            sortCol = isRenovacionesView
+                ? "COALESCE(NULLIF(p.fin_vigencia_poliza, ''), p.fecha_vencimiento)"
+                : 'p.fecha_vencimiento';
+        }
         else if (sortBy === 'operacion') sortCol = 'p.operacion';
         else if (sortBy === 'nro_cuota') sortCol = 'p.nro_cuota';
         else if (sortBy === 'importe') sortCol = 'p.saldo_pendiente';
         else if (sortBy === 'dias_mora') sortCol = 'p.fecha_vencimiento';
-        else if (sortBy === 'fin_vigencia') sortCol = 'p.fin_vigencia_poliza';
+        else if (sortBy === 'fin_vigencia') sortCol = "COALESCE(NULLIF(p.fin_vigencia_poliza, ''), p.fecha_vencimiento)";
         else if (sortBy === 'estado') {
             sortCol = `CASE 
                 WHEN p.fecha_vencimiento < date('now') THEN 1
@@ -1348,11 +1351,12 @@ app.get('/api/clientes', (req, res) => {
         // sort_fecha: pick the earliest relevant fecha_vencimiento for the client.
         // Only poliza-column sorts can be used inside the correlated subquery.
         // If sortCol references clientes (e.g. c.nombre), just order by fecha_vencimiento.
-        const isSortByPolizaCol = sortCol.startsWith('p.') || sortCol.startsWith('CASE');
+        const isSortByPolizaCol = sortCol.startsWith('p.') || sortCol.startsWith('CASE') || sortCol.startsWith('COALESCE');
+        const targetVencCol = isRenovacionesView ? "COALESCE(NULLIF(p2.fin_vigencia_poliza, ''), p2.fecha_vencimiento)" : "p2.fecha_vencimiento";
         const sortFechaSubquery = `(
-            SELECT p2.fecha_vencimiento FROM polizas p2 
+            SELECT ${targetVencCol} FROM polizas p2 
             WHERE p2.cliente_id = c.id 
-            ORDER BY ${isSortByPolizaCol ? `(${sortCol.replace(/\bp\b\./g, 'p2.')}) ASC, ` : ''}p2.fecha_vencimiento ASC 
+            ORDER BY ${isSortByPolizaCol ? `(${sortCol.replace(/\bp\b\./g, 'p2.')}) ASC, ` : ''}${targetVencCol} ASC 
             LIMIT 1
         )`;
 
@@ -2146,7 +2150,7 @@ app.post('/api/scrape-telefonos', async (req, res) => {
 
 app.get('/api/plantillas', (req, res) => {
     try {
-        res.json(db.prepare('SELECT * FROM plantillas').all());
+        res.json(db.prepare("SELECT * FROM plantillas WHERE tipo NOT IN ('mora_critica', 'renovacion_deuda')").all());
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

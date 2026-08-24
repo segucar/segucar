@@ -948,7 +948,6 @@ async function fetchStats() {
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio96', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-    setStatValue('dashMoraCritica', (stats.mora_critica || 0).toLocaleString('es-AR'));
 
     // Dashboard Executive Counters - Renovaciones
     setStatValue('dashPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
@@ -1073,20 +1072,38 @@ function getCuotaEstadoBadge(item) {
 
 let currentFetchRequestId = 0;
 
+function getSortIcon(col) {
+  if (state.sort.by === col) {
+    return state.sort.dir === 'ASC' ? '▲' : '▼';
+  }
+  return '⇅';
+}
+
+function getSortClass(col) {
+  return state.sort.by === col ? 'sort-icon active' : 'sort-icon';
+}
+
 async function fetchClientes() {
   const requestId = ++currentFetchRequestId;
   state.clients = []; // Limpiar estado anterior para evitar parpadeos visuales (ej: 6 filas pasaban a 4)
   const tableBody = getEl('clientsTableBody');
   if (tableBody) {
-    tableBody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding:40px;"><div class="loading"></div></td></tr>';
+    tableBody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding:40px;"><div class="loading"></div><div style="font-size:0.82rem;color:var(--text-secondary);margin-top:12px;">Cargando pólizas...</div></td></tr>';
   }
+
+  // Actualizar encabezados para reflejar la columna ordenada
+  updateTableHeader();
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
 
   try {
     const params = new URLSearchParams({
       page: state.pagination.page,
       limit: state.pagination.limit,
       sort_by: state.sort.by,
-      sort_dir: state.sort.dir
+      sort_dir: state.sort.dir,
+      view: state.activeView || 'cobranza'
     });
 
     if (state.filters.search) params.set('search', state.filters.search);
@@ -1095,7 +1112,13 @@ async function fetchClientes() {
     if (state.filters.fecha_desde) params.set('fecha_desde', state.filters.fecha_desde);
     if (state.filters.fecha_hasta) params.set('fecha_hasta', state.filters.fecha_hasta);
 
-    const res = await fetch(`/api/clientes?${params}`);
+    const res = await fetch(`/api/clientes?${params}`, { signal: controller.signal });
+    clearTimeout(timeoutId);
+
+    if (!res.ok) {
+      throw new Error(`El servidor respondió con estado ${res.status} (${res.statusText || 'Error temporal'})`);
+    }
+
     const data = await res.json();
 
     if (requestId !== currentFetchRequestId) return;
@@ -1107,9 +1130,32 @@ async function fetchClientes() {
     renderTable();
     renderPagination();
   } catch (err) {
+    clearTimeout(timeoutId);
     console.error('Error fetching clients:', err);
+    if (requestId !== currentFetchRequestId) return;
+
     if (tableBody) {
-      tableBody.innerHTML = '<tr><td colspan="8" class="text-center" style="color:var(--danger);padding:2rem;">Error de conexión con el servidor. Reintentando...</td></tr>';
+      const isAbort = err.name === 'AbortError';
+      const msg = isAbort 
+        ? 'El servidor tardó más de lo esperado en responder (sincronización en curso).' 
+        : (err.message || 'Error de conexión con el servidor.');
+
+      tableBody.innerHTML = `
+        <tr>
+          <td colspan="12" class="text-center" style="padding: 40px 20px;">
+            <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.35); border-radius: 12px; padding: 24px; max-width: 480px; margin: 0 auto; text-align: center;">
+              <div style="font-size: 2.2rem; margin-bottom: 8px;">⚠️</div>
+              <div style="font-weight: 800; color: #ff4757; font-size: 1.05rem; margin-bottom: 6px;">No se pudieron cargar los datos</div>
+              <div style="font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 18px; line-height: 1.4;">
+                ${escapeHtml(msg)}
+              </div>
+              <button class="btn btn-primary" onclick="fetchClientes()" style="padding: 9px 24px; font-weight: 700; cursor: pointer; border-radius: 8px;">
+                🔄 Reintentar Carga
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
     }
   }
 }
@@ -1123,37 +1169,36 @@ function updateTableHeader() {
   if (!thead) return;
 
   const isCobranza = state.activeView === 'cobranza';
-
   const cols = getColumnPreferences();
 
   if (isCobranza) {
     thead.innerHTML = `
       <tr>
-        ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="sort-icon">▲</span></th>` : ''}
-        ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.nro_cuota ? `<th onclick="handleSort('nro_cuota')" class="th-sortable" title="Número de cuota impaga (NRE)">N° CUOTA <span id="sort_icon_nro_cuota" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable" title="Fecha exacta de vencimiento de la cuota impaga">VENC. CUOTA <span id="sort_icon_vencimiento" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.importe ? `<th onclick="handleSort('importe')" class="th-sortable" title="Saldo Cli pendiente de pago en NRE">IMPORTE PENDIENTE <span id="sort_icon_importe" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.dias_mora ? `<th onclick="handleSort('dias_mora')" class="th-sortable" title="Días transcurridos desde el vencimiento de la cuota (+ / -)">DÍAS DE MORA <span id="sort_icon_dias_mora" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.fin_vigencia ? `<th onclick="handleSort('fin_vigencia')" class="th-sortable" title="Fecha de fin de vigencia del contrato de póliza">FIN VIGENCIA PÓLIZA <span id="sort_icon_fin_vigencia" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.accion_cobranza ? `<th onclick="handleSort('prioridad_cobranza')" class="th-sortable">Acción Cobranza <span id="sort_icon_prioridad_cobranza" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="${getSortClass('nombre')}">${getSortIcon('nombre')}</span></th>` : ''}
+        ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="${getSortClass('telefono')}">${getSortIcon('telefono')}</span></th>` : ''}
+        ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="${getSortClass('patente')}">${getSortIcon('patente')}</span></th>` : ''}
+        ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="${getSortClass('operacion')}">${getSortIcon('operacion')}</span></th>` : ''}
+        ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="${getSortClass('vehiculo')}">${getSortIcon('vehiculo')}</span></th>` : ''}
+        ${cols.nro_cuota ? `<th onclick="handleSort('nro_cuota')" class="th-sortable" title="Número de cuota impaga (NRE)">N° CUOTA <span id="sort_icon_nro_cuota" class="${getSortClass('nro_cuota')}">${getSortIcon('nro_cuota')}</span></th>` : ''}
+        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable" title="Fecha exacta de vencimiento de la cuota impaga">VENC. CUOTA <span id="sort_icon_vencimiento" class="${getSortClass('vencimiento')}">${getSortIcon('vencimiento')}</span></th>` : ''}
+        ${cols.importe ? `<th onclick="handleSort('importe')" class="th-sortable" title="Saldo Cli pendiente de pago en NRE">IMPORTE PENDIENTE <span id="sort_icon_importe" class="${getSortClass('importe')}">${getSortIcon('importe')}</span></th>` : ''}
+        ${cols.dias_mora ? `<th onclick="handleSort('dias_mora')" class="th-sortable" title="Días transcurridos desde el vencimiento de la cuota (+ / -)">DÍAS DE MORA <span id="sort_icon_dias_mora" class="${getSortClass('dias_mora')}">${getSortIcon('dias_mora')}</span></th>` : ''}
+        ${cols.fin_vigencia ? `<th onclick="handleSort('fin_vigencia')" class="th-sortable" title="Fecha de fin de vigencia del contrato de póliza">FIN VIGENCIA PÓLIZA <span id="sort_icon_fin_vigencia" class="${getSortClass('fin_vigencia')}">${getSortIcon('fin_vigencia')}</span></th>` : ''}
+        ${cols.accion_cobranza ? `<th onclick="handleSort('prioridad_cobranza')" class="th-sortable">Acción Cobranza <span id="sort_icon_prioridad_cobranza" class="${getSortClass('prioridad_cobranza')}">${getSortIcon('prioridad_cobranza')}</span></th>` : ''}
         ${cols.acciones ? `<th>Acciones</th>` : ''}
       </tr>
     `;
   } else {
     thead.innerHTML = `
       <tr>
-        ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="sort-icon">▲</span></th>` : ''}
-        ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable">Vencimiento <span id="sort_icon_vencimiento" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.estado_poliza ? `<th onclick="handleSort('estado')" class="th-sortable">Estado Póliza <span id="sort_icon_estado" class="sort-icon">⇅</span></th>` : ''}
-        ${cols.accion_poliza ? `<th onclick="handleSort('prioridad_poliza')" class="th-sortable">Acción Póliza <span id="sort_icon_prioridad_poliza" class="sort-icon">⇅</span></th>` : ''}
+        ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="${getSortClass('nombre')}">${getSortIcon('nombre')}</span></th>` : ''}
+        ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="${getSortClass('telefono')}">${getSortIcon('telefono')}</span></th>` : ''}
+        ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="${getSortClass('patente')}">${getSortIcon('patente')}</span></th>` : ''}
+        ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="${getSortClass('operacion')}">${getSortIcon('operacion')}</span></th>` : ''}
+        ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="${getSortClass('vehiculo')}">${getSortIcon('vehiculo')}</span></th>` : ''}
+        ${cols.venc_cuota ? `<th onclick="handleSort('vencimiento')" class="th-sortable">Vencimiento <span id="sort_icon_vencimiento" class="${getSortClass('vencimiento')}">${getSortIcon('vencimiento')}</span></th>` : ''}
+        ${cols.estado_poliza ? `<th onclick="handleSort('estado')" class="th-sortable">Estado Póliza <span id="sort_icon_estado" class="${getSortClass('estado')}">${getSortIcon('estado')}</span></th>` : ''}
+        ${cols.accion_poliza ? `<th onclick="handleSort('prioridad_poliza')" class="th-sortable">Acción Póliza <span id="sort_icon_prioridad_poliza" class="${getSortClass('prioridad_poliza')}">${getSortIcon('prioridad_poliza')}</span></th>` : ''}
         ${cols.acciones ? `<th>Acciones</th>` : ''}
       </tr>
     `;

@@ -30,8 +30,10 @@ if (process.env.NETLIFY || process.env.LAMBDA_TASK_ROOT) {
 
 const db = new Database(dbPath);
 
-// Habilitar WAL mode para mejor performance
+// Habilitar WAL mode para mejor performance y concurrencia
 db.pragma('journal_mode = WAL');
+db.pragma('synchronous = NORMAL');
+db.pragma('busy_timeout = 10000');
 db.pragma('foreign_keys = ON');
 
 // 🔤 Función SQLite personalizada: Búsqueda insensible a mayúsculas, minúsculas, tildes y diacríticos (ej. Acuña = ACUÑA = acuna)
@@ -242,7 +244,7 @@ addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
 // Purge any old combined templates to guarantee clean single-variable templates
-db.prepare("DELETE FROM plantillas WHERE tipo LIKE 'combinado%' OR nombre LIKE '%Combinado%'").run();
+db.prepare("DELETE FROM plantillas WHERE tipo LIKE 'combinado%' OR nombre LIKE '%Combinado%' OR tipo = 'mora_critica' OR tipo = 'renovacion_deuda' OR nombre LIKE '%Mora Crítica%' OR nombre LIKE '%mora critica%'").run();
 
 // Clean up {nombre} variable from all existing templates in DB
 // Update default templates in DB to use poliza N° {operacion} (Patente {patente}) without marca/modelo
@@ -256,14 +258,8 @@ try {
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'segundo_aviso'").run(
         'Hola {nombre}, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y si no se regulariza antes de las 12hs de mañana se suspende la cobertura por falta de pago. Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
     );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'mora_critica'").run(
-        'Hola, te aviso que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace más de 4 días (o registrás cuotas impagas). La póliza perdió la cobertura. Escribinos urgente para regularizar tu situación.'
-    );
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_7_dias'").run(
         'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
-    );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_deuda'").run(
-        'Hola, te informamos que en 7 días vence la renovación de tu póliza N° {operacion} (Patente {patente}). Para poder emitir la nueva póliza y mantener la cobertura, necesitamos regularizar el saldo pendiente de las cuotas impagas. Escribinos para enviarte el medio de pago. ¡Gracias!'
     );
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'poliza_vencida'").run(
         'Hola, te escribimos de SEGUCar para avisarte que tu póliza N° {operacion} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!'
