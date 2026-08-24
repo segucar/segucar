@@ -223,3 +223,5 @@ npm test
 10. ❌ **NO asignar `fin_vigencia` como fecha de vencimiento de cuota en AGS**: En AGS deben calcularse los 4 vencimientos mensuales ($M-4$ a $M-1$) y fijar la cuota activa real.
 11. ❌ **NO dejar pólizas saldadas con `nro_cuota` en 1 o reteniendo fechas de cuotas anteriores**: Deben sincronizarse a `total_cuotas` (ej. 3/3 o 4/4), con `fecha_vencimiento = fin_vigencia` y badge `🟢 Al día`.
 12. ❌ **NO usar condiciones dispares para pólizas saldadas**: El umbral del remanente debe ser siempre `<= 2500` de forma unificada en queries, controladores y servicios.
+13. ❌ **NO usar SQLite LIKE básico sobre campos de texto con acentos o eñes**: Utilizar siempre la función personalizada `norm()` en `database.js` / `server.js` para búsquedas insensibles a mayúsculas, minúsculas, tildes y diacríticos.
+14. ❌ **NO limitar el filtro de renovación a exactamente 7 días (`diff = 7`)**: La ventana activa de renovación comprende de **0 a 7 días** (`diff BETWEEN 0 AND 7`) para capturar vencimientos inminentes y del día (ej. Ferreyra).
