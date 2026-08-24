@@ -522,7 +522,7 @@ app.get('/api/dashboard/stats', (req, res) => {
                     }
                     const tieneMoraVencida = cuotaVencida;
 
-                    if (calDiffRen === 7 && !tieneMoraVencida) polizas_vencen_semana++;
+                    if (calDiffRen >= 0 && calDiffRen <= 7 && !tieneMoraVencida) polizas_vencen_semana++;
                     if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
                     // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
                     if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
@@ -1163,7 +1163,7 @@ app.get('/api/clientes', (req, res) => {
         const params = [];
 
         if (search) {
-            where += ` AND (c.nombre LIKE ? OR c.dni LIKE ? OR c.telefono LIKE ? OR p.operacion LIKE ? OR p.patente LIKE ? OR p.vehiculo LIKE ?)`;
+            where += ` AND (norm(c.nombre) LIKE norm(?) OR c.dni LIKE ? OR c.telefono LIKE ? OR p.operacion LIKE ? OR norm(p.patente) LIKE norm(?) OR norm(p.vehiculo) LIKE norm(?))`;
             const s = `%${search}%`;
             params.push(s, s, s, s, s, s);
         }
@@ -1205,9 +1205,12 @@ app.get('/api/clientes', (req, res) => {
                 where += notRenewedClause;
             }
 
-            if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
-                // AL DIA (sin deuda) Y vence en EXACTAMENTE 7 dias
-                where += ` AND (COALESCE(p.cuotas_debe, 0) = 0) AND (COALESCE(p.saldo_pendiente, 0) <= 2500) AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7` + notRenewedClause;
+            if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias' || estadoNorm === 'vence_pronto') {
+                // Ventana de renovación activa (vence en los próximos 0 a 7 días)
+                where += ` AND (COALESCE(p.saldo_pendiente, 0) <= 2500 OR p.fecha_vencimiento >= date('now', 'localtime'))`
+                       + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN 0 AND 7`
+                       + notRenewedClause;
+                orderOverride = `COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) ASC`;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                 // Vencida = expiró hace entre 1 y 30 días. Más de 30 días → Recuperación.
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1`
@@ -1432,16 +1435,17 @@ app.get('/api/clientes', (req, res) => {
                     const cd = parseInt(p.cuotas_debe || 0);
                     const fvRen = p.fin_vigencia_poliza || fv;
 
-                    if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias') {
+                    if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias' || estadoNorm === 'vence_pronto') {
                         const saldo = parseFloat(p.saldo_pendiente || 0);
-                        const cuotas = parseInt(p.cuotas_debe || 0);
-                        if (saldo > 0 || cuotas > 0) return false; // excluir con deuda
+                        const fvCuota = p.fecha_vencimiento;
+                        const cuotaVencida = fvCuota && fvCuota < hoyStr && saldo > 2500;
+                        if (cuotaVencida) return false;
                         const parts = fvRen.split('-');
                         if (parts.length !== 3) return false;
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen === 7; // exactamente 7 dias
+                        return calDiffRen >= 0 && calDiffRen <= 7;
                     }
                     if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                         const parts = fvRen.split('-');
@@ -1577,7 +1581,7 @@ app.get('/api/recuperacion', (req, res) => {
         let params = [];
 
         if (search) {
-            where += ` AND (nombre LIKE ? OR patente LIKE ? OR vehiculo LIKE ? OR operacion LIKE ? OR telefono LIKE ?)`;
+            where += ` AND (norm(nombre) LIKE norm(?) OR norm(patente) LIKE norm(?) OR norm(vehiculo) LIKE norm(?) OR operacion LIKE ? OR telefono LIKE ?)`;
             const term = `%${search}%`;
             params.push(term, term, term, term, term);
         }
@@ -1613,8 +1617,7 @@ app.get('/api/recuperacion', (req, res) => {
         )`;
         let baseParams = [];
         if (search) {
-            baseWhere += ` AND (nombre LIKE ? OR patente LIKE ? OR vehiculo LIKE ? OR operacion LIKE ? OR telefono LIKE ?)`;
-            const term = `%${search}%`;
+            baseWhere += ` AND (norm(nombre) LIKE norm(?) OR norm(patente) LIKE norm(?) OR norm(vehiculo) LIKE norm(?) OR operacion LIKE ? OR telefono LIKE ?)`;
             baseParams.push(term, term, term, term, term);
         }
         const totalBase = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${baseWhere}`).get(...baseParams).count;
@@ -3125,7 +3128,7 @@ app.get('/api/admin/cobranzas', (req, res) => {
         }
 
         if (search) {
-            where += ' AND (c.nombre LIKE ? OR p.patente LIKE ? OR p.vehiculo LIKE ? OR p.operacion LIKE ?)';
+            where += ' AND (norm(c.nombre) LIKE norm(?) OR norm(p.patente) LIKE norm(?) OR norm(p.vehiculo) LIKE norm(?) OR p.operacion LIKE ?)';
             const term = `%${search}%`;
             params.push(term, term, term, term);
         }

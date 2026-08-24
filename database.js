@@ -52,6 +52,19 @@ const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+// 🔤 Función SQLite personalizada: Búsqueda insensible a mayúsculas, minúsculas, tildes y diacríticos (ej. Acuña = ACUÑA = acuna)
+const normalizeText = (str) => {
+    if (!str) return '';
+    return String(str)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toUpperCase()
+        .trim();
+};
+try {
+    db.function('norm', (str) => normalizeText(str));
+} catch (e) {}
+
 // ─── Crear tablas ───────────────────────────────────────────────────────────
 
 db.exec(`
