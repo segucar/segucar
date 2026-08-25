@@ -176,10 +176,48 @@ function migrarDB() {
 
 // ─── Upsert cliente AGS ───────────────────────────────────────────────────────
 function upsertClienteAGS(asegurado) {
-    let cliente = db.prepare("SELECT * FROM clientes WHERE nombre = ? AND origen = 'AGS'").get(asegurado);
-    if (!cliente) {
-        const info = db.prepare("INSERT INTO clientes (nombre, origen) VALUES (?, 'AGS')").run(asegurado);
-        cliente = { id: info.lastInsertRowid, nombre: asegurado, origen: 'AGS' };
+    if (!asegurado) return null;
+    const cleanName = String(asegurado).trim();
+
+    // 1. Buscar cliente existente por nombre normalizado (global, sin importar origen)
+    // Se prioriza el registro que ya tenga teléfono válido
+    let cliente = db.prepare(`
+        SELECT * FROM clientes 
+        WHERE norm(nombre) = norm(?) 
+        ORDER BY (CASE WHEN telefono IS NOT NULL AND length(telefono) >= 10 THEN 0 ELSE 1 END), id ASC
+    `).get(cleanName);
+
+    // 2. Si existe un teléfono maestro guardado para este nombre, recuperarlo
+    let masterPhone = null;
+    try {
+        const tm = db.prepare(`
+            SELECT telefono 
+            FROM telefonos_maestros 
+            WHERE norm(nombre) = norm(?) 
+              AND telefono IS NOT NULL 
+              AND length(telefono) >= 10 
+            ORDER BY updated_at DESC 
+            LIMIT 1
+        `).get(cleanName);
+        if (tm && tm.telefono) masterPhone = tm.telefono;
+    } catch(e) {}
+
+    if (cliente) {
+        // Si el cliente no tiene teléfono válido pero existe en telefonos_maestros, restaurarlo
+        if ((!cliente.telefono || cliente.telefono.length < 10) && masterPhone) {
+            db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(masterPhone, cliente.id);
+            cliente.telefono = masterPhone;
+            if (typeof db.guardarTelefonoMaestro === 'function') {
+                db.guardarTelefonoMaestro(cliente.id, cleanName, masterPhone, 'AGS_restore');
+            }
+        }
+    } else {
+        // No existe: crear el cliente preservando el teléfono maestro si existía
+        const info = db.prepare("INSERT INTO clientes (nombre, telefono, origen) VALUES (?, ?, 'AGS')").run(cleanName, masterPhone || null);
+        cliente = { id: info.lastInsertRowid, nombre: cleanName, telefono: masterPhone || null, origen: 'AGS' };
+        if (masterPhone && typeof db.guardarTelefonoMaestro === 'function') {
+            db.guardarTelefonoMaestro(cliente.id, cleanName, masterPhone, 'AGS_restore');
+        }
     }
     return cliente;
 }

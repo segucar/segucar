@@ -289,6 +289,41 @@ db.guardarTelefonoMaestro = (cliente_id, nombre, telefono, origen = 'scraper') =
 
 db.restaurarTelefonosMaestros = () => {
     try {
+        // 1. Unificar clientes duplicados con el mismo norm(nombre), traspasando pólizas al registro con teléfono válido
+        const dupes = db.prepare(`
+            SELECT norm(nombre) as norm_name, COUNT(*) as cnt 
+            FROM clientes 
+            WHERE nombre IS NOT NULL AND TRIM(nombre) != '' 
+            GROUP BY norm(nombre) 
+            HAVING cnt > 1
+        `).all();
+
+        for (const d of dupes) {
+            const list = db.prepare(`
+                SELECT id, nombre, telefono, origen 
+                FROM clientes 
+                WHERE norm(nombre) = ? 
+                ORDER BY (CASE WHEN telefono IS NOT NULL AND length(telefono) >= 10 THEN 0 ELSE 1 END), id ASC
+            `).all(d.norm_name);
+
+            if (list.length > 1) {
+                const master = list[0];
+                for (let i = 1; i < list.length; i++) {
+                    const slave = list[i];
+                    // Traspasar teléfono al master si el master no tenía pero el slave sí
+                    if ((!master.telefono || master.telefono.length < 10) && slave.telefono && slave.telefono.length >= 10) {
+                        master.telefono = slave.telefono;
+                        db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(slave.telefono, master.id);
+                    }
+                    db.prepare("UPDATE polizas SET cliente_id = ? WHERE cliente_id = ?").run(master.id, slave.id);
+                    db.prepare("UPDATE contactos SET cliente_id = ? WHERE cliente_id = ?").run(master.id, slave.id);
+                    db.prepare("UPDATE historial_gestiones_whatsapp SET cliente_id = ? WHERE cliente_id = ?").run(master.id, slave.id);
+                    db.prepare("DELETE FROM clientes WHERE id = ?").run(slave.id);
+                }
+            }
+        }
+
+        // 2. Restaurar por cliente_id exacto
         db.exec(`
             UPDATE clientes
             SET telefono = (SELECT telefono FROM telefonos_maestros WHERE cliente_id = clientes.id)
@@ -302,6 +337,31 @@ db.restaurarTelefonosMaestros = () => {
               AND NOT EXISTS (
                   SELECT 1 FROM telefonos_invalidos
                   WHERE cliente_id = clientes.id
+              );
+        `);
+
+        // 3. Restaurar por coincidencia de norm(nombre)
+        db.exec(`
+            UPDATE clientes
+            SET telefono = (
+                SELECT tm.telefono 
+                FROM telefonos_maestros tm 
+                WHERE norm(tm.nombre) = norm(clientes.nombre)
+                  AND tm.telefono IS NOT NULL 
+                  AND length(tm.telefono) >= 10
+                ORDER BY tm.updated_at DESC 
+                LIMIT 1
+            )
+            WHERE (telefono IS NULL OR telefono = '' OR length(telefono) < 10)
+              AND EXISTS (
+                  SELECT 1 FROM telefonos_maestros tm
+                  WHERE norm(tm.nombre) = norm(clientes.nombre)
+                    AND tm.telefono IS NOT NULL 
+                    AND length(tm.telefono) >= 10
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM telefonos_invalidos ti
+                  WHERE norm(ti.nombre) = norm(clientes.nombre)
               );
         `);
     } catch (e) {
