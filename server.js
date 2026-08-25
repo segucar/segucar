@@ -1806,7 +1806,12 @@ app.get('/api/clientes/:id', (req, res) => {
     try {
         const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
         if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
-        cliente.polizas = db.prepare('SELECT * FROM polizas WHERE cliente_id = ? ORDER BY fecha_vencimiento DESC').all(cliente.id);
+        cliente.polizas = db.prepare(`
+            SELECT * FROM polizas 
+            WHERE cliente_id = ? 
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+            ORDER BY fecha_vencimiento DESC
+        `).all(cliente.id);
         cliente.contactos = db.prepare('SELECT * FROM contactos WHERE cliente_id = ? ORDER BY fecha DESC LIMIT 20').all(cliente.id);
         res.json(cliente);
     } catch (error) {
@@ -3724,21 +3729,38 @@ if (require.main === module) {
     });
 }
 
+// Helper para reintentos automáticos con backoff ante fallas transitorias de red
+async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Task') {
+    let lastError;
+    for (let attempt = 1; attempt <= maxRetries + 1; attempt++) {
+        try {
+            if (attempt > 1) {
+                console.log(`🔄 [Retry ${attempt - 1}/${maxRetries}] Reintentando ${name} (${delayMs / 1000}s backoff)...`);
+            }
+            return await fn();
+        } catch (err) {
+            lastError = err;
+            console.warn(`⚠️ [${name}] Intento ${attempt}/${maxRetries + 1} falló: ${err.message}`);
+            if (attempt <= maxRetries) {
+                await new Promise(res => setTimeout(res, delayMs));
+            }
+        }
+    }
+    throw lastError;
+}
+
 // ─── AUTO-SYNC NRE CADA 1 HORA (días hábiles, 7am-8pm hora Argentina) ──────
-// El botón manual sigue funcionando igual. Esto corre en paralelo en el servidor.
-// ⚠️ IMPORTANTE: usa hora de Argentina (UTC-3), NO la hora UTC del servidor Render.
 (function iniciarAutoSyncNRE() {
     const INTERVALO_MS = 60 * 60 * 1000; // 1 hora
 
     function getHoraArgentina() {
-        // Obtiene hora local en Buenos Aires, independientemente del TZ del servidor
         const formatter = new Intl.DateTimeFormat('en-US', {
             timeZone: 'America/Argentina/Buenos_Aires',
             hour: 'numeric', hour12: false, weekday: 'short'
         });
         const parts = formatter.formatToParts(new Date());
         const hora = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-        const dia = parts.find(p => p.type === 'weekday')?.value; // 'Sun','Mon',...
+        const dia = parts.find(p => p.type === 'weekday')?.value;
         const esDomingo = dia === 'Sun';
         return { hora, esDomingo };
     }
@@ -3746,7 +3768,6 @@ if (require.main === module) {
     async function correrAutoSync() {
         const { hora, esDomingo } = getHoraArgentina();
 
-        // Solo en días hábiles (Lun-Sab) y en horario laboral de 7am a 8pm Argentina
         if (esDomingo || hora < 7 || hora >= 20) {
             console.log(`⏭️  Auto-sync NRE omitido (${esDomingo ? 'Domingo' : 'fuera de horario ' + hora + 'hs ARG}'})`);
             return;
@@ -3762,12 +3783,12 @@ if (require.main === module) {
             const usuario = process.env.SISTEMA_USUARIO || 'SUA';
             const password = process.env.SISTEMA_PASSWORD || 'sua';
             console.log(`🔄 Auto-sync NRE iniciado (${hora}hs ARG)...`);
-            const result = await syncGeneralNRE(usuario, password);
+            const result = await executeWithRetry(() => syncGeneralNRE(usuario, password), 2, 12000, 'Auto-sync NRE');
             updateLastSyncDate('nre', 'ok', result);
             console.log(`✅ Auto-sync NRE — ${result?.vencimientos_sincronizados || 0} pólizas, ${result?.polizas_saldadas_verificadas || 0} saldadas detectadas`);
         } catch (err) {
             updateLastSyncDate('nre', 'error', { error: err.message });
-            console.error('❌ Auto-sync NRE error:', err.message);
+            console.error('❌ Auto-sync NRE error tras reintentos:', err.message);
         } finally {
             isSyncingNRE = false;
         }
@@ -3812,12 +3833,12 @@ if (require.main === module) {
         try {
             isSyncingAGS = true;
             console.log(`🔵 Auto-sync AGS iniciado (${hora}hs ARG)...`);
-            const result = await syncAGS();
+            const result = await executeWithRetry(() => syncAGS(), 2, 12000, 'Auto-sync AGS');
             updateLastSyncDate('ags', 'ok', result);
             console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas || 0} actualizadas`);
         } catch (err) {
             updateLastSyncDate('ags', 'error', { error: err.message });
-            console.error('❌ Auto-sync AGS error:', err.message);
+            console.error('❌ Auto-sync AGS error tras reintentos:', err.message);
         } finally {
             isSyncingAGS = false;
         }

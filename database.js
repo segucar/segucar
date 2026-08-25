@@ -721,11 +721,41 @@ db.sincronizarPolizasSaldadasNRE = () => {
     }
 };
 
+db.anularPolizasSuperadas = () => {
+    try {
+        const info = db.prepare(`
+            UPDATE polizas 
+            SET estado = 'anulada', saldo_pendiente = 0, cuotas_debe = 0 
+            WHERE EXISTS (
+                SELECT 1 FROM polizas p2 
+                WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(polizas.patente))
+                  AND p2.id != polizas.id 
+                  AND polizas.patente IS NOT NULL AND TRIM(polizas.patente) != ''
+                  AND (
+                      COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) > COALESCE(polizas.fin_vigencia_poliza, polizas.fecha_vencimiento)
+                      OR (
+                          COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) = COALESCE(polizas.fin_vigencia_poliza, polizas.fecha_vencimiento)
+                          AND p2.aseguradora = polizas.aseguradora
+                          AND CAST(p2.operacion AS INTEGER) > CAST(polizas.operacion AS INTEGER)
+                      )
+                  )
+            )
+            AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).run();
+        if (info.changes > 0) {
+            console.log(`🧹 [anularPolizasSuperadas] ${info.changes} pólizas superadas por renovaciones más recientes fueron anuladas.`);
+        }
+    } catch (e) {
+        console.error('Error en anularPolizasSuperadas:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.purgarRegistrosDePrueba();
 db.sincronizarSaldosCuotasHistorial();
 db.recalcularCuotasAGSYVencimientos();
 db.sincronizarPolizasSaldadasNRE();
+db.anularPolizasSuperadas();
 db.inicializarCuotasAdmin();
 
 module.exports = db;

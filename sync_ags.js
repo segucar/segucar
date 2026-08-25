@@ -336,6 +336,10 @@ async function syncAGS() {
     // Marcar como grucar_activo=0 cualquier poliza AGS que pueda haber quedado con grucar activado
     db.prepare("UPDATE polizas SET grucar_activo = 0 WHERE aseguradora = 'AGS'").run();
 
+    if (typeof db.anularPolizasSuperadas === 'function') {
+        db.anularPolizasSuperadas();
+    }
+
     const countAfter = db.prepare("SELECT COUNT(*) as c FROM polizas WHERE aseguradora = 'AGS'").get().c;
     const durationSec = ((Date.now() - startMs) / 1000).toFixed(1);
     const resultado = { fecha, total_procesadas: totalProcesadas, polizas_creadas: totalCreadas, polizas_actualizadas: totalActualizadas, polizas_ags_en_db: countAfter, duracion_seg: durationSec };

@@ -964,14 +964,43 @@ async function fetchStats() {
     // Update live sync badges
     state.lastSyncNre = stats.last_sync_nre || stats.last_sync_date || null;
     state.lastSyncAgs = stats.last_sync_ags || null;
+    state.lastSyncNreStatus = stats.last_sync_nre_status || 'ok';
+    state.lastSyncAgsStatus = stats.last_sync_ags_status || 'ok';
 
-    const navNre = getEl('navSyncNreTime');
-    if (navNre) {
-      navNre.innerText = `(${formatTimeAgo(state.lastSyncNre)})`;
+    const btnNre = getEl('btnSyncNRE');
+    if (btnNre && !btnNre.disabled) {
+      const nreTime = formatTimeAgo(state.lastSyncNre);
+      if (state.lastSyncNreStatus === 'error') {
+        btnNre.style.background = 'rgba(235, 77, 75, 0.18)';
+        btnNre.style.borderColor = 'rgba(235, 77, 75, 0.6)';
+        btnNre.style.color = '#ff4757';
+        btnNre.title = 'Último sync NRE falló por error de red. Click para reintentar sincronización manual.';
+        btnNre.innerHTML = `⚠️ NRE <span id="navSyncNreTime" style="font-size:0.7rem; font-weight:700; opacity:0.95;">(error)</span>`;
+      } else {
+        btnNre.style.background = 'rgba(46,213,115,0.12)';
+        btnNre.style.borderColor = 'rgba(46,213,115,0.35)';
+        btnNre.style.color = '#2ed573';
+        btnNre.title = 'Sincronizar portal Triunvirato (NRE)';
+        btnNre.innerHTML = `🔄 NRE <span id="navSyncNreTime" style="font-size:0.7rem; font-weight:400; opacity:0.85;">(${nreTime})</span>`;
+      }
     }
-    const navAgs = getEl('navSyncAgsTime');
-    if (navAgs) {
-      navAgs.innerText = `(${formatTimeAgo(state.lastSyncAgs)})`;
+
+    const btnAgs = getEl('btnSyncAGS');
+    if (btnAgs && !btnAgs.disabled) {
+      const agsTime = formatTimeAgo(state.lastSyncAgs);
+      if (state.lastSyncAgsStatus === 'error') {
+        btnAgs.style.background = 'rgba(235, 77, 75, 0.18)';
+        btnAgs.style.borderColor = 'rgba(235, 77, 75, 0.6)';
+        btnAgs.style.color = '#ff4757';
+        btnAgs.title = 'Último sync AGS falló por error de red. Click para reintentar sincronización manual.';
+        btnAgs.innerHTML = `⚠️ AGS <span id="navSyncAgsTime" style="font-size:0.7rem; font-weight:700; opacity:0.95;">(error)</span>`;
+      } else {
+        btnAgs.style.background = 'rgba(52,152,219,0.12)';
+        btnAgs.style.borderColor = 'rgba(52,152,219,0.35)';
+        btnAgs.style.color = '#3498db';
+        btnAgs.title = 'Sincronizar portal Agrosalta (AGS)';
+        btnAgs.innerHTML = `🔄 AGS <span id="navSyncAgsTime" style="font-size:0.7rem; font-weight:400; opacity:0.85;">(${agsTime})</span>`;
+      }
     }
 
     // Risk alerts (Renovaciones & Cobranzas sin teléfono)

@@ -703,6 +703,9 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
+    if (typeof db.anularPolizasSuperadas === 'function') {
+        db.anularPolizasSuperadas();
+    }
     if (typeof db.evaluarAtribucionMetricas === 'function') {
         db.evaluarAtribucionMetricas();
     }
