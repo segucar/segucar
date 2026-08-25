@@ -130,7 +130,7 @@ async function runRegressionSuite() {
         const statsRes = await fetch("http://localhost:3005/api/dashboard/stats");
         if (statsRes.ok) {
             const stats = await statsRes.json();
-            console.log(`  ✅ PASSED -> Servidor responde OK. Stats: 48h=${stats.vence_48h}, 96h=${stats.vencio_96h}, MoraCritica=${stats.mora_critica}.\n`);
+            console.log(`  ✅ PASSED -> Servidor responde OK. Stats: 48h=${stats.vence_48h}, 96h=${stats.vencio_96h}, Renovacion7d=${stats.polizas_vencen_semana}.\n`);
             totalPassed++;
         } else {
             console.error("  ❌ FAILED -> Servidor HTTP no respondió 200 OK.");
@@ -141,11 +141,133 @@ async function runRegressionSuite() {
         totalPassed++;
     }
 
+    // ── TEST 5: Disparo Puntual de Aviso Renovación (calDiff === 7) ───────────
+    try {
+        console.log("📌 TEST 5: Disparo Puntual de Aviso Renovación (calDiff === 7)");
+        const polizas = db.prepare("SELECT p.*, c.nombre FROM polizas p JOIN clientes c ON p.cliente_id = c.id WHERE LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')").all();
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
+        let misclassifiedRenCount = 0;
+        polizas.forEach(p => {
+            const fvRen = p.fin_vigencia_poliza || p.fecha_vencimiento;
+            if (!fvRen) return;
+            const parts = fvRen.split('-');
+            if (parts.length !== 3) return;
+            const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+            const calDiff = Math.round((vtoDate - today) / (1000 * 60 * 60 * 24));
+
+            const res = global.SeguroStateManager.evaluarRenovacion(p);
+
+            // Regla de Oro: RENOVACION_7_DIAS SOLO si calDiff === 7
+            if (res.code === 'RENOVACION_7_DIAS' && calDiff !== 7) {
+                misclassifiedRenCount++;
+            }
+            // Vencimientos en 0 a 6 días sin mora NUNCA deben estar en RENOVACION_7_DIAS
+            if (calDiff >= 0 && calDiff < 7 && (parseFloat(p.saldo_pendiente || 0) <= 2500) && res.code === 'RENOVACION_7_DIAS') {
+                misclassifiedRenCount++;
+            }
+        });
+
+        if (misclassifiedRenCount === 0) {
+            console.log(`  ✅ PASSED -> Verificadas ${polizas.length} pólizas. 0 desfasajes en Aviso Renovación (estrictamente diff === 7).\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED -> Se encontraron ${misclassifiedRenCount} pólizas mal clasificadas en Aviso Renovación.`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 5:", e.message);
+    }
+
+    // ── TEST 6: Pólizas Saldadas NRE (Caso Barreiro Mateo Axel 11853823) ───────
+    try {
+        console.log("📌 TEST 6: Pólizas Saldadas NRE & Cobertura Completa (Barreiro 11853823)");
+        const barreiro = db.prepare("SELECT * FROM polizas WHERE operacion = '11853823'").get();
+        if (barreiro) {
+            const res = global.SeguroStateManager.evaluarRenovacion(barreiro);
+            const finVigValida = barreiro.fin_vigencia_poliza && barreiro.fin_vigencia_poliza > barreiro.fecha_vencimiento;
+            if (barreiro.nro_cuota === 3 && barreiro.saldo_pendiente === 0 && res.code === 'CONTRATO_VIGENTE' && finVigValida) {
+                console.log(`  ✅ PASSED -> Barreiro (11853823) verificado: Cuota 3/3, Saldo $0, fin_vigencia=${barreiro.fin_vigencia_poliza}, Estado=${res.code}.\n`);
+                totalPassed++;
+            } else {
+                console.error("  ❌ FAILED -> Barreiro no cumple condiciones de póliza saldada vigente:", { barreiro, resCode: res.code });
+            }
+        } else {
+            console.error("  ❌ FAILED -> No se encontró la póliza 11853823 en DB.");
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 6:", e.message);
+    }
+
+    // ── TEST 7: Purga de Datos de Prueba en Producción (TEST888) ──────────────
+    try {
+        console.log("📌 TEST 7: Purga de Registros de Prueba (TEST888 / 5492235559999)");
+        const testPol = db.prepare("SELECT COUNT(*) as c FROM polizas WHERE patente LIKE 'TEST%' OR operacion LIKE 'OP-4833%'").get().c;
+        const testCli = db.prepare("SELECT COUNT(*) as c FROM clientes WHERE nombre LIKE '%Admin%' OR telefono = '5492235559999' OR (nombre = 'TEST' AND id = 1)").get().c;
+
+        if (testPol === 0 && testCli === 0) {
+            console.log("  ✅ PASSED -> DB libre de registros de prueba (TEST888 y teléfonos de prueba purgados).\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Se encontraron registros de prueba en DB:", { testPol, testCli });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 7:", e.message);
+    }
+
+    // ── TEST 8: Cronograma AGS de 4 Cuotas & Helpers ──────────────────────────
+    try {
+        console.log("📌 TEST 8: Cronograma AGS de 4 Cuotas & Helpers Puros");
+        const { generarCronogramaCuotasAGS, calcularFechaCuotaAGS, AGS_TOTAL_CUOTAS } = require('../ags_helpers');
+        
+        // Simular póliza AGS con fin de vigencia 2026-10-31 y premio $80.000
+        const cron = generarCronogramaCuotasAGS('2026-10-31', 80000);
+        
+        let agsOk = true;
+        if (cron.cuotas.length !== 4) agsOk = false;
+        if (cron.total_cuotas !== 4) agsOk = false;
+        if (cron.cuotas[0].saldo_cli !== 0 && cron.cuotas[0].saldo_cli !== 20000) agsOk = false;
+        
+        // Verificar cálculo de fecha mensual
+        const f1 = calcularFechaCuotaAGS('2026-10-31', 4); // 4 meses antes -> 2026-06-30
+        const f4 = calcularFechaCuotaAGS('2026-10-31', 1); // 1 mes antes -> 2026-09-30
+        if (!f1.startsWith('2026-06') || !f4.startsWith('2026-09')) agsOk = false;
+
+        if (agsOk) {
+            console.log(`  ✅ PASSED -> Helper AGS validado: 4 cuotas de $20.000 generadas con fechas mensuales (M-4=${f1}, M-1=${f4}).\n`);
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Inconsistencia en generación de cronograma AGS:", cron);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 8:", e.message);
+    }
+
+    // ── TEST 9: Cliente con Cuota en Término (Caso Acuña Andres 11920065) ──────
+    try {
+        console.log("📌 TEST 9: Cliente con Cuotas en Término en Contrato Vigente (Acuña 11920065)");
+        const acuna = db.prepare("SELECT * FROM polizas WHERE operacion = '11920065'").get();
+        if (acuna) {
+            const res = global.SeguroStateManager.evaluarRenovacion(acuna);
+            if (res.code === 'CONTRATO_VIGENTE') {
+                console.log(`  ✅ PASSED -> Acuña (11920065) verificado en Contrato Vigente (cuota futura en término, saldo $${acuna.saldo_pendiente}).\n`);
+                totalPassed++;
+            } else {
+                console.error("  ❌ FAILED -> Acuña no clasificado en CONTRATO_VIGENTE:", res);
+            }
+        } else {
+            console.error("  ❌ FAILED -> No se encontró póliza 11920065 en DB.");
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 9:", e.message);
+    }
+
+    const totalTestsCount = 9;
     console.log("==================================================");
-    if (totalPassed === totalTests) {
-        console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTests} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
+    if (totalPassed === totalTestsCount) {
+        console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
     } else {
-        console.log(`⚠️ SUITE DE REGRESIÓN: ${totalPassed}/${totalTests} PASSED`);
+        console.log(`⚠️ SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED`);
         process.exit(1);
     }
     console.log("==================================================");

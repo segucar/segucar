@@ -544,7 +544,7 @@ app.get('/api/dashboard/stats', (req, res) => {
                     }
                     const tieneMoraVencida = cuotaVencida;
 
-                    if (calDiffRen >= 0 && calDiffRen <= 7 && !tieneMoraVencida) {
+                    if (calDiffRen === 7 && !tieneMoraVencida) {
                         polizas_vencen_semana++;
                         if (!hasPhone) renovaciones_sin_telefono++;
                     }
@@ -1246,9 +1246,9 @@ app.get('/api/clientes', (req, res) => {
             }
 
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias' || estadoNorm === 'vence_pronto') {
-                // Ventana de renovación activa (vence en los próximos 0 a 7 días)
+                // Aviso puntual de renovación a 7 días exactos
                 where += ` AND (COALESCE(p.saldo_pendiente, 0) <= 2500 OR p.fecha_vencimiento >= date('now', 'localtime'))`
-                       + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN 0 AND 7`
+                       + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`
                        + notRenewedClause;
                 orderOverride = `COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) ASC`;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
@@ -1487,7 +1487,7 @@ app.get('/api/clientes', (req, res) => {
                         const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
                         const todayDate = parseLocalDate(hoyStr);
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                        return calDiffRen >= 0 && calDiffRen <= 7;
+                        return calDiffRen === 7;
                     }
                     if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
                         const parts = fvRen.split('-');

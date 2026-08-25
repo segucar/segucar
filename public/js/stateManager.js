@@ -298,14 +298,9 @@ const SeguroStateManager = (function () {
       return ESTADOS.VIGENTE_CON_DEUDA;
     }
 
-    // Clientes en término — vence en EXACTAMENTE 7 días -> Aviso preventivo normal
+    // Clientes en término — vence en EXACTAMENTE 7 días -> Aviso puntual de renovación
     if (!tieneMoraVencida && diasRen === 7) {
       return ESTADOS.RENOVACION_7_DIAS;
-    }
-
-    // Clientes en término — vence en 0–6 días -> Urgente, renovación inmediata
-    if (!tieneMoraVencida && diasRen >= 0 && diasRen <= 6) {
-      return ESTADOS.VENCE_PRONTO;
     }
 
     return ESTADOS.CONTRATO_VIGENTE;
