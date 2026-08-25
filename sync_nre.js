@@ -137,6 +137,9 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     params.append('desde', desdeStr);
     params.append('hasta', hastaStr);
 
+    const polizasBefore = db.prepare("SELECT COUNT(*) as c FROM polizas").get().c;
+    console.log(`🔄 [syncVencimientosNRE] Iniciando sync vencimientos (${desdeStr} a ${hastaStr}). Pólizas en DB: ${polizasBefore}`);
+
     const res = await fetchWithRetry(`${baseUrl}/lisvtopol.php`, {
         method: 'POST',
         headers: {
@@ -147,7 +150,10 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     });
 
     const data = await res.json();
-    if (!data.tabla) return { importados: 0, actualizados: 0, error: 'No se encontraron datos' };
+    if (!data.tabla) {
+        console.warn('⚠️ [syncVencimientosNRE] No se encontraron datos en lisvtopol.php');
+        return { importados: 0, actualizados: 0, error: 'No se encontraron datos' };
+    }
 
     const $ = cheerio.load(data.tabla);
     let importados = 0;
@@ -200,6 +206,8 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
             });
         }
     });
+
+    console.log(`   → [syncVencimientosNRE] lisvtopol.php devolvió ${rows.length} filas para procesar`);
 
     const transaction = db.transaction((items) => {
         for (const item of items) {
@@ -276,6 +284,8 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
+    const polizasAfter = db.prepare("SELECT COUNT(*) as c FROM polizas").get().c;
+    console.log(`✅ [syncVencimientosNRE] Completado: ${importados} nuevas, ${actualizados} actualizadas. Total pólizas en DB: ${polizasAfter} (antes: ${polizasBefore})`);
     return { importados, actualizados, total: rows.length };
 }
 
@@ -671,6 +681,11 @@ async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
  * Sincronización General en Vivo (4 en 1: Vencimientos, Deudas vencidas, Verificación de Pagos + Pólizas Anuladas)
  */
 async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
+    const startMs = Date.now();
+    const countPolBefore = db.prepare("SELECT COUNT(*) as c FROM polizas").get().c;
+    const countCliBefore = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
+    console.log(`🔄 [syncGeneralNRE] Iniciando sync NRE 4 en 1... DB actual: ${countPolBefore} pólizas, ${countCliBefore} clientes.`);
+
     const currentYear = new Date().getFullYear();
     // 1. Sync Vencimientos
     const vtoRes = await syncVencimientosNRE(usuario, password, `01/01/${currentYear - 1}`, `31/12/${currentYear + 1}`);
@@ -692,12 +707,21 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
         db.evaluarAtribucionMetricas();
     }
 
+    const countPolAfter = db.prepare("SELECT COUNT(*) as c FROM polizas").get().c;
+    const countCliAfter = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
+    const durationSec = ((Date.now() - startMs) / 1000).toFixed(1);
+
+    console.log(`✅ [syncGeneralNRE] Sync NRE completado en ${durationSec}s. DB actual: ${countPolAfter} pólizas (${countPolAfter - countPolBefore >= 0 ? '+' : ''}${countPolAfter - countPolBefore}), ${countCliAfter} clientes. Saldadas verificadas: ${pagosRes.saldadas || 0}, Anuladas: ${anuladasRes.anuladas_encontradas || 0}`);
+
     return {
         vencimientos_sincronizados: vtoRes.total || 0,
         deudores_vencidos: deudasRes.actualizados || 0,
         polizas_saldadas_verificadas: pagosRes.saldadas || 0,
         polizas_verificadas_pagos: pagosRes.verificadas || 0,
-        polizas_anuladas_detectadas: anuladasRes.anuladas_encontradas || 0
+        polizas_anuladas_detectadas: anuladasRes.anuladas_encontradas || 0,
+        polizas_en_db: countPolAfter,
+        clientes_en_db: countCliAfter,
+        duracion_seg: durationSec
     };
 }
 

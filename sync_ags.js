@@ -185,7 +185,9 @@ function upsertPolizaAGS(clienteId, p) {
 
 // ─── Función principal de sincronización ─────────────────────────────────────
 async function syncAGS() {
-    console.log('🔵 Iniciando sync AGS...');
+    const startMs = Date.now();
+    const countBefore = db.prepare("SELECT COUNT(*) as c FROM polizas WHERE aseguradora = 'AGS'").get().c;
+    console.log(`🔵 [syncAGS] Iniciando sync AGS... Pólizas AGS actuales en DB: ${countBefore}`);
 
     migrarDB();
 
@@ -195,15 +197,13 @@ async function syncAGS() {
     const hoy = new Date();
     const fecha = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
 
-    // NOTA: NO usamos veonorendipr.php porque muestra Saldo BROKER (no Saldo Cliente)
-    // Las cuotas del cliente las gestiona el productor manualmente.
-
-    let totalCreadas = 0, totalActualizadas = 0;
+    let totalCreadas = 0, totalActualizadas = 0, totalProcesadas = 0;
 
     for (const orga of PRODUCTORES) {
-        console.log(`   🔍 Pólizas vigentes para productor ${orga}...`);
+        console.log(`   🔍 [syncAGS] Pólizas vigentes para productor ${orga}...`);
         const polizas = await fetchPolizasVigentes(cookie, orga, fecha);
-        console.log(`   → ${polizas.length} pólizas`);
+        console.log(`   → [syncAGS] Productor ${orga}: ${polizas.length} pólizas obtenidas`);
+        totalProcesadas += polizas.length;
 
         for (const p of polizas) {
             const cliente = upsertClienteAGS(p.asegurado);
@@ -216,8 +216,10 @@ async function syncAGS() {
     // Marcar como grucar_activo=0 cualquier poliza AGS que pueda haber quedado con grucar activado
     db.prepare("UPDATE polizas SET grucar_activo = 0 WHERE aseguradora = 'AGS'").run();
 
-    const resultado = { fecha, polizas_creadas: totalCreadas, polizas_actualizadas: totalActualizadas };
-    console.log(`✅ Sync AGS: ${totalCreadas} nuevas, ${totalActualizadas} actualizadas`);
+    const countAfter = db.prepare("SELECT COUNT(*) as c FROM polizas WHERE aseguradora = 'AGS'").get().c;
+    const durationSec = ((Date.now() - startMs) / 1000).toFixed(1);
+    const resultado = { fecha, total_procesadas: totalProcesadas, polizas_creadas: totalCreadas, polizas_actualizadas: totalActualizadas, polizas_ags_en_db: countAfter, duracion_seg: durationSec };
+    console.log(`✅ [syncAGS] Finalizado en ${durationSec}s: ${totalCreadas} nuevas, ${totalActualizadas} actualizadas. Total AGS en DB: ${countAfter} (antes: ${countBefore})`);
     return resultado;
 }
 

@@ -179,21 +179,30 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 5:", e.message);
     }
 
-    // ── TEST 6: Pólizas Saldadas NRE (Caso Barreiro Mateo Axel 11853823) ───────
+    // ── TEST 6: Fidelidad de Fechas NRE & Saldadas (Barreiro 11853823, Avello 11866119, Castagna 11866376) ──
     try {
-        console.log("📌 TEST 6: Pólizas Saldadas NRE & Cobertura Completa (Barreiro 11853823)");
+        console.log("📌 TEST 6: Fidelidad de Fechas NRE & Pólizas Saldadas (Barreiro, Avello, Castagna)");
         const barreiro = db.prepare("SELECT * FROM polizas WHERE operacion = '11853823'").get();
-        if (barreiro) {
-            const res = global.SeguroStateManager.evaluarRenovacion(barreiro);
-            const finVigValida = barreiro.fin_vigencia_poliza && barreiro.fin_vigencia_poliza > barreiro.fecha_vencimiento;
-            if (barreiro.nro_cuota === 3 && barreiro.saldo_pendiente === 0 && res.code === 'CONTRATO_VIGENTE' && finVigValida) {
-                console.log(`  ✅ PASSED -> Barreiro (11853823) verificado: Cuota 3/3, Saldo $0, fin_vigencia=${barreiro.fin_vigencia_poliza}, Estado=${res.code}.\n`);
-                totalPassed++;
-            } else {
-                console.error("  ❌ FAILED -> Barreiro no cumple condiciones de póliza saldada vigente:", { barreiro, resCode: res.code });
-            }
-        } else {
-            console.error("  ❌ FAILED -> No se encontró la póliza 11853823 en DB.");
+        const avello = db.prepare("SELECT * FROM polizas WHERE operacion = '11866119'").get();
+        const castagna = db.prepare("SELECT * FROM polizas WHERE operacion = '11866376'").get();
+
+        let fidOk = true;
+        if (!barreiro || barreiro.fin_vigencia_poliza !== '2026-08-23' || barreiro.nro_cuota !== 3 || barreiro.saldo_pendiente !== 0) {
+            console.error("  ❌ FAILED -> Barreiro alterado:", barreiro);
+            fidOk = false;
+        }
+        if (!avello || avello.fin_vigencia_poliza !== '2026-09-01') {
+            console.error("  ❌ FAILED -> Avello Gallego fecha alterada (+1 mes erróneo):", avello);
+            fidOk = false;
+        }
+        if (!castagna || castagna.fin_vigencia_poliza !== '2026-09-01') {
+            console.error("  ❌ FAILED -> Castagna fecha alterada (+1 mes erróneo):", castagna);
+            fidOk = false;
+        }
+
+        if (fidOk) {
+            console.log(`  ✅ PASSED -> Fechas NRE intactas: Barreiro (2026-08-23, 3/3, $0), Avello (2026-09-01), Castagna (2026-09-01).\n`);
+            totalPassed++;
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 6:", e.message);

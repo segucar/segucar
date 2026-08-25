@@ -1743,6 +1743,7 @@ app.get('/api/recuperacion/exportar', (req, res) => {
 });
 
 let isSyncingNRE = false;
+let isSyncingAGS = false;
 
 app.post('/api/sync-nre', async (req, res) => {
     if (isSyncingNRE) {
@@ -1775,7 +1776,16 @@ app.post('/api/sync-nre', async (req, res) => {
 });
 
 app.post('/api/sync-ags', async (req, res) => {
+    if (isSyncingAGS) {
+        return res.json({
+            success: true,
+            running: true,
+            message: 'La sincronización con AGS está en curso en el servidor. Los datos se actualizarán al finalizar.'
+        });
+    }
+
     try {
+        isSyncingAGS = true;
         const result = await syncAGS();
         updateLastSyncDate('ags', 'ok', result);
         res.json({
@@ -1787,6 +1797,8 @@ app.post('/api/sync-ags', async (req, res) => {
         updateLastSyncDate('ags', 'error', { error: error.message });
         console.error('Error en sync-ags:', error);
         res.status(500).json({ error: 'Error al sincronizar con portal AGS: ' + error.message });
+    } finally {
+        isSyncingAGS = false;
     }
 });
 
@@ -3791,14 +3803,23 @@ if (require.main === module) {
             console.log(`⏭️  Auto-sync AGS omitido (${esDomingo ? 'Domingo' : 'fuera de horario ' + hora + 'hs ARG}'})`);
             return;
         }
+
+        if (isSyncingAGS) {
+            console.log('⏭️  Auto-sync AGS omitido (sync AGS en curso)');
+            return;
+        }
+
         try {
+            isSyncingAGS = true;
             console.log(`🔵 Auto-sync AGS iniciado (${hora}hs ARG)...`);
             const result = await syncAGS();
             updateLastSyncDate('ags', 'ok', result);
-            console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas} actualizadas, ${result.con_deuda} con deuda`);
+            console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas || 0} actualizadas`);
         } catch (err) {
             updateLastSyncDate('ags', 'error', { error: err.message });
             console.error('❌ Auto-sync AGS error:', err.message);
+        } finally {
+            isSyncingAGS = false;
         }
     }
 

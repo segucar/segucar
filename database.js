@@ -613,20 +613,6 @@ db.purgarRegistrosDePrueba = () => {
     }
 };
 
-function addOneMonthToDateStr(dateStr) {
-    if (!dateStr) return dateStr;
-    const parts = String(dateStr).split('T')[0].split('-');
-    if (parts.length !== 3) return dateStr;
-    let y = parseInt(parts[0], 10);
-    let m = parseInt(parts[1], 10) - 1;
-    let d = parseInt(parts[2], 10);
-    m += 1;
-    if (m > 11) { m = 0; y += 1; }
-    const daysInMonth = new Date(y, m + 1, 0).getDate();
-    const safeDay = Math.min(d, daysInMonth);
-    return `${y}-${String(m + 1).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
-}
-
 db.sincronizarPolizasSaldadasNRE = () => {
     try {
         const saldadas = db.prepare(`
@@ -640,26 +626,15 @@ db.sincronizarPolizasSaldadasNRE = () => {
         const updatePol = db.prepare(`
             UPDATE polizas SET
                 nro_cuota = COALESCE(?, total_cuotas, 3),
-                fin_vigencia_poliza = ?,
-                fecha_vencimiento = COALESCE(fecha_vencimiento, ?),
-                cuotas_historial = COALESCE(?, cuotas_historial),
-                estado = CASE 
-                    WHEN ? >= date('now', 'localtime') THEN 'vigente'
-                    ELSE estado
-                END
+                fecha_vencimiento = COALESCE(fin_vigencia_poliza, fecha_vencimiento),
+                cuotas_historial = COALESCE(?, cuotas_historial)
             WHERE id = ?
         `);
 
         db.transaction(() => {
             for (const p of saldadas) {
                 const total = p.total_cuotas || (p.aseguradora === 'AGS' ? 4 : 3);
-                let fvFin = p.fin_vigencia_poliza || p.fecha_vencimiento;
-
-                // En pólizas NRE trimestrales de 3 cuotas saldadas, si fin_vigencia_poliza era idéntica
-                // al vencimiento de la cuota 3, extender 1 mes para cubrir el 3er mes completo pagado
-                if (p.aseguradora !== 'AGS' && p.fin_vigencia_poliza === p.fecha_vencimiento && p.fecha_vencimiento) {
-                    fvFin = addOneMonthToDateStr(p.fecha_vencimiento);
-                }
+                const fvFin = p.fin_vigencia_poliza || p.fecha_vencimiento;
 
                 let histJson = p.cuotas_historial;
                 if (!histJson && fvFin) {
@@ -677,7 +652,7 @@ db.sincronizarPolizasSaldadasNRE = () => {
                     histJson = JSON.stringify(cuotas);
                 }
 
-                updatePol.run(total, fvFin, fvFin, histJson, fvFin, p.id);
+                updatePol.run(total, histJson, p.id);
             }
         })();
         console.log(`✅ ${saldadas.length} pólizas saldadas sincronizadas con cuota completa y sin mora falsa.`);
