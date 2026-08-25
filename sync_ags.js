@@ -113,6 +113,59 @@ async function fetchPolizasVigentes(cookie, orga, fecha) {
 // (calcularFechaCuotaAGS, generarCronogramaCuotasAGS, AGS_TOTAL_CUOTAS)
 
 
+// ─── Obtener cuotas cobradas "A Rendir" (veonorendipr.php) ───────────────────
+async function fetchPagosNoRendidos(cookie) {
+    try {
+        const r = await httpReq('GET', '/veonorendipr.php', null, cookie);
+        const rows = [...(r.data || '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
+            .map(m => m[1].replace(/<[^>]+>/g, '\t').replace(/\t+/g, '\t').replace(/&nbsp;/g, '').trim())
+            .filter(r => r.length > 5);
+
+        const map = {};
+        for (let i = 1; i < rows.length; i++) {
+            const cols = rows[i].split('\t').map(c => c.trim());
+            const poliza = cols[1];
+            const nroCuotaStr = cols[4] || '';
+            const nroCuota = parseInt(nroCuotaStr.split('/')[0].trim(), 10);
+            if (!poliza || isNaN(nroCuota)) continue;
+
+            if (!map[poliza]) map[poliza] = new Set();
+            map[poliza].add(nroCuota);
+        }
+        return map;
+    } catch(e) {
+        console.error('   ⚠️ Error leyendo veonorendipr.php:', e.message);
+        return {};
+    }
+}
+
+// ─── Parser de detalle de póliza (muestro-polizasmod.php) ─────────────────────
+function parseMuestroPolizasMod(html) {
+    if (!html) return null;
+    const cuotas = [];
+    const cuotaMatches = [...html.matchAll(/<tr[^>]*>\s*<td[^>]*><strong>(\d+)<\/strong><\/td>\s*<td[^>]*><strong>(\d{2}\/\d{2}\/\d{4})<\/strong><\/td>\s*<td[^>]*><strong>\$\s*([\d\.,]+)<\/strong><\/td>\s*<td[^>]*><strong>\$\s*([\d\.,]+)<\/strong><\/td>\s*<\/tr>/gi)];
+
+    for (const m of cuotaMatches) {
+        const nroCuota = parseInt(m[1], 10);
+        const vtoParts = m[2].split('/');
+        const vtoIso = `${vtoParts[2]}-${vtoParts[1]}-${vtoParts[0]}`;
+        const importe = parseFloat(m[3].replace(/\./g, '').replace(',', '.')) || 0;
+        const saldo = parseFloat(m[4].replace(/\./g, '').replace(',', '.')) || 0;
+
+        cuotas.push({
+            nro_cuota: nroCuota,
+            vto_cuota: vtoIso,
+            importe,
+            saldo_cli: saldo,
+            estado: saldo <= 2500 ? 'PAGADA' : 'PENDIENTE',
+            fecha_pago: saldo <= 2500 ? 'Registrado en AGS' : null,
+            lote: 'Sincronizado con AGS'
+        });
+    }
+
+    return cuotas.length > 0 ? cuotas : null;
+}
+
 // ─── Migración DB ─────────────────────────────────────────────────────────────
 function migrarDB() {
     try { db.prepare("ALTER TABLE clientes ADD COLUMN origen TEXT DEFAULT 'NRE'").run(); } catch (e) {}
@@ -132,10 +185,16 @@ function upsertClienteAGS(asegurado) {
 }
 
 // ─── Upsert póliza AGS ───────────────────────────────────────────────────────
-function upsertPolizaAGS(clienteId, p) {
+function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
     const existente = db.prepare("SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial, nro_cuota FROM polizas WHERE operacion = ? AND aseguradora = 'AGS'").get(p.poliza);
 
-    const cronograma = generarCronogramaCuotasAGS(p.fin_vigencia, p.premio, existente ? existente.cuotas_historial : null);
+    const cronograma = generarCronogramaCuotasAGS(
+        p.fin_vigencia, 
+        p.premio, 
+        existente ? existente.cuotas_historial : null,
+        p.detalleCuotas || null,
+        pagosNoRendidosSet || null
+    );
     const cuotasHistorialJson = JSON.stringify(cronograma.cuotas);
 
     if (existente) {
@@ -193,24 +252,47 @@ async function syncAGS() {
 
     const cookie = await loginAGS();
 
-    // Fecha de hoy en formato dd/mm/yyyy para el portal
+    // 1. Obtener pagos a rendir (veonorendipr.php)
+    const pagosNoRendidosMap = await fetchPagosNoRendidos(cookie);
+    console.log(`   📋 [syncAGS] Pagos 'A Rendir' cargados para ${Object.keys(pagosNoRendidosMap).length} pólizas`);
+
+    // 2. Fecha de hoy en formato dd/mm/yyyy para el portal
     const hoy = new Date();
     const fecha = `${String(hoy.getDate()).padStart(2, '0')}/${String(hoy.getMonth() + 1).padStart(2, '0')}/${hoy.getFullYear()}`;
 
     let totalCreadas = 0, totalActualizadas = 0, totalProcesadas = 0;
+    const allPolizas = [];
 
     for (const orga of PRODUCTORES) {
         console.log(`   🔍 [syncAGS] Pólizas vigentes para productor ${orga}...`);
         const polizas = await fetchPolizasVigentes(cookie, orga, fecha);
         console.log(`   → [syncAGS] Productor ${orga}: ${polizas.length} pólizas obtenidas`);
         totalProcesadas += polizas.length;
+        allPolizas.push(...polizas);
+    }
 
-        for (const p of polizas) {
-            const cliente = upsertClienteAGS(p.asegurado);
-            const { accion } = upsertPolizaAGS(cliente.id, p);
-            if (accion === 'creada') totalCreadas++;
-            else totalActualizadas++;
-        }
+    // 3. Consultar detalle de cuotas en vivo para cada póliza (lotes de 6)
+    const batchSize = 6;
+    for (let i = 0; i < allPolizas.length; i += batchSize) {
+        const batch = allPolizas.slice(i, i + batchSize);
+        await Promise.all(batch.map(async (p) => {
+            if (!p.propuesta) return;
+            try {
+                const detHtml = await httpReq('GET', `/muestro-polizasmod.php?prop=${p.propuesta}`, null, cookie);
+                p.detalleCuotas = parseMuestroPolizasMod(detHtml.data);
+            } catch(e) {
+                // Fallback automático al cálculo algorítmico si falla la conexión individual
+            }
+        }));
+    }
+
+    // 4. Guardar en Base de Datos
+    for (const p of allPolizas) {
+        const cliente = upsertClienteAGS(p.asegurado);
+        const pagosSet = pagosNoRendidosMap[p.poliza] || null;
+        const { accion } = upsertPolizaAGS(cliente.id, p, pagosSet);
+        if (accion === 'creada') totalCreadas++;
+        else totalActualizadas++;
     }
 
     // Marcar como grucar_activo=0 cualquier poliza AGS que pueda haber quedado con grucar activado
@@ -223,7 +305,7 @@ async function syncAGS() {
     return resultado;
 }
 
-module.exports = { syncAGS, generarCronogramaCuotasAGS, calcularFechaCuotaAGS };
+module.exports = { syncAGS, generarCronogramaCuotasAGS, calcularFechaCuotaAGS, fetchPagosNoRendidos, parseMuestroPolizasMod };
 
 if (require.main === module) {
     syncAGS().then(r => {
