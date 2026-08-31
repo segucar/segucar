@@ -104,6 +104,7 @@ document.addEventListener('DOMContentLoaded', () => {
 const COLUMN_DEFAULTS = {
   nombre: true,
   telefono: true,
+  app_descargada: true,
   patente: true,
   operacion: true,
   vehiculo: true,
@@ -121,6 +122,7 @@ const COLUMN_DEFAULTS = {
 const COLUMN_LABELS = {
   nombre: 'Cliente',
   telefono: 'Teléfono',
+  app_descargada: 'App Móvil',
   patente: 'Patente',
   operacion: 'Póliza N°',
   vehiculo: 'Vehículo',
@@ -140,7 +142,8 @@ function getColumnPreferences() {
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
-      // Forzar que las columnas principales de cobranza/mora/vigencia estén activas por defecto
+      // Forzar que las columnas principales de cobranza/mora/vigencia/app estén activas por defecto si no están definidas
+      if (parsed.app_descargada === undefined) parsed.app_descargada = true;
       if (parsed.importe === undefined) parsed.importe = true;
       if (parsed.dias_mora === undefined) parsed.dias_mora = true;
       if (parsed.fin_vigencia === undefined) parsed.fin_vigencia = true;
@@ -176,8 +179,8 @@ function renderColumnCheckboxes() {
   const isCobranza = state.activeView === 'cobranza';
 
   const activeCols = isCobranza 
-    ? ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'nro_cuota', 'venc_cuota', 'importe', 'dias_mora', 'fin_vigencia', 'accion_cobranza', 'acciones']
-    : ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'venc_cuota', 'estado_poliza', 'accion_poliza', 'acciones'];
+    ? ['nombre', 'telefono', 'app_descargada', 'patente', 'operacion', 'vehiculo', 'nro_cuota', 'venc_cuota', 'importe', 'dias_mora', 'fin_vigencia', 'accion_cobranza', 'acciones']
+    : ['nombre', 'telefono', 'app_descargada', 'patente', 'operacion', 'vehiculo', 'venc_cuota', 'estado_poliza', 'accion_poliza', 'acciones'];
 
   container.innerHTML = activeCols.map(key => `
     <label style="display: flex; align-items: center; gap: 10px; padding: 6px 10px; border-radius: 6px; color: #e8e8f0; font-size: 0.88rem; cursor: pointer; transition: background 0.15s ease, color 0.15s ease; user-select: none;" onmouseover="this.style.background='rgba(255,255,255,0.06)'; this.style.color='#00b4d8';" onmouseout="this.style.background='transparent'; this.style.color='#e8e8f0';">
@@ -738,7 +741,7 @@ function handleSort(col) {
     state.sort.dir = 'ASC';
   }
 
-  const cols = ['nombre', 'telefono', 'patente', 'operacion', 'vehiculo', 'tipo', 'vencimiento', 'estado', 'cuota', 'prioridad_cobranza', 'prioridad_poliza', 'nro_cuota', 'importe', 'dias_mora', 'fin_vigencia'];
+  const cols = ['nombre', 'telefono', 'app_descargada', 'patente', 'operacion', 'vehiculo', 'tipo', 'vencimiento', 'estado', 'cuota', 'prioridad_cobranza', 'prioridad_poliza', 'nro_cuota', 'importe', 'dias_mora', 'fin_vigencia'];
   cols.forEach(c => {
     const el = getEl(`sort_icon_${c}`);
     if (el) {
@@ -1228,6 +1231,7 @@ function updateTableHeader() {
       <tr>
         ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="${getSortClass('nombre')}">${getSortIcon('nombre')}</span></th>` : ''}
         ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="${getSortClass('telefono')}">${getSortIcon('telefono')}</span></th>` : ''}
+        ${cols.app_descargada ? `<th onclick="handleSort('app_descargada')" class="th-sortable" style="text-align:center;" title="Estado de la App en el móvil del cliente">App <span id="sort_icon_app_descargada" class="${getSortClass('app_descargada')}">${getSortIcon('app_descargada')}</span></th>` : ''}
         ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="${getSortClass('patente')}">${getSortIcon('patente')}</span></th>` : ''}
         ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="${getSortClass('operacion')}">${getSortIcon('operacion')}</span></th>` : ''}
         ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="${getSortClass('vehiculo')}">${getSortIcon('vehiculo')}</span></th>` : ''}
@@ -1245,6 +1249,7 @@ function updateTableHeader() {
       <tr>
         ${cols.nombre ? `<th onclick="handleSort('nombre')" class="th-sortable">Cliente <span id="sort_icon_nombre" class="${getSortClass('nombre')}">${getSortIcon('nombre')}</span></th>` : ''}
         ${cols.telefono ? `<th onclick="handleSort('telefono')" class="th-sortable">Teléfono <span id="sort_icon_telefono" class="${getSortClass('telefono')}">${getSortIcon('telefono')}</span></th>` : ''}
+        ${cols.app_descargada ? `<th onclick="handleSort('app_descargada')" class="th-sortable" style="text-align:center;" title="Estado de la App en el móvil del cliente">App <span id="sort_icon_app_descargada" class="${getSortClass('app_descargada')}">${getSortIcon('app_descargada')}</span></th>` : ''}
         ${cols.patente ? `<th onclick="handleSort('patente')" class="th-sortable">Patente <span id="sort_icon_patente" class="${getSortClass('patente')}">${getSortIcon('patente')}</span></th>` : ''}
         ${cols.operacion ? `<th onclick="handleSort('operacion')" class="th-sortable">Póliza N° <span id="sort_icon_operacion" class="${getSortClass('operacion')}">${getSortIcon('operacion')}</span></th>` : ''}
         ${cols.vehiculo ? `<th onclick="handleSort('vehiculo')" class="th-sortable">Vehículo <span id="sort_icon_vehiculo" class="${getSortClass('vehiculo')}">${getSortIcon('vehiculo')}</span></th>` : ''}
@@ -1396,11 +1401,24 @@ function createClientRow(client, poliza, isSecondary = false) {
   const actionCobranzaTagHtml = `<span class="action-tag ${resCobranza.tagClass}">${escapeHtml(resCobranza.accion)}</span>`;
   const actionPolizaTagHtml = `<span class="action-tag ${resPoliza.tagClass}">${escapeHtml(resPoliza.accion)}</span>`;
 
+  const isAppInstalled = Boolean(client && (client.app_descargada === 1 || client.app_descargada === true || client.app_descargada === '1'));
+  const appHtml = `
+    <button type="button" 
+      class="btn-app-toggle ${isAppInstalled ? 'installed' : 'not-installed'}" 
+      onclick="toggleAppDescargada(${client.id}, ${isAppInstalled ? 1 : 0}, event)" 
+      title="${isAppInstalled ? 'App instalada ✅ — Clic para marcar como no instalada' : 'Sin App ⚪ — Clic para marcar como instalada cuando el cliente venga a la oficina'}"
+      style="border: 1px solid ${isAppInstalled ? 'rgba(46,213,115,0.45)' : 'rgba(255,255,255,0.15)'}; background: ${isAppInstalled ? 'rgba(46,213,115,0.15)' : 'rgba(255,255,255,0.04)'}; color: ${isAppInstalled ? '#2ed573' : '#a0a0b8'}; padding: 4px 8px; border-radius: 6px; font-size: 0.78rem; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px; transition: all 0.2s ease;">
+      <span>${isAppInstalled ? '📲' : '⚪'}</span>
+      <span>${isAppInstalled ? 'Instalada' : 'Sin App'}</span>
+    </button>
+  `;
+
   const cols = getColumnPreferences();
   let cells = '';
 
   if (cols.nombre) cells += `<td>${nameHtml}</td>`;
   if (cols.telefono) cells += `<td>${phoneHtml}</td>`;
+  if (cols.app_descargada) cells += `<td style="text-align: center;">${appHtml}</td>`;
   if (cols.patente) cells += `<td><strong>${poliza ? escapeHtml(poliza.patente || '-') : '-'}</strong></td>`;
   if (cols.operacion) cells += `<td><span style="font-size:0.83rem; font-weight:700; color:var(--accent-cyan-light); font-family:monospace; background:rgba(0,180,216,0.12); padding:3px 8px; border-radius:6px; border:1px solid rgba(0,180,216,0.25);">${poliza ? escapeHtml(poliza.operacion || '-') : '-'}</span></td>`;
   if (cols.vehiculo) cells += `<td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${poliza ? escapeHtml(poliza.vehiculo || '') : ''}">${poliza ? escapeHtml(poliza.vehiculo || '-') : '-'}</td>`;
@@ -2318,7 +2336,7 @@ async function openModal(client = null) {
     getEl('clientAddress').value = client.direccion || '';
     getEl('clientEmail').value = client.email || '';
 
-    // Auto-fetch full details from backend to pre-fill all fields (DNI, Teléfono, Dirección, Email)
+    // Auto-fetch full details from backend to pre-fill all fields (DNI, Teléfono, Dirección, Email, App)
     if (targetId) {
       try {
         const res = await fetch(`/api/clientes/${targetId}`);
@@ -2332,6 +2350,8 @@ async function openModal(client = null) {
             getEl('clientEmail').value = fullData.email || client.email || '';
             const sinWaCb = getEl('clientSinWhatsapp');
             if (sinWaCb) sinWaCb.checked = !!(fullData.sin_whatsapp);
+            const appCb = getEl('clientAppDescargada');
+            if (appCb) appCb.checked = !!(fullData.app_descargada);
           }
         }
       } catch (err) {
@@ -2345,6 +2365,8 @@ async function openModal(client = null) {
     if (idEl) idEl.value = '';
     const sinWaCbNew = getEl('clientSinWhatsapp');
     if (sinWaCbNew) sinWaCbNew.checked = false;
+    const appCbNew = getEl('clientAppDescargada');
+    if (appCbNew) appCbNew.checked = false;
   }
 }
 
@@ -2369,7 +2391,8 @@ async function handleClientSubmit(e) {
     telefono: getEl('clientPhone')?.value || '',
     direccion: getEl('clientAddress')?.value || '',
     email: getEl('clientEmail')?.value || '',
-    sin_whatsapp: getEl('clientSinWhatsapp')?.checked ? 1 : 0
+    sin_whatsapp: getEl('clientSinWhatsapp')?.checked ? 1 : 0,
+    app_descargada: getEl('clientAppDescargada')?.checked ? 1 : 0
   };
 
   try {
@@ -2406,6 +2429,37 @@ function editClient(id) {
     client = { id };
   }
   openModal(client);
+}
+
+async function toggleAppDescargada(clienteId, currentVal, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const newVal = currentVal ? 0 : 1;
+  try {
+    const res = await fetch(`/api/clientes/${clienteId}/app-descargada`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ app_descargada: newVal })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Error al actualizar estado de la app');
+
+    // Update in local state
+    if (state.clients) {
+      state.clients.forEach(c => {
+        if (c.id == clienteId || c.cliente_id == clienteId) {
+          c.app_descargada = newVal;
+        }
+      });
+    }
+
+    showToast(newVal ? '📲 App marcada como descargada / instalada' : '⚪ App desmarcada (no instalada)', 'success');
+    renderTable();
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
 }
 
 async function deleteClient(id) {

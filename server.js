@@ -1334,6 +1334,7 @@ app.get('/api/clientes', (req, res) => {
         let sortCol = 'c.nombre';
         if (sortBy === 'nombre') sortCol = 'c.nombre';
         else if (sortBy === 'telefono') sortCol = 'c.telefono';
+        else if (sortBy === 'app_descargada') sortCol = 'c.app_descargada';
         else if (sortBy === 'patente') sortCol = 'p.patente';
         else if (sortBy === 'vehiculo') sortCol = 'p.vehiculo';
         else if (sortBy === 'tipo') sortCol = 'p.tipo_vehiculo';
@@ -1408,6 +1409,8 @@ app.get('/api/clientes', (req, res) => {
         let orderByClause = 'sort_fecha ASC, c.nombre ASC';
         if (sortBy === 'telefono') {
             orderByClause = `CASE WHEN (c.telefono IS NULL OR c.telefono = '' OR length(c.telefono) < 10) THEN 0 ELSE 1 END ${sortDir === 'ASC' ? 'ASC' : 'DESC'}, c.telefono ${sortDir}, c.nombre ASC`;
+        } else if (sortBy === 'app_descargada') {
+            orderByClause = `c.app_descargada ${sortDir}, c.nombre ASC`;
         } else if (sortBy === 'nombre') {
             orderByClause = `c.nombre ${sortDir}`;
         } else if (isSortByPolizaCol) {
@@ -1821,9 +1824,10 @@ app.get('/api/clientes/:id', (req, res) => {
 
 app.post('/api/clientes', (req, res) => {
     try {
-        const { nombre, dni, direccion, telefono, email } = req.body;
+        const { nombre, dni, direccion, telefono, email, app_descargada } = req.body;
         const sanitizedPhone = sanitizeAndFixPhone(telefono);
-        const info = db.prepare(`INSERT INTO clientes (nombre, dni, direccion, telefono, email) VALUES (?, ?, ?, ?, ?)`).run(nombre, dni, direccion, sanitizedPhone, email);
+        const appDesc = (app_descargada === 1 || app_descargada === '1' || app_descargada === true) ? 1 : 0;
+        const info = db.prepare(`INSERT INTO clientes (nombre, dni, direccion, telefono, email, app_descargada) VALUES (?, ?, ?, ?, ?, ?)`).run(nombre, dni, direccion, sanitizedPhone, email, appDesc);
         res.status(201).json({ id: info.lastInsertRowid, message: 'Cliente creado' });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -1832,10 +1836,11 @@ app.post('/api/clientes', (req, res) => {
 
 app.put('/api/clientes/:id', (req, res) => {
     try {
-        const { nombre, dni, direccion, telefono, email, sin_whatsapp } = req.body;
+        const { nombre, dni, direccion, telefono, email, sin_whatsapp, app_descargada } = req.body;
         const sanitizedPhone = sanitizeAndFixPhone(telefono);
         const sinWa = (sin_whatsapp === 1 || sin_whatsapp === '1' || sin_whatsapp === true) ? 1 : 0;
-        const info = db.prepare(`UPDATE clientes SET nombre=?, dni=?, direccion=?, telefono=?, email=?, sin_whatsapp=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nombre, dni, direccion, sanitizedPhone, email, sinWa, req.params.id);
+        const appDesc = (app_descargada === 1 || app_descargada === '1' || app_descargada === true) ? 1 : 0;
+        const info = db.prepare(`UPDATE clientes SET nombre=?, dni=?, direccion=?, telefono=?, email=?, sin_whatsapp=?, app_descargada=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`).run(nombre, dni, direccion, sanitizedPhone, email, sinWa, appDesc, req.params.id);
         if (info.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
 
         if (sanitizedPhone && sanitizedPhone.length >= 10) {
@@ -1850,6 +1855,19 @@ app.put('/api/clientes/:id', (req, res) => {
         }
 
         res.json({ message: 'Cliente actualizado' });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ── Toggle rápido: marcar/desmarcar si el cliente descargó la app ──────────
+app.patch('/api/clientes/:id/app-descargada', (req, res) => {
+    try {
+        const { app_descargada } = req.body;
+        const val = (app_descargada === 1 || app_descargada === '1' || app_descargada === true) ? 1 : 0;
+        const info = db.prepare('UPDATE clientes SET app_descargada = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(val, req.params.id);
+        if (info.changes === 0) return res.status(404).json({ error: 'Cliente no encontrado' });
+        res.json({ message: val ? 'App marcada como descargada' : 'App desmarcada', app_descargada: val });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

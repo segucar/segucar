@@ -240,6 +240,7 @@ addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 
 // ─── Migraciones de Columnas para Clientes ──────────────────────────────────
 addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
+addColumnClientes('app_descargada', 'INTEGER DEFAULT 0');
 
 // ─── Seed plantillas por defecto ────────────────────────────────────────────
 
