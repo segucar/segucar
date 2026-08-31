@@ -451,7 +451,7 @@ app.get('/api/dashboard/stats', (req, res) => {
         const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
         const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
 
-        const total_polizas = db.prepare('SELECT COUNT(*) as count FROM polizas').get().count;
+        const total_polizas = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')").get().count;
         const total_recuperar = db.prepare(`
             SELECT COUNT(*) as count FROM polizas_historicas ph
             WHERE (ph.fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
