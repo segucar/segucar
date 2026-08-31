@@ -559,9 +559,7 @@ app.get('/api/dashboard/stats', (req, res) => {
             if (isRenewed) continue;
 
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
-            if (saldoVal <= 0) {
-                al_dia++;
-            } else if (!esDiaNoHabil) {
+            if (saldoVal > 0 && !esDiaNoHabil) {
                 // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
                 const estadoHabil = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
 
@@ -574,7 +572,11 @@ app.get('/api/dashboard/stats', (req, res) => {
                 } else if (estadoHabil === 'cuota_vencida_48_96hs') {
                     vencio_96h++;
                     if (!hasPhone) cobranzas_sin_telefono++;
+                } else {
+                    al_dia++;
                 }
+            } else {
+                al_dia++;
             }
         }
 
@@ -1308,7 +1310,21 @@ app.get('/api/clientes', (req, res) => {
                 // Estos contratos ya no generan acción ni aparecen en listados.
                 where += ` AND 1=0`;
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
-                where += ` AND (p.saldo_pendiente IS NULL OR p.saldo_pendiente <= 0)` + notRenewedClause;
+                if (esDiaNoHabilClientes) {
+                    where += notRenewedClause;
+                } else {
+                    const vtos48 = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
+                    const vtos0_48 = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
+                    const vtos48_96 = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
+                    const allMoraVtos = [...vtos48, ...vtos0_48, ...vtos48_96];
+                    if (allMoraVtos.length > 0) {
+                        const placeholders = allMoraVtos.map(() => '?').join(',');
+                        where += ` AND (p.saldo_pendiente <= 0 OR p.fecha_vencimiento NOT IN (${placeholders}))` + notRenewedClause;
+                        params.push(...allMoraVtos);
+                    } else {
+                        where += notRenewedClause;
+                    }
+                }
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;
                 params.push(estado);
