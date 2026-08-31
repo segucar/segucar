@@ -625,21 +625,32 @@ db.recalcularCuotasAGSYVencimientos = () => {
                 cuotas_debe = ?,
                 saldo_pendiente = ?,
                 cuotas_historial = ?,
+                tipo_vehiculo = COALESCE(tipo_vehiculo, ?),
                 total_cuotas = 4
             WHERE id = ?
         `);
+
+        function detectarTipoVehiculoAGS(vehiculo) {
+            const v = (vehiculo || '').toUpperCase();
+            if (/\b(MOTO|MOTOS|MOTOCICLETA|CUATRICICLO|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|YBR|HONDA CG|CORVEN|MOTOMEL|ROUSER|BAJAJ|GILERA|XR\s*150|XR\s*250|SKUA|TRIP)\b/.test(v)) return 'Moto';
+            if (/\b(PICK|PICKUP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|DUSTER OROCH|OROCH|RAM|TRANSIT|DAILY|MASTER|SPRINTER|TRAFIC)\b/.test(v)) return 'Pick Up';
+            if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|TRAILER|CARGO|1114|1215|608|7000|MERCEDES BENZ 1114|MERCEDES BENZ L)\b/.test(v)) return 'Camión';
+            return 'Auto';
+        }
 
         db.transaction(() => {
             for (const p of agsPolizas) {
                 const finVig = p.fin_vigencia_poliza || p.fecha_vencimiento;
                 if (!finVig) continue;
                 const cronograma = generarCronogramaCuotasAGS(finVig, 0, p.cuotas_historial);
+                const tipo = detectarTipoVehiculoAGS(p.vehiculo);
                 updateStmt.run(
                     cronograma.fecha_vencimiento,
                     cronograma.nro_cuota,
                     cronograma.cuotas_debe,
                     cronograma.saldo_pendiente,
                     JSON.stringify(cronograma.cuotas),
+                    tipo,
                     p.id
                 );
             }

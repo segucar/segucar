@@ -222,6 +222,14 @@ function upsertClienteAGS(asegurado) {
     return cliente;
 }
 
+function detectarTipoVehiculoAGS(vehiculo) {
+    const v = (vehiculo || '').toUpperCase();
+    if (/\b(MOTO|MOTOS|MOTOCICLETA|CUATRICICLO|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|YBR|HONDA CG|CORVEN|MOTOMEL|ROUSER|BAJAJ|GILERA|XR\s*150|XR\s*250|SKUA|TRIP)\b/.test(v)) return 'Moto';
+    if (/\b(PICK|PICKUP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|DUSTER OROCH|OROCH|RAM|TRANSIT|DAILY|MASTER|SPRINTER|TRAFIC)\b/.test(v)) return 'Pick Up';
+    if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|TRAILER|CARGO|1114|1215|608|7000|MERCEDES BENZ 1114|MERCEDES BENZ L)\b/.test(v)) return 'Camión';
+    return 'Auto';
+}
+
 // ─── Upsert póliza AGS ───────────────────────────────────────────────────────
 function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
     const existente = db.prepare("SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial, nro_cuota FROM polizas WHERE operacion = ? AND aseguradora = 'AGS'").get(p.poliza);
@@ -235,11 +243,14 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
     );
     const cuotasHistorialJson = JSON.stringify(cronograma.cuotas);
 
+    const tipoVehiculo = detectarTipoVehiculoAGS(p.vehiculo);
+
     if (existente) {
         db.prepare(`
             UPDATE polizas SET
                 cliente_id          = ?,
                 vehiculo            = ?,
+                tipo_vehiculo       = ?,
                 patente             = ?,
                 fin_vigencia_poliza = ?,
                 fecha_vencimiento   = ?,
@@ -253,7 +264,7 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
                 grucar_activo       = 0
             WHERE operacion = ? AND aseguradora = 'AGS'
         `).run(
-            clienteId, p.vehiculo, p.patente, p.fin_vigencia, 
+            clienteId, p.vehiculo, tipoVehiculo, p.patente, p.fin_vigencia, 
             cronograma.fecha_vencimiento, cronograma.nro_cuota,
             cronograma.cuotas_debe, cronograma.saldo_pendiente,
             p.suma_asegurada, AGS_TOTAL_CUOTAS, cuotasHistorialJson,
@@ -263,15 +274,15 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
     } else {
         db.prepare(`
             INSERT INTO polizas (
-                cliente_id, operacion, vehiculo, patente,
+                cliente_id, operacion, vehiculo, tipo_vehiculo, patente,
                 fin_vigencia_poliza, fecha_vencimiento, nro_cuota,
                 cuotas_debe, saldo_pendiente, cuotas_historial,
                 suma_asegurada, total_cuotas,
                 aseguradora, grucar_activo,
                 estado, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
         `).run(
-            clienteId, p.poliza, p.vehiculo, p.patente,
+            clienteId, p.poliza, p.vehiculo, tipoVehiculo, p.patente,
             p.fin_vigencia, cronograma.fecha_vencimiento, cronograma.nro_cuota,
             cronograma.cuotas_debe, cronograma.saldo_pendiente, cuotasHistorialJson,
             p.suma_asegurada, AGS_TOTAL_CUOTAS
