@@ -1437,21 +1437,38 @@ app.get('/api/clientes', (req, res) => {
 
         const hoyStr = toLocalISOString(new Date());
 
+        // ⚡ OPTIMIZACIÓN: Cargar pólizas en lote (1 query en vez de N consultas individuales)
+        const clienteIds = clientes.map(c => c.id);
+        const polizasByCliente = {};
+        if (clienteIds.length > 0) {
+            const batchSize = 500;
+            for (let i = 0; i < clienteIds.length; i += batchSize) {
+                const chunk = clienteIds.slice(i, i + batchSize);
+                const placeholders = chunk.map(() => '?').join(',');
+                const rows = db.prepare(`
+                    SELECT p.*, 
+                           ca.id as cuota_admin_id, 
+                           COALESCE(ca.monto_poliza, 30240) as monto_poliza_emision, 
+                           COALESCE(ca.monto_acarreo, 1760) as monto_acarreo_grucar, 
+                           COALESCE(ca.monto_total, p.saldo_pendiente, 32000) as monto_total_cuota,
+                           ca.estado as cuota_admin_estado,
+                           ca.pdf_nre_url,
+                           ca.pdf_grucar_url
+                    FROM polizas p
+                    LEFT JOIN cuotas_admin ca ON p.id = ca.poliza_id
+                    WHERE p.cliente_id IN (${placeholders})
+                    ORDER BY CAST(p.operacion AS INTEGER) DESC, p.fecha_vencimiento DESC
+                `).all(...chunk);
+
+                for (const row of rows) {
+                    if (!polizasByCliente[row.cliente_id]) polizasByCliente[row.cliente_id] = [];
+                    polizasByCliente[row.cliente_id].push(row);
+                }
+            }
+        }
+
         for (let cliente of clientes) {
-            let rawPolizas = db.prepare(`
-                SELECT p.*, 
-                       ca.id as cuota_admin_id, 
-                       COALESCE(ca.monto_poliza, 30240) as monto_poliza_emision, 
-                       COALESCE(ca.monto_acarreo, 1760) as monto_acarreo_grucar, 
-                       COALESCE(ca.monto_total, p.saldo_pendiente, 32000) as monto_total_cuota,
-                       ca.estado as cuota_admin_estado,
-                       ca.pdf_nre_url,
-                       ca.pdf_grucar_url
-                FROM polizas p
-                LEFT JOIN cuotas_admin ca ON p.id = ca.poliza_id
-                WHERE p.cliente_id = ? 
-                ORDER BY CAST(p.operacion AS INTEGER) DESC, p.fecha_vencimiento DESC
-            `).all(cliente.id);
+            let rawPolizas = polizasByCliente[cliente.id] || [];
 
             const estadoNorm = (estado || '').toLowerCase().replace(/\s+/g, '_');
             const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica'].includes(estadoNorm);

@@ -89,15 +89,15 @@ function _startWaCountdown() {
   }, 5000);
 }
 
-// Renderizar banner al cargar la página y activar auto-sincronización multi-PC
+// Renderizar banner al cargar la página y activar auto-sincronización silenciosa
 document.addEventListener('DOMContentLoaded', () => { 
   _renderWaBanner(); 
-  // 🔄 Auto-sincronización en segundo plano cada 30s entre computadoras de empleados
+  // 🔄 Actualización silenciosa de estadísticas y badges cada 60s (sin interrumpir la tabla del usuario)
   setInterval(() => {
-    if (document.visibilityState === 'visible' && state.activeView !== 'bandejaWA') {
-      fetchClientes();
+    if (document.visibilityState === 'visible') {
+      fetchStats();
     }
-  }, 30000);
+  }, 60000);
 });
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -801,7 +801,7 @@ function setupEventListeners() {
       state.filters.search = e.target.value;
       state.pagination.page = 1;
       fetchClientes();
-    }, 300));
+    }, 200));
   }
 
   const filterTipo = getEl('filterTipo');
@@ -1126,6 +1126,7 @@ function getCuotaEstadoBadge(item) {
 }
 
 let currentFetchRequestId = 0;
+let currentFetchController = null;
 
 function getSortIcon(col) {
   if (state.sort.by === col) {
@@ -1140,17 +1141,30 @@ function getSortClass(col) {
 
 async function fetchClientes() {
   const requestId = ++currentFetchRequestId;
-  state.clients = []; // Limpiar estado anterior para evitar parpadeos visuales (ej: 6 filas pasaban a 4)
+
+  // Cancelar request anterior en vuelo para no competir recursos
+  if (currentFetchController) {
+    try { currentFetchController.abort(); } catch(e) {}
+  }
+  currentFetchController = new AbortController();
+  const controller = currentFetchController;
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   const tableBody = getEl('clientsTableBody');
+  const hasRows = tableBody && tableBody.children.length > 0 && !tableBody.querySelector('.loading');
+
   if (tableBody) {
-    tableBody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding:40px;"><div class="loading"></div><div style="font-size:0.82rem;color:var(--text-secondary);margin-top:12px;">Cargando pólizas...</div></td></tr>';
+    if (hasRows) {
+      // Transición suave: atenuar la tabla mientras carga sin borrarla ni reiniciar scroll
+      tableBody.style.opacity = '0.5';
+      tableBody.style.transition = 'opacity 0.12s ease';
+    } else {
+      tableBody.innerHTML = '<tr><td colspan="12" class="text-center" style="padding:40px;"><div class="loading"></div><div style="font-size:0.82rem;color:var(--text-secondary);margin-top:12px;">Cargando pólizas...</div></td></tr>';
+    }
   }
 
   // Actualizar encabezados para reflejar la columna ordenada
   updateTableHeader();
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
 
   try {
     const params = new URLSearchParams({
@@ -1184,15 +1198,20 @@ async function fetchClientes() {
 
     renderTable();
     renderPagination();
+    if (tableBody) tableBody.style.opacity = '1';
   } catch (err) {
     clearTimeout(timeoutId);
-    console.error('Error fetching clients:', err);
+    if (err.name === 'AbortError' && requestId !== currentFetchRequestId) {
+      return; // Búsqueda cancelada porque el usuario siguió tipeando
+    }
     if (requestId !== currentFetchRequestId) return;
 
+    console.error('Error fetching clients:', err);
     if (tableBody) {
+      tableBody.style.opacity = '1';
       const isAbort = err.name === 'AbortError';
       const msg = isAbort 
-        ? 'El servidor tardó más de lo esperado en responder (sincronización en curso).' 
+        ? 'El servidor tardó más de lo esperado en responder.' 
         : (err.message || 'Error de conexión con el servidor.');
 
       tableBody.innerHTML = `
