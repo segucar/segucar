@@ -559,7 +559,9 @@ app.get('/api/dashboard/stats', (req, res) => {
             if (isRenewed) continue;
 
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
-            if (saldoVal > 0 && !esDiaNoHabil) {
+            if (saldoVal <= 0) {
+                al_dia++;
+            } else if (!esDiaNoHabil) {
                 // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
                 const estadoHabil = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
 
@@ -572,11 +574,7 @@ app.get('/api/dashboard/stats', (req, res) => {
                 } else if (estadoHabil === 'cuota_vencida_48_96hs') {
                     vencio_96h++;
                     if (!hasPhone) cobranzas_sin_telefono++;
-                } else {
-                    al_dia++;
                 }
-            } else {
-                al_dia++;
             }
         }
 
