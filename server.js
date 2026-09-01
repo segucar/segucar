@@ -1162,6 +1162,95 @@ app.get('/api/cliente/grucar-cupon', (req, res) => {
     }
 });
 
+// ─── Cache para clientes contactados hoy (TTL 10s para acelerar búsquedas concurrentes) ───
+let cachedContactadosHoy = { timestamp: 0, set: new Set() };
+function invalidateContactadosCache() {
+    cachedContactadosHoy.timestamp = 0;
+}
+function getContactadosHoySet() {
+    const now = Date.now();
+    if (now - cachedContactadosHoy.timestamp < 10000) {
+        return cachedContactadosHoy.set;
+    }
+    try {
+        const rows = db.prepare(`
+            SELECT DISTINCT cliente_id FROM (
+                SELECT cliente_id FROM contactos WHERE date(datetime(fecha, '-3 hours')) = date('now', '-3 hours') OR date(fecha) = date('now', 'localtime')
+                UNION
+                SELECT cliente_id FROM mensajes_whatsapp WHERE (date(datetime(created_at, '-3 hours')) = date('now', '-3 hours') OR date(created_at) = date('now', 'localtime')) AND estado = 'enviado'
+                UNION
+                SELECT cliente_id FROM historial_gestiones_whatsapp WHERE date(datetime(fecha_envio, '-3 hours')) = date('now', '-3 hours') OR date(fecha_envio) = date('now', 'localtime')
+            )
+        `).all();
+        cachedContactadosHoy = { timestamp: now, set: new Set(rows.map(r => r.cliente_id)) };
+    } catch (e) {
+        console.error('Error obteniendo contactados hoy:', e);
+    }
+    return cachedContactadosHoy.set;
+}
+
+// ─── Buscador Inteligente Multitérmino ──────────────────────────────────────
+function buildSmartSearchClause(search, { clienteAlias = 'c', polizaAlias = 'p' } = {}) {
+    if (!search || typeof search !== 'string') return { clause: '', params: [] };
+    const rawTokens = search.trim().split(/\s+/).filter(t => t.length > 0).slice(0, 5);
+    if (rawTokens.length === 0) return { clause: '', params: [] };
+
+    const clauses = [];
+    const params = [];
+
+    for (const token of rawTokens) {
+        const term = `%${token}%`;
+        const cPrefix = clienteAlias ? `${clienteAlias}.` : '';
+        const pPrefix = polizaAlias ? `${polizaAlias}.` : '';
+
+        const conditions = [];
+        if (clienteAlias) {
+            conditions.push(`norm(${cPrefix}nombre) LIKE norm(?)`);
+            params.push(term);
+            conditions.push(`${cPrefix}dni LIKE ?`);
+            params.push(term);
+            conditions.push(`${cPrefix}telefono LIKE ?`);
+            params.push(term);
+        }
+        if (polizaAlias) {
+            conditions.push(`${pPrefix}operacion LIKE ?`);
+            params.push(term);
+            conditions.push(`norm(${pPrefix}patente) LIKE norm(?)`);
+            params.push(term);
+            conditions.push(`norm(${pPrefix}vehiculo) LIKE norm(?)`);
+            params.push(term);
+        }
+
+        clauses.push(`(${conditions.join(' OR ')})`);
+    }
+
+    return {
+        clause: ` AND (${clauses.join(' AND ')})`,
+        params
+    };
+}
+
+function buildHistoricasSearchClause(search, tableAlias = '') {
+    if (!search || typeof search !== 'string') return { clause: '', params: [] };
+    const rawTokens = search.trim().split(/\s+/).filter(t => t.length > 0).slice(0, 5);
+    if (rawTokens.length === 0) return { clause: '', params: [] };
+
+    const clauses = [];
+    const params = [];
+    const prefix = tableAlias ? `${tableAlias}.` : '';
+
+    for (const token of rawTokens) {
+        const term = `%${token}%`;
+        clauses.push(`(norm(${prefix}nombre) LIKE norm(?) OR norm(${prefix}patente) LIKE norm(?) OR norm(${prefix}vehiculo) LIKE norm(?) OR ${prefix}operacion LIKE ? OR ${prefix}telefono LIKE ?)`);
+        params.push(term, term, term, term, term);
+    }
+
+    return {
+        clause: ` AND (${clauses.join(' AND ')})`,
+        params
+    };
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  CLIENTES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1180,17 +1269,8 @@ app.get('/api/clientes', (req, res) => {
         const hoyClientes = getArgentinaNow();
         const esDiaNoHabilClientes = esNoHabil(hoyClientes);
 
-        // ── Clientes contactados HOY (fuente de verdad multi-dispositivo para el botón "Enviado") ──
-        const contactadosHoyRows = db.prepare(`
-            SELECT DISTINCT cliente_id FROM (
-                SELECT cliente_id FROM contactos WHERE date(datetime(fecha, '-3 hours')) = date('now', '-3 hours') OR date(fecha) = date('now', 'localtime')
-                UNION
-                SELECT cliente_id FROM mensajes_whatsapp WHERE (date(datetime(created_at, '-3 hours')) = date('now', '-3 hours') OR date(created_at) = date('now', 'localtime')) AND estado = 'enviado'
-                UNION
-                SELECT cliente_id FROM historial_gestiones_whatsapp WHERE date(datetime(fecha_envio, '-3 hours')) = date('now', '-3 hours') OR date(fecha_envio) = date('now', 'localtime')
-            )
-        `).all();
-        const contactadosHoySet = new Set(contactadosHoyRows.map(r => r.cliente_id));
+        // ── Clientes contactados HOY (fuente de verdad multi-dispositivo con caché) ──
+        const contactadosHoySet = getContactadosHoySet();
 
         const dateVence48h = addCalendarDays(todayStr, 2);
         const dateVencio48h = addCalendarDays(todayStr, -2);
@@ -1203,9 +1283,9 @@ app.get('/api/clientes', (req, res) => {
         const params = [];
 
         if (search) {
-            where += ` AND (norm(c.nombre) LIKE norm(?) OR c.dni LIKE ? OR c.telefono LIKE ? OR p.operacion LIKE ? OR norm(p.patente) LIKE norm(?) OR norm(p.vehiculo) LIKE norm(?))`;
-            const s = `%${search}%`;
-            params.push(s, s, s, s, s, s);
+            const searchObj = buildSmartSearchClause(search, { clienteAlias: 'c', polizaAlias: 'p' });
+            where += searchObj.clause;
+            params.push(...searchObj.params);
         }
         if (tipo_vehiculo) {
             where += ` AND p.tipo_vehiculo = ?`;
@@ -1653,9 +1733,9 @@ app.get('/api/recuperacion', (req, res) => {
         let params = [];
 
         if (search) {
-            where += ` AND (norm(nombre) LIKE norm(?) OR norm(patente) LIKE norm(?) OR norm(vehiculo) LIKE norm(?) OR operacion LIKE ? OR telefono LIKE ?)`;
-            const term = `%${search}%`;
-            params.push(term, term, term, term, term);
+            const searchObj = buildHistoricasSearchClause(search);
+            where += searchObj.clause;
+            params.push(...searchObj.params);
         }
 
         if (filtroTel === 'con_telefono') {
@@ -1689,8 +1769,9 @@ app.get('/api/recuperacion', (req, res) => {
         )`;
         let baseParams = [];
         if (search) {
-            baseWhere += ` AND (norm(nombre) LIKE norm(?) OR norm(patente) LIKE norm(?) OR norm(vehiculo) LIKE norm(?) OR operacion LIKE ? OR telefono LIKE ?)`;
-            baseParams.push(term, term, term, term, term);
+            const searchObj = buildHistoricasSearchClause(search);
+            baseWhere += searchObj.clause;
+            baseParams.push(...searchObj.params);
         }
         const totalBase = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${baseWhere}`).get(...baseParams).count;
         const conTelefonoCount = db.prepare(`SELECT COUNT(*) as count FROM polizas_historicas ${baseWhere} AND (telefono IS NOT NULL AND length(telefono) >= 10)`).get(...baseParams).count;
@@ -2563,6 +2644,7 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
                     VALUES (?, ?, ?, ?, 'pendiente')
                 `).run(cliente_id, poliza_id, plantillaTipo, saldoAlEnviar);
 
+                invalidateContactadosCache();
                 console.log(`[/api/whatsapp/enviar] 📊 Gestión registrada en métricas para cliente ${cliente_id} (plantilla: ${plantillaTipo})`);
             } catch (metricErr) {
                 console.error('[/api/whatsapp/enviar] Error registrando métrica:', metricErr.message);
@@ -2706,6 +2788,7 @@ app.post('/api/contactos', (req, res) => {
             `).run(cliente_id, poliza_id || null, plantillaTipo, saldoAlEnviar);
         }
 
+        invalidateContactadosCache();
         res.status(201).json({ id: info.lastInsertRowid });
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -3327,9 +3410,9 @@ app.get('/api/admin/cobranzas', (req, res) => {
         }
 
         if (search) {
-            where += ' AND (norm(c.nombre) LIKE norm(?) OR norm(p.patente) LIKE norm(?) OR norm(p.vehiculo) LIKE norm(?) OR p.operacion LIKE ?)';
-            const term = `%${search}%`;
-            params.push(term, term, term, term);
+            const searchObj = buildSmartSearchClause(search, { clienteAlias: 'c', polizaAlias: 'p' });
+            where += searchObj.clause;
+            params.push(...searchObj.params);
         }
 
         const items = db.prepare(`

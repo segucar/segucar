@@ -794,14 +794,49 @@ function exportarExcel() {
 }
 
 
+function clearSearchInput() {
+  const searchInput = getEl('searchInput');
+  const clearBtn = getEl('searchClearBtn');
+  if (searchInput) {
+    searchInput.value = '';
+    state.filters.search = '';
+    if (clearBtn) clearBtn.classList.add('hidden');
+    state.pagination.page = 1;
+    fetchClientes();
+    searchInput.focus();
+  }
+}
+
 function setupEventListeners() {
   const searchInput = getEl('searchInput');
+  const searchClearBtn = getEl('searchClearBtn');
   if (searchInput) {
-    searchInput.addEventListener('input', debounce((e) => {
-      state.filters.search = e.target.value;
+    const triggerSearchDebounced = debounce(() => {
+      state.filters.search = searchInput.value.trim();
       state.pagination.page = 1;
       fetchClientes();
-    }, 200));
+    }, 260);
+
+    searchInput.addEventListener('input', (e) => {
+      const val = e.target.value;
+      if (searchClearBtn) {
+        if (val) searchClearBtn.classList.remove('hidden');
+        else searchClearBtn.classList.add('hidden');
+      }
+      triggerSearchDebounced();
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        state.filters.search = searchInput.value.trim();
+        state.pagination.page = 1;
+        fetchClientes();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        clearSearchInput();
+      }
+    });
   }
 
   const filterTipo = getEl('filterTipo');
@@ -916,6 +951,7 @@ function resetFilters() {
   state.filters = { search: '', tipo: '', estado: '', fecha_desde: '', fecha_hasta: '' };
   
   if (getEl('searchInput')) getEl('searchInput').value = '';
+  if (getEl('searchClearBtn')) getEl('searchClearBtn').classList.add('hidden');
   if (getEl('filterTipo')) getEl('filterTipo').value = '';
   if (getEl('filterEstado')) getEl('filterEstado').value = '';
   if (getEl('filterFechaDesde')) getEl('filterFechaDesde').value = '';

@@ -60,9 +60,10 @@
 
     <!-- Search & Filter Bar -->
     <div class="filter-bar mb-3" style="display: flex; gap: 12px; align-items: center; flex-wrap: wrap;">
-      <div class="search-bar" style="flex:1; min-width: 280px;">
+      <div class="search-bar" style="flex:1; min-width: 280px; position: relative;">
         <span class="search-icon">🔍</span>
-        <input type="text" id="recuperacionSearchInput" class="search-input" placeholder="Buscar por cliente, patente, vehículo o N° de póliza anterior...">
+        <input type="text" id="recuperacionSearchInput" class="search-input" placeholder="Buscar por cliente, patente, vehículo o N° de póliza anterior..." autocomplete="off">
+        <button id="recuperacionClearBtn" class="search-clear-btn hidden" onclick="clearRecuperacionSearch()" type="button" title="Limpiar búsqueda (Esc)">✕</button>
       </div>
       <select id="selectFiltroTelefono" onchange="changeFiltroTelefono(this.value)" style="background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 9px 14px; border-radius: 8px; font-weight: 700; font-size: 0.88rem; cursor: pointer;">
         <option value="todos">📱 Cobertura Teléfonos (Todos)</option>

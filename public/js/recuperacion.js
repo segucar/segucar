@@ -43,22 +43,64 @@ function changeFiltroTelefono(val) {
   fetchRecuperacionItems();
 }
 
+let currentRecuperacionController = null;
+let currentRecuperacionRequestId = 0;
+
+function clearRecuperacionSearch() {
+  const searchInput = document.getElementById('recuperacionSearchInput');
+  const clearBtn = document.getElementById('recuperacionClearBtn');
+  if (searchInput) {
+    searchInput.value = '';
+    state.search = '';
+    if (clearBtn) clearBtn.classList.add('hidden');
+    state.pagination.page = 1;
+    fetchRecuperacionItems();
+    searchInput.focus();
+  }
+}
+
 function setupListeners() {
   const searchInput = document.getElementById('recuperacionSearchInput');
+  const clearBtn = document.getElementById('recuperacionClearBtn');
   if (searchInput) {
     let timeout;
     searchInput.addEventListener('input', (e) => {
+      const val = e.target.value;
+      if (clearBtn) {
+        if (val) clearBtn.classList.remove('hidden');
+        else clearBtn.classList.add('hidden');
+      }
       clearTimeout(timeout);
       timeout = setTimeout(() => {
-        state.search = e.target.value.trim();
+        state.search = searchInput.value.trim();
         state.pagination.page = 1;
         fetchRecuperacionItems();
-      }, 300);
+      }, 260);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        clearTimeout(timeout);
+        state.search = searchInput.value.trim();
+        state.pagination.page = 1;
+        fetchRecuperacionItems();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        clearRecuperacionSearch();
+      }
     });
   }
 }
 
 async function fetchRecuperacionItems() {
+  const requestId = ++currentRecuperacionRequestId;
+  if (currentRecuperacionController) {
+    try { currentRecuperacionController.abort(); } catch(e) {}
+  }
+  currentRecuperacionController = new AbortController();
+  const controller = currentRecuperacionController;
+
   const tbody = document.getElementById('recuperacionTableBody');
   if (tbody) {
     tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:2rem;"><div class="loading"></div></td></tr>';
@@ -66,8 +108,11 @@ async function fetchRecuperacionItems() {
 
   try {
     const url = `/api/recuperacion?search=${encodeURIComponent(state.search)}&filtro_telefono=${state.filtro_telefono}&page=${state.pagination.page}&limit=50&sort_by=${state.sort.by}&sort_dir=${state.sort.dir}`;
-    const res = await fetch(url);
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error('Error al cargar datos de recuperación');
     const data = await res.json();
+
+    if (requestId !== currentRecuperacionRequestId) return;
 
     state.items = data.items || [];
     state.pagination = { page: data.page, limit: 50, pages: data.pages, total: data.total };
@@ -83,7 +128,11 @@ async function fetchRecuperacionItems() {
     renderTable();
     renderPagination();
   } catch (e) {
+    if (e.name === 'AbortError') return;
     console.error(e);
+    if (tbody && requestId === currentRecuperacionRequestId) {
+      tbody.innerHTML = '<tr><td colspan="8" class="text-center" style="padding:2rem;color:#ff4757;">Error al cargar registros.</td></tr>';
+    }
   }
 }
 
@@ -225,6 +274,8 @@ function resetRecuperacionFilters() {
   state.filtro_telefono = 'todos';
   const searchInput = document.getElementById('recuperacionSearchInput');
   if (searchInput) searchInput.value = '';
+  const clearBtn = document.getElementById('recuperacionClearBtn');
+  if (clearBtn) clearBtn.classList.add('hidden');
   const selectTel = document.getElementById('selectFiltroTelefono');
   if (selectTel) selectTel.value = 'todos';
   state.pagination.page = 1;

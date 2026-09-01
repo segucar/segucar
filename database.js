@@ -194,13 +194,36 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_polizas_cliente_id ON polizas(cliente_id);
     CREATE INDEX IF NOT EXISTS idx_polizas_operacion ON polizas(operacion);
     CREATE INDEX IF NOT EXISTS idx_polizas_patente ON polizas(patente);
+    CREATE INDEX IF NOT EXISTS idx_polizas_patente_trim_upper ON polizas(UPPER(TRIM(patente)));
     CREATE INDEX IF NOT EXISTS idx_polizas_fecha_vto ON polizas(fecha_vencimiento);
     CREATE INDEX IF NOT EXISTS idx_polizas_saldo ON polizas(saldo_pendiente);
+    CREATE INDEX IF NOT EXISTS idx_polizas_estado ON polizas(estado);
+    CREATE INDEX IF NOT EXISTS idx_polizas_vehiculo ON polizas(vehiculo);
+    CREATE INDEX IF NOT EXISTS idx_polizas_cliente_id_estado ON polizas(cliente_id, estado);
+
     CREATE INDEX IF NOT EXISTS idx_clientes_nombre ON clientes(nombre);
     CREATE INDEX IF NOT EXISTS idx_clientes_telefono ON clientes(telefono);
+    CREATE INDEX IF NOT EXISTS idx_clientes_dni ON clientes(dni);
+
+    CREATE INDEX IF NOT EXISTS idx_polizas_historicas_patente_upper ON polizas_historicas(UPPER(TRIM(patente)));
+    CREATE INDEX IF NOT EXISTS idx_polizas_historicas_operacion ON polizas_historicas(operacion);
+    CREATE INDEX IF NOT EXISTS idx_polizas_historicas_fecha_vto ON polizas_historicas(fecha_vencimiento);
+    CREATE INDEX IF NOT EXISTS idx_polizas_historicas_nombre ON polizas_historicas(nombre);
+    CREATE INDEX IF NOT EXISTS idx_polizas_historicas_telefono ON polizas_historicas(telefono);
+
     CREATE INDEX IF NOT EXISTS idx_cuotas_admin_poliza ON cuotas_admin(poliza_id);
+    CREATE INDEX IF NOT EXISTS idx_cuotas_admin_estado ON cuotas_admin(estado);
+    CREATE INDEX IF NOT EXISTS idx_cuotas_admin_vto ON cuotas_admin(fecha_vencimiento);
+
+    CREATE INDEX IF NOT EXISTS idx_contactos_cliente ON contactos(cliente_id);
+    CREATE INDEX IF NOT EXISTS idx_contactos_fecha ON contactos(fecha);
+
     CREATE INDEX IF NOT EXISTS idx_mensajes_wa_cliente ON mensajes_whatsapp(cliente_id);
     CREATE INDEX IF NOT EXISTS idx_mensajes_wa_msgid ON mensajes_whatsapp(wa_message_id);
+    CREATE INDEX IF NOT EXISTS idx_mensajes_wa_created ON mensajes_whatsapp(created_at, estado);
+
+    CREATE INDEX IF NOT EXISTS idx_historial_wa_cliente ON historial_gestiones_whatsapp(cliente_id);
+    CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha ON historial_gestiones_whatsapp(fecha_envio);
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────

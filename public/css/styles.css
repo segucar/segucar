@@ -416,6 +416,34 @@ body {
   background: #173356;
 }
 
+.search-clear-btn {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.12);
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  line-height: 1;
+  padding: 0;
+}
+
+.search-clear-btn:hover {
+  background: rgba(255, 71, 87, 0.25);
+  color: #ff4757;
+  transform: translateY(-50%) scale(1.1);
+}
+
 .filter-select {
   height: 38px;
   padding: 0 16px;
