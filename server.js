@@ -83,6 +83,143 @@ app.use((req, res, next) => {
     res.setHeader('Expires', '0');
     next();
 });
+
+const crypto = require('crypto');
+
+// ─── AUTENTICACIÓN SEGUCAR (SUA / SUA) ────────────────────────────────────
+const AUTH_USER = (process.env.ADMIN_USER || 'SUA').trim().toUpperCase();
+const AUTH_PASS = (process.env.ADMIN_PASS || 'SUA').trim();
+const AUTH_SECRET = process.env.AUTH_SECRET || 'segucar-auth-secret-sua-2026-secure';
+const AUTH_COOKIE_NAME = 'segucar_auth_token';
+
+function parseCookies(cookieHeader) {
+    const list = {};
+    if (!cookieHeader) return list;
+    cookieHeader.split(';').forEach(cookie => {
+        let [name, ...rest] = cookie.split('=');
+        name = name ? name.trim() : '';
+        if (!name) return;
+        list[name] = decodeURIComponent(rest.join('=').trim());
+    });
+    return list;
+}
+
+function generateAuthToken(username, maxAgeMs) {
+    const expiresAt = Date.now() + maxAgeMs;
+    const payload = `${username}:${expiresAt}`;
+    const signature = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+    return `${payload}:${signature}`;
+}
+
+function verifyAuthToken(token) {
+    if (!token || typeof token !== 'string') return false;
+    const parts = token.split(':');
+    if (parts.length !== 3) return false;
+    const [username, expiresAtStr, signature] = parts;
+    const expiresAt = parseInt(expiresAtStr, 10);
+    if (isNaN(expiresAt) || Date.now() > expiresAt) return false;
+    const payload = `${username}:${expiresAtStr}`;
+    const expectedSig = crypto.createHmac('sha256', AUTH_SECRET).update(payload).digest('hex');
+    if (signature.length !== expectedSig.length) return false;
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSig));
+}
+
+function checkRequestAuth(req) {
+    // 1. Basic Auth header (para llamadas servidor a servidor como Netlify, cron o scripts)
+    const authHeader = req.headers.authorization || '';
+    if (authHeader.startsWith('Basic ')) {
+        try {
+            const b64 = authHeader.substring(6).trim();
+            const decoded = Buffer.from(b64, 'base64').toString('utf8');
+            const [u, ...pParts] = decoded.split(':');
+            const p = pParts.join(':');
+            if (u && p && u.trim().toUpperCase() === AUTH_USER && p.trim().toUpperCase() === AUTH_PASS.toUpperCase()) {
+                return true;
+            }
+        } catch (e) {}
+    }
+
+    // 2. API Key header (x-api-key o x-crm-api-key)
+    const apiKey = req.headers['x-api-key'] || req.headers['x-crm-api-key'] || '';
+    if (apiKey && (apiKey.trim().toUpperCase() === AUTH_USER || apiKey === AUTH_SECRET)) {
+        return true;
+    }
+
+    // 3. Cookie de sesión del navegador
+    const cookies = parseCookies(req.headers.cookie);
+    const token = cookies[AUTH_COOKIE_NAME];
+    if (token && verifyAuthToken(token)) {
+        return true;
+    }
+
+    return false;
+}
+
+// Middleware de autenticación global
+app.use((req, res, next) => {
+    const p = req.path;
+
+    // Rutas públicas que no requieren autenticación
+    if (
+        p === '/login.html' ||
+        p === '/login' ||
+        p === '/api/auth/login' ||
+        p === '/api/auth/check' ||
+        p === '/api/auth/logout' ||
+        p.startsWith('/css/') ||
+        p === '/favicon.ico' ||
+        p.startsWith('/api/webhooks/')
+    ) {
+        // Si ya está autenticado y visita /login o /login.html, redirigir a index.html
+        if ((p === '/login.html' || p === '/login') && checkRequestAuth(req)) {
+            return res.redirect('/index.html');
+        }
+        return next();
+    }
+
+    // Verificar si la petición está autenticada
+    if (checkRequestAuth(req)) {
+        return next();
+    }
+
+    // Peticiones API no autenticadas -> 401 Unauthorized
+    if (p.startsWith('/api/')) {
+        return res.status(401).json({
+            error: 'UNAUTHORIZED',
+            message: 'Acceso no autorizado. Por favor iniciá sesión con usuario y contraseña (SUA).'
+        });
+    }
+
+    // Navegación web no autenticada -> Redirigir a pantalla de login
+    const targetUrl = req.originalUrl || req.url || '/index.html';
+    return res.redirect(`/login.html?redirect=${encodeURIComponent(targetUrl)}`);
+});
+
+// Endpoints de autenticación
+app.post('/api/auth/login', (req, res) => {
+    const { username, password, remember } = req.body || {};
+    const u = String(username || '').trim().toUpperCase();
+    const p = String(password || '').trim();
+
+    if (u === AUTH_USER && (p === AUTH_PASS || p.toUpperCase() === AUTH_PASS.toUpperCase())) {
+        const maxAgeMs = remember ? (30 * 24 * 60 * 60 * 1000) : (24 * 60 * 60 * 1000);
+        const token = generateAuthToken(u, maxAgeMs);
+        res.setHeader('Set-Cookie', `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
+        return res.json({ success: true, message: 'Autenticación exitosa' });
+    }
+
+    return res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
+});
+
+app.get('/api/auth/check', (req, res) => {
+    res.json({ authenticated: checkRequestAuth(req) });
+});
+
+app.get('/api/auth/logout', (req, res) => {
+    res.setHeader('Set-Cookie', `${AUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+    res.redirect('/login.html');
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── API CONFIG (WHITELABEL BRANDING) ──────────────────────────────────────
