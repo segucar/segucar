@@ -25,74 +25,14 @@ let state = {
 
 const getEl = (id) => document.getElementById(id);
 
-// ─── ANTI-BAN: Sistema de tandas WhatsApp ────────────────────────────────────
-// Máximo 20 envíos por tanda. Después de cada tanda, esperar 30 minutos.
-const WA_TANDA_LIMIT = 20;
-const WA_COOLDOWN_MS = 30 * 60 * 1000; // 30 minutos en ms
+// ─── WhatsApp Envíos (API Oficial / Sin restricciones de tandas) ────────────
+try {
+  localStorage.removeItem('segucar_wa_tanda_count');
+  localStorage.removeItem('segucar_wa_tanda_time');
+} catch(e) {}
 
-function _waTandaKey()      { return 'segucar_wa_tanda_count'; }
-function _waTandaTimeKey()  { return 'segucar_wa_tanda_time'; }
-
-function getWaTandaInfo() {
-  const count     = parseInt(localStorage.getItem(_waTandaKey())  || '0', 10);
-  const tandaTime = parseInt(localStorage.getItem(_waTandaTimeKey()) || '0', 10);
-  const now       = Date.now();
-  const elapsed   = now - tandaTime;
-  const remaining = WA_COOLDOWN_MS - elapsed;
-  const enCooldown = count >= WA_TANDA_LIMIT && remaining > 0;
-  return { count, tandaTime, elapsed, remaining, enCooldown };
-}
-
-function incrementWaTanda() {
-  const info = getWaTandaInfo();
-  let newCount = info.count + 1;
-  // Si cooldown terminó, resetear
-  if (info.count >= WA_TANDA_LIMIT && info.elapsed >= WA_COOLDOWN_MS) {
-    newCount = 1;
-    localStorage.removeItem(_waTandaTimeKey());
-  }
-  // Cuando llegamos al límite, guardamos el timestamp de inicio de cooldown
-  if (newCount >= WA_TANDA_LIMIT) {
-    localStorage.setItem(_waTandaTimeKey(), String(Date.now()));
-  }
-  localStorage.setItem(_waTandaKey(), String(newCount));
-  _renderWaBanner();
-  return newCount;
-}
-
-function checkWaTanda() {
-  return true; // Sin restricciones de tanda ni pausas
-}
-
-function _renderWaBanner(info) {
-  const banner = document.getElementById('wa-tanda-banner');
-  if (banner) banner.style.display = 'none';
-}
-
-let _waCountdownInterval = null;
-function _startWaCountdown() {
-  if (_waCountdownInterval) clearInterval(_waCountdownInterval);
-  _waCountdownInterval = setInterval(() => {
-    const info = getWaTandaInfo();
-    const el = document.getElementById('wa-countdown');
-    if (!info.enCooldown) {
-      clearInterval(_waCountdownInterval);
-      localStorage.removeItem(_waTandaKey());
-      localStorage.removeItem(_waTandaTimeKey());
-      _renderWaBanner({ count: 0, enCooldown: false });
-      showToast('✅ ¡Pausa terminada! Podés enviar la siguiente tanda de mensajes.', 'success');
-      return;
-    }
-    const minLeft = Math.ceil(info.remaining / 60000);
-    const secLeft = Math.ceil(info.remaining / 1000);
-    if (el) el.textContent = secLeft > 60 ? `${minLeft} min` : `${secLeft} seg`;
-  }, 5000);
-}
-
-// Renderizar banner al cargar la página y activar auto-sincronización silenciosa
+// Actualización silenciosa de estadísticas y badges cada 60s (sin interrumpir la tabla del usuario)
 document.addEventListener('DOMContentLoaded', () => { 
-  _renderWaBanner(); 
-  // 🔄 Actualización silenciosa de estadísticas y badges cada 60s (sin interrumpir la tabla del usuario)
   setInterval(() => {
     if (document.visibilityState === 'visible') {
       fetchStats();
@@ -2138,17 +2078,9 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
-  // 🟢 Modo Simulación: Abrir WhatsApp Web tradicional
-  if (!checkWaTanda()) {
-    const info = getWaTandaInfo();
-    const minLeft = Math.ceil(info.remaining / 60000);
-    showToast(`🚫 Tanda de ${WA_TANDA_LIMIT} completada. Esperá ${minLeft} min antes de continuar.`, 'error');
-    return;
-  }
-
+  // 🟢 Modo Manual: Abrir WhatsApp Web tradicional
   const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
-  incrementWaTanda();
   markWhatsAppAsSent(clientId, operacion);
   showToast('Abriendo WhatsApp Web...', 'success');
 
@@ -2200,7 +2132,6 @@ function markWhatsAppAsSent(clientId, operacion) {
   const key = 'segucar_wa_sent_' + clientId + '_' + (operacion || '');
   localStorage.setItem(key, new Date().toISOString().slice(0, 10)); // guarda "YYYY-MM-DD" — expira al día siguiente
 
-
   const btns = document.querySelectorAll(`.btn-smart-wa[data-cli="${clientId}"][data-pol="${operacion || ''}"]`);
   btns.forEach(btn => {
     btn.classList.remove('btn-whatsapp');
@@ -2210,7 +2141,7 @@ function markWhatsAppAsSent(clientId, operacion) {
   });
 }
 
-function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc, patente) {
+async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc, patente) {
   const client = state.clients.find(c => c.id === clientId);
   const template = state.templates.find(t => t.id === templateId);
 
@@ -2230,23 +2161,61 @@ function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc, pate
     return;
   }
 
-  // ── Anti-ban: verificar tanda antes de abrir ──
-  if (!checkWaTanda()) {
-    const info = getWaTandaInfo();
-    const minLeft = Math.ceil(info.remaining / 60000);
-    showToast(`🚫 Tanda de ${WA_TANDA_LIMIT} completada. Esperá ${minLeft} min antes de continuar.`, 'error');
-    const popoverB = getEl('globalWaPopover');
-    if (popoverB) popoverB.classList.remove('active');
-    return;
+  const popoverB = getEl('globalWaPopover');
+  if (popoverB) popoverB.classList.remove('active');
+
+  // Verificar si estamos en Modo Oficial API
+  try {
+    const resCfg = await fetch('/api/whatsapp/config');
+    const cfg = await resCfg.json();
+
+    if (cfg.modo === 'oficial' && cfg.api_key) {
+      showToast(`Enviando aviso por WhatsApp API a ${client.nombre}...`, 'info');
+      const resSend = await fetch('/api/whatsapp/enviar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cliente_id: clientId,
+          telefono: phone,
+          mensaje: msg,
+          tipo_plantilla: template.nombre_meta || template.tipo,
+          poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
+          poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
+        })
+      });
+      const dataSend = await resSend.json();
+
+      if (dataSend.ok) {
+        showToast(`✅ Aviso enviado exitosamente por WhatsApp API`, 'success');
+        markWhatsAppAsSent(clientId, operacion);
+
+        fetch('/api/contactos', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cliente_id: clientId,
+            poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
+            tipo: template.tipo,
+            medio: 'whatsapp',
+            mensaje: msg
+          })
+        }).catch(err => console.error('Error logging contact:', err));
+
+        window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
+      } else {
+        showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
+      }
+      return;
+    }
+  } catch (err) {
+    console.error('Error verificando modo WA config:', err);
   }
 
+  // Modo Manual (WhatsApp Web directo sin límites de tandas)
   const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
-  incrementWaTanda();
   markWhatsAppAsSent(clientId, operacion);
-  const infoS = getWaTandaInfo();
-  const leftS = WA_TANDA_LIMIT - infoS.count;
-  showToast(`Abriendo WhatsApp... ${leftS > 0 ? `(${leftS} restantes en esta tanda)` : ''}`, 'success');
+  showToast('Abriendo WhatsApp Web...', 'success');
 
   fetch('/api/contactos', {
     method: 'POST',
@@ -2259,9 +2228,6 @@ function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc, pate
       mensaje: msg
     })
   }).catch(err => console.error('Error logging contact:', err));
-
-  const popover = getEl('globalWaPopover');
-  if (popover) popover.classList.remove('active');
 }
 
 function formatPhoneForWhatsApp(phone) {

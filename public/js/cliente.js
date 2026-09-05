@@ -239,6 +239,41 @@ function formatPhoneForWhatsApp(phone) {
 
 async function sendWhatsApp(client, msg, tipo = 'vencimiento', polizaId = null) {
     const phone = formatPhoneForWhatsApp(client.telefono);
+    if (!phone) {
+        showToast('Número de teléfono inválido', 'error');
+        return;
+    }
+
+    try {
+        const resCfg = await fetch('/api/whatsapp/config');
+        const cfg = await resCfg.json();
+        if (cfg.modo === 'oficial' && cfg.api_key) {
+            showToast(`Enviando aviso por WhatsApp API a ${client.nombre}...`, 'info');
+            const resSend = await fetch('/api/whatsapp/enviar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cliente_id: client.id,
+                    telefono: phone,
+                    mensaje: msg,
+                    tipo_plantilla: tipo
+                })
+            });
+            const dataSend = await resSend.json();
+            if (dataSend.ok) {
+                showToast(`✅ Aviso enviado exitosamente por WhatsApp API`, 'success');
+                if (typeof fetchContactHistory === 'function') fetchContactHistory(client.id);
+                window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
+                return;
+            } else {
+                showToast(`❌ Error API: ${dataSend.error}`, 'error');
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Error verificando modo WA config:', err);
+    }
+
     const encoded = encodeURIComponent(msg);
     window.open(`https://web.whatsapp.com/send?phone=${phone}&text=${encoded}`, '_blank');
     
