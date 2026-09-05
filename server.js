@@ -90,6 +90,7 @@ const crypto = require('crypto');
 const AUTH_USER = (process.env.ADMIN_USER || 'SUA').trim().toUpperCase();
 const AUTH_PASS = (process.env.ADMIN_PASS || 'SUA').trim();
 const AUTH_SECRET = process.env.AUTH_SECRET || 'segucar-auth-secret-sua-2026-secure';
+const BOT_API_KEY = (process.env.BOT_API_KEY || 'segucar_bot_8am_n8n_sec_2026').trim();
 const AUTH_COOKIE_NAME = 'segucar_auth_token';
 
 function parseCookies(cookieHeader) {
@@ -139,9 +140,17 @@ function checkRequestAuth(req) {
         } catch (e) {}
     }
 
-    // 2. API Key header (x-api-key o x-crm-api-key)
+    // 2. API Key header (x-api-key, x-crm-api-key o Bearer token para bots / n8n)
     const apiKey = req.headers['x-api-key'] || req.headers['x-crm-api-key'] || '';
-    if (apiKey && (apiKey.trim().toUpperCase() === AUTH_USER || apiKey === AUTH_SECRET)) {
+    let bearerToken = '';
+    if (authHeader.startsWith('Bearer ')) {
+        bearerToken = authHeader.substring(7).trim();
+    }
+
+    if (
+        (apiKey && (apiKey === BOT_API_KEY || apiKey === AUTH_SECRET || apiKey.trim().toUpperCase() === AUTH_USER)) ||
+        (bearerToken && (bearerToken === BOT_API_KEY || bearerToken === AUTH_SECRET))
+    ) {
         return true;
     }
 
@@ -163,6 +172,7 @@ app.use((req, res, next) => {
     if (
         p === '/login.html' ||
         p === '/login' ||
+        p === '/api/login' ||
         p === '/api/auth/login' ||
         p === '/api/auth/check' ||
         p === '/api/auth/logout' ||
@@ -186,7 +196,7 @@ app.use((req, res, next) => {
     if (p.startsWith('/api/')) {
         return res.status(401).json({
             error: 'UNAUTHORIZED',
-            message: 'Acceso no autorizado. Por favor iniciá sesión con usuario y contraseña (SUA).'
+            message: 'Acceso no autorizado. Proveer x-api-key o iniciar sesión.'
         });
     }
 
@@ -196,20 +206,23 @@ app.use((req, res, next) => {
 });
 
 // Endpoints de autenticación
-app.post('/api/auth/login', (req, res) => {
-    const { username, password, remember } = req.body || {};
-    const u = String(username || '').trim().toUpperCase();
-    const p = String(password || '').trim();
+const handleLogin = (req, res) => {
+    const { username, password, user, pass, email, remember } = req.body || {};
+    const u = String(username || user || email || '').trim().toUpperCase();
+    const p = String(password || pass || '').trim();
 
     if (u === AUTH_USER && (p === AUTH_PASS || p.toUpperCase() === AUTH_PASS.toUpperCase())) {
         const maxAgeMs = remember ? (30 * 24 * 60 * 60 * 1000) : (24 * 60 * 60 * 1000);
         const token = generateAuthToken(u, maxAgeMs);
         res.setHeader('Set-Cookie', `${AUTH_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.floor(maxAgeMs / 1000)}`);
-        return res.json({ success: true, message: 'Autenticación exitosa' });
+        return res.json({ success: true, token, message: 'Autenticación exitosa' });
     }
 
     return res.status(401).json({ success: false, message: 'Usuario o contraseña incorrectos' });
-});
+};
+
+app.post('/api/auth/login', handleLogin);
+app.post('/api/login', handleLogin);
 
 app.get('/api/auth/check', (req, res) => {
     res.json({ authenticated: checkRequestAuth(req) });
