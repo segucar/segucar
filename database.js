@@ -270,6 +270,7 @@ addColumn('fecha_vencimiento_grucar', 'DATE');
 addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
 addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
+addColumn('cobertura', 'TEXT');
 
 // ─── Migraciones de Columnas para Clientes ──────────────────────────────────
 addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');

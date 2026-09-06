@@ -260,6 +260,7 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
                 suma_asegurada      = ?,
                 total_cuotas        = ?,
                 cuotas_historial    = ?,
+                cobertura           = ?,
                 aseguradora         = 'AGS',
                 grucar_activo       = 0
             WHERE operacion = ? AND aseguradora = 'AGS'
@@ -268,6 +269,7 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
             cronograma.fecha_vencimiento, cronograma.nro_cuota,
             cronograma.cuotas_debe, cronograma.saldo_pendiente,
             p.suma_asegurada, AGS_TOTAL_CUOTAS, cuotasHistorialJson,
+            p.cobertura || null,
             p.poliza
         );
         return { accion: 'actualizada' };
@@ -277,15 +279,15 @@ function upsertPolizaAGS(clienteId, p, pagosNoRendidosSet = null) {
                 cliente_id, operacion, vehiculo, tipo_vehiculo, patente,
                 fin_vigencia_poliza, fecha_vencimiento, nro_cuota,
                 cuotas_debe, saldo_pendiente, cuotas_historial,
-                suma_asegurada, total_cuotas,
+                suma_asegurada, total_cuotas, cobertura,
                 aseguradora, grucar_activo,
                 estado, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AGS', 0, 'vigente', datetime('now'))
         `).run(
             clienteId, p.poliza, p.vehiculo, tipoVehiculo, p.patente,
             p.fin_vigencia, cronograma.fecha_vencimiento, cronograma.nro_cuota,
             cronograma.cuotas_debe, cronograma.saldo_pendiente, cuotasHistorialJson,
-            p.suma_asegurada, AGS_TOTAL_CUOTAS
+            p.suma_asegurada, AGS_TOTAL_CUOTAS, p.cobertura || null
         );
         return { accion: 'creada' };
     }

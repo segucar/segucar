@@ -2181,7 +2181,7 @@ app.get(['/api/polizas/buscar-patente', '/api/polizas/buscar-patente/:patente'],
         }
 
         const query = `
-            SELECT p.id, p.patente, p.operacion, p.vehiculo, p.estado, p.saldo_pendiente,
+            SELECT p.id, p.patente, p.operacion, p.vehiculo, p.cobertura, p.seccion, p.estado, p.saldo_pendiente,
                    p.cuotas_debe, p.fecha_vencimiento, p.fin_vigencia_poliza, p.aseguradora,
                    c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.dni as cliente_dni
             FROM polizas p
@@ -2210,6 +2210,15 @@ app.get(['/api/polizas/buscar-patente', '/api/polizas/buscar-patente/:patente'],
         const vigente = !['anulada', 'baja'].includes(estadoNorm);
         const alDia = vigente && saldo <= 0 && cuotasDebe <= 0;
 
+        let coberturaDesc = row.cobertura ? String(row.cobertura).trim() : null;
+        if (!coberturaDesc) {
+            if (row.seccion === 36) {
+                coberturaDesc = 'RC Motovehículos';
+            } else if (row.seccion === 4) {
+                coberturaDesc = 'Responsabilidad Civil (RC)';
+            }
+        }
+
         res.json({
             encontrada: true,
             patente: row.patente,
@@ -2224,6 +2233,7 @@ app.get(['/api/polizas/buscar-patente', '/api/polizas/buscar-patente/:patente'],
                 operacion: row.operacion,
                 vehiculo: row.vehiculo,
                 aseguradora: row.aseguradora,
+                cobertura: coberturaDesc,
                 estado: row.estado,
                 vigente,
                 al_dia: alDia,
