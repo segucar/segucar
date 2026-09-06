@@ -78,6 +78,18 @@ function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhoo
   }
 }
 
+const WA_DEFAULT_N8N_API_KEY = process.env.N8N_WEBHOOK_API_KEY || 'segucar_fase01_wa_inbound_sec_2026';
+
+function resolveValidClienteId(clienteId) {
+  if (!clienteId) return null;
+  try {
+    const row = db.prepare('SELECT id FROM clientes WHERE id = ?').get(clienteId);
+    return row ? row.id : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 /**
  * Reenvía asincrónicamente los mensajes entrantes a n8n para el bot de IA
  */
@@ -92,6 +104,7 @@ async function forwardToN8n(eventData) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'x-api-key': WA_DEFAULT_N8N_API_KEY,
         'x-source': 'segucar-backend'
       },
       body: JSON.stringify(eventData)
@@ -125,13 +138,14 @@ function formatPhone(phone) {
 async function sendTextMessage(clienteId, phone, text) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
+  const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
     console.log(`[WA Simulación] Mensaje a ${formattedPhone}: "${text}"`);
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
       VALUES (?, 'saliente', ?, ?, 'texto', 'enviado')
-    `).run(clienteId, formattedPhone, text);
+    `).run(validClienteId, formattedPhone, text);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -157,7 +171,7 @@ async function sendTextMessage(clienteId, phone, text) {
       db.prepare(`
         INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data)
         VALUES (?, 'saliente', ?, ?, 'texto', 'fallido', ?)
-      `).run(clienteId, formattedPhone, text, JSON.stringify(data));
+      `).run(validClienteId, formattedPhone, text, JSON.stringify(data));
       return { ok: false, error: data.error || 'Error al enviar por 360dialog' };
     }
 
@@ -165,7 +179,7 @@ async function sendTextMessage(clienteId, phone, text) {
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
       VALUES (?, ?, 'saliente', ?, ?, 'texto', 'enviado', ?)
-    `).run(clienteId, waMsgId, formattedPhone, text, JSON.stringify(data));
+    `).run(validClienteId, waMsgId, formattedPhone, text, JSON.stringify(data));
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
@@ -180,13 +194,14 @@ async function sendTextMessage(clienteId, phone, text) {
 async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = []) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
+  const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
     console.log(`[WA Simulación Plantilla] ${templateName} a ${formattedPhone}`);
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
       VALUES (?, 'saliente', ?, ?, 'plantilla', 'enviado')
-    `).run(clienteId, formattedPhone, `[Plantilla: ${templateName}]`);
+    `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -228,7 +243,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
       db.prepare(`
         INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data)
         VALUES (?, 'saliente', ?, ?, 'plantilla', 'fallido', ?)
-      `).run(clienteId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
+      `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
       return { ok: false, error: data.meta?.developer_message || data.error?.message || data.error || 'Error al enviar plantilla' };
     }
 
@@ -236,7 +251,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
       VALUES (?, ?, 'saliente', ?, ?, 'plantilla', 'enviado', ?)
-    `).run(clienteId, waMsgId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
+    `).run(validClienteId, waMsgId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
@@ -399,13 +414,14 @@ function getConversacionesBandeja() {
 async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 'application/pdf') {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
+  const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
     console.log(`[WA Simulación Archivo] ${fileName} (${fileUrl}) a ${formattedPhone}`);
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
       VALUES (?, 'saliente', ?, ?, 'archivo', 'enviado')
-    `).run(clienteId, formattedPhone, `📎 [Archivo: ${fileName}] (${fileUrl})`);
+    `).run(validClienteId, formattedPhone, `📎 [Archivo: ${fileName}] (${fileUrl})`);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -440,7 +456,7 @@ async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
       VALUES (?, ?, 'saliente', ?, ?, 'archivo', 'enviado', ?)
-    `).run(clienteId, waMsgId, formattedPhone, `📎 ${fileName} (${fileUrl})`, JSON.stringify(data));
+    `).run(validClienteId, waMsgId, formattedPhone, `📎 ${fileName} (${fileUrl})`, JSON.stringify(data));
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
