@@ -96,7 +96,11 @@ async function forwardToN8n(eventData) {
       },
       body: JSON.stringify(eventData)
     });
-    console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status}`);
+    const respText = await res.text();
+    console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status} - ${respText}`);
+    if (!res.ok) {
+      console.warn(`⚠️ [n8n Forward Warning] n8n rechazó el mensaje (HTTP ${res.status}): ${respText}`);
+    }
   } catch (err) {
     console.error('[n8n Forward Error] Falló reenvío a n8n:', err.message);
   }
@@ -363,8 +367,8 @@ function getConversacionesBandeja() {
     const list = db.prepare(`
       SELECT 
         m.cliente_id,
-        c.nombre as cliente_nombre,
-        c.telefono as cliente_telefono,
+        COALESCE(c.nombre, 'Contacto ' || m.telefono) as cliente_nombre,
+        COALESCE(c.telefono, m.telefono) as cliente_telefono,
         m.mensaje as ultimo_mensaje,
         m.direccion as ultima_direccion,
         m.estado as ultimo_estado,
@@ -372,12 +376,13 @@ function getConversacionesBandeja() {
         (
           SELECT COUNT(*) 
           FROM mensajes_whatsapp m2 
-          WHERE m2.cliente_id = m.cliente_id AND m2.direccion = 'entrante' AND m2.estado = 'recibido'
+          WHERE ((m.cliente_id IS NOT NULL AND m2.cliente_id = m.cliente_id) OR (m.cliente_id IS NULL AND m2.telefono = m.telefono))
+            AND m2.direccion = 'entrante' AND m2.estado = 'recibido'
         ) as sin_leer
       FROM mensajes_whatsapp m
-      JOIN clientes c ON m.cliente_id = c.id
+      LEFT JOIN clientes c ON m.cliente_id = c.id
       WHERE m.id IN (
-        SELECT MAX(id) FROM mensajes_whatsapp GROUP BY cliente_id
+        SELECT MAX(id) FROM mensajes_whatsapp GROUP BY COALESCE(cliente_id, telefono)
       )
       ORDER BY m.created_at DESC
     `).all();
