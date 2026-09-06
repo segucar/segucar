@@ -2170,6 +2170,75 @@ function sanitizePatente(pat) {
     return String(pat).toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
 }
 
+// GET Buscar póliza y estado de cuenta por patente (para bot n8n y consultas rápidas)
+app.get(['/api/polizas/buscar-patente', '/api/polizas/buscar-patente/:patente'], (req, res) => {
+    try {
+        const rawPatente = req.query.patente || req.params.patente;
+        const cleanPatente = sanitizePatente(rawPatente);
+
+        if (!cleanPatente) {
+            return res.status(400).json({ encontrada: false, error: 'Parámetro patente requerido' });
+        }
+
+        const query = `
+            SELECT p.id, p.patente, p.operacion, p.vehiculo, p.estado, p.saldo_pendiente,
+                   p.cuotas_debe, p.fecha_vencimiento, p.fin_vigencia_poliza, p.aseguradora,
+                   c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.dni as cliente_dni
+            FROM polizas p
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE replace(replace(replace(UPPER(p.patente), ' ', ''), '-', ''), '.', '') = ?
+            ORDER BY 
+              CASE WHEN LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja') THEN 0 ELSE 1 END,
+              COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) DESC,
+              p.id DESC
+            LIMIT 1
+        `;
+
+        const row = db.prepare(query).get(cleanPatente);
+
+        if (!row) {
+            return res.json({
+                encontrada: false,
+                patente: cleanPatente,
+                mensaje: `No se encontró ninguna póliza registrada con la patente ${cleanPatente}`
+            });
+        }
+
+        const saldo = parseFloat(row.saldo_pendiente || 0);
+        const cuotasDebe = parseInt(row.cuotas_debe || 0);
+        const estadoNorm = (row.estado || '').toLowerCase();
+        const vigente = !['anulada', 'baja'].includes(estadoNorm);
+        const alDia = vigente && saldo <= 0 && cuotasDebe <= 0;
+
+        res.json({
+            encontrada: true,
+            patente: row.patente,
+            cliente: {
+                id: row.cliente_id,
+                nombre: row.cliente_nombre,
+                telefono: row.cliente_telefono,
+                dni: row.cliente_dni
+            },
+            poliza: {
+                id: row.id,
+                operacion: row.operacion,
+                vehiculo: row.vehiculo,
+                aseguradora: row.aseguradora,
+                estado: row.estado,
+                vigente,
+                al_dia: alDia,
+                saldo_pendiente: saldo,
+                cuotas_debe: cuotasDebe,
+                fecha_vencimiento: row.fecha_vencimiento,
+                fin_vigencia: row.fin_vigencia_poliza
+            }
+        });
+    } catch (err) {
+        console.error('[/api/polizas/buscar-patente Error]', err);
+        res.status(500).json({ encontrada: false, error: err.message });
+    }
+});
+
 app.post('/api/clientes/:id/polizas', (req, res) => {
     try {
         const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, grucar_activo } = req.body;
