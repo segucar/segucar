@@ -19,57 +19,86 @@ function getApiUrl(apiKey) {
 const WA_DEFAULT_API_KEY = process.env.D360_API_KEY || 'tu8gwTxn2pDWW71EWJXVElDfAK';
 const WA_DEFAULT_MODO = 'oficial';
 const WA_DEFAULT_WEBHOOK = 'https://segucar-kuu2.onrender.com/api/webhooks/whatsapp';
+const WA_DEFAULT_N8N_WEBHOOK = process.env.N8N_WEBHOOK_URL || '';
 
 function getConfig() {
   try {
     // Siempre garantizar que la config de producción esté cargada correctamente
     // (Render puede recrear la DB en cada redeploy con valores vacíos o de simulación)
     db.prepare(`
-      INSERT INTO config_whatsapp_api (id, proveedor, api_key, modo, webhook_url)
-      VALUES (1, '360dialog', ?, ?, ?)
+      INSERT INTO config_whatsapp_api (id, proveedor, api_key, modo, webhook_url, n8n_webhook_url)
+      VALUES (1, '360dialog', ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         modo = CASE WHEN modo IS NULL OR modo = '' OR modo = 'simulacion' THEN excluded.modo ELSE modo END,
         api_key = CASE WHEN api_key IS NULL OR api_key = '' THEN excluded.api_key ELSE api_key END,
         proveedor = '360dialog',
-        webhook_url = CASE WHEN webhook_url IS NULL OR webhook_url = '' THEN excluded.webhook_url ELSE webhook_url END
-    `).run(WA_DEFAULT_API_KEY, WA_DEFAULT_MODO, WA_DEFAULT_WEBHOOK);
+        webhook_url = CASE WHEN webhook_url IS NULL OR webhook_url = '' THEN excluded.webhook_url ELSE webhook_url END,
+        n8n_webhook_url = CASE WHEN (n8n_webhook_url IS NULL OR n8n_webhook_url = '') AND excluded.n8n_webhook_url != '' THEN excluded.n8n_webhook_url ELSE n8n_webhook_url END
+    `).run(WA_DEFAULT_API_KEY, WA_DEFAULT_MODO, WA_DEFAULT_WEBHOOK, WA_DEFAULT_N8N_WEBHOOK);
 
     const cfg = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get();
     return cfg;
   } catch (err) {
     console.error('[WA Service] Error leyendo config:', err);
-    return { modo: WA_DEFAULT_MODO, api_key: WA_DEFAULT_API_KEY, proveedor: '360dialog' };
+    return { modo: WA_DEFAULT_MODO, api_key: WA_DEFAULT_API_KEY, proveedor: '360dialog', n8n_webhook_url: WA_DEFAULT_N8N_WEBHOOK };
   }
 }
 
 /**
- * Guarda la configuración de la API (API Key, modo, etc.)
+ * Guarda la configuración de la API (API Key, modo, n8n webhook, etc.)
  */
-function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhook_url }) {
+function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url }) {
   try {
+    const existing = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get() || {};
     db.prepare(`
-      INSERT INTO config_whatsapp_api (id, proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, updated_at)
-      VALUES (1, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO config_whatsapp_api (id, proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url, updated_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET
-        proveedor = excluded.proveedor,
-        api_key = excluded.api_key,
-        waba_id = excluded.waba_id,
-        phone_number_id = excluded.phone_number_id,
-        modo = excluded.modo,
-        webhook_url = excluded.webhook_url,
+        proveedor = COALESCE(excluded.proveedor, proveedor),
+        api_key = COALESCE(excluded.api_key, api_key),
+        waba_id = COALESCE(excluded.waba_id, waba_id),
+        phone_number_id = COALESCE(excluded.phone_number_id, phone_number_id),
+        modo = COALESCE(excluded.modo, modo),
+        webhook_url = COALESCE(excluded.webhook_url, webhook_url),
+        n8n_webhook_url = COALESCE(excluded.n8n_webhook_url, n8n_webhook_url),
         updated_at = CURRENT_TIMESTAMP
     `).run(
-      proveedor || '360dialog',
-      api_key || '',
-      waba_id || '',
-      phone_number_id || '',
-      modo || 'simulacion',
-      webhook_url || ''
+      proveedor || existing.proveedor || '360dialog',
+      api_key !== undefined ? api_key : (existing.api_key || ''),
+      waba_id !== undefined ? waba_id : (existing.waba_id || ''),
+      phone_number_id !== undefined ? phone_number_id : (existing.phone_number_id || ''),
+      modo || existing.modo || 'simulacion',
+      webhook_url !== undefined ? webhook_url : (existing.webhook_url || ''),
+      n8n_webhook_url !== undefined ? n8n_webhook_url : (existing.n8n_webhook_url || '')
     );
     return { ok: true };
   } catch (err) {
     console.error('[WA Service] Error guardando config:', err);
     return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Reenvía asincrónicamente los mensajes entrantes a n8n para el bot de IA
+ */
+async function forwardToN8n(eventData) {
+  try {
+    const cfg = getConfig();
+    const n8nUrl = (process.env.N8N_WEBHOOK_URL || cfg.n8n_webhook_url || '').trim();
+    if (!n8nUrl) return;
+
+    console.log(`[n8n Forward] Reenviando mensaje entrante a n8n: ${n8nUrl}`);
+    const res = await fetch(n8nUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-source': 'segucar-backend'
+      },
+      body: JSON.stringify(eventData)
+    });
+    console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status}`);
+  } catch (err) {
+    console.error('[n8n Forward Error] Falló reenvío a n8n:', err.message);
   }
 }
 
@@ -247,24 +276,28 @@ function processWebhookPayload(payload) {
         const fromPhone = formatPhone(msg.from);
         const waMsgId = msg.id;
         let textContent = '';
+        let mediaId = null;
 
         if (msg.type === 'text' && msg.text) {
           textContent = msg.text.body;
         } else if (msg.type === 'image' && msg.image) {
           const caption = msg.image.caption ? ` ${msg.image.caption}` : '';
-          const mediaId = msg.image.id || '';
+          mediaId = msg.image.id || '';
           textContent = `📷 [Imagen recibida:${mediaId}]${caption}`;
         } else if (msg.type === 'document' && msg.document) {
-          const mediaId = msg.document.id || '';
+          mediaId = msg.document.id || '';
           const fileName = msg.document.filename || 'Comprobante.pdf';
           textContent = `📄 [Documento:${mediaId}:${fileName}]`;
+        } else if ((msg.type === 'audio' || msg.type === 'voice') && (msg.audio || msg.voice)) {
+          mediaId = (msg.audio && msg.audio.id) || (msg.voice && msg.voice.id) || '';
+          textContent = `🎤 [Audio recibido:${mediaId}]`;
         } else {
           textContent = `[Mensaje tipo: ${msg.type}]`;
         }
 
         // Buscar cliente por teléfono
         const cliente = db.prepare(`
-          SELECT id FROM clientes 
+          SELECT id, nombre, dni FROM clientes 
           WHERE replace(replace(replace(telefono, ' ', ''), '+', ''), '-', '') LIKE ?
           LIMIT 1
         `).get(`%${fromPhone.slice(-8)}%`);
@@ -277,6 +310,22 @@ function processWebhookPayload(payload) {
         `).run(clienteId, waMsgId, fromPhone, textContent, msg.type || 'texto', JSON.stringify(msg));
 
         console.log(`[WA Entrante] De ${fromPhone} (Cliente ${clienteId || 'Desconocido'}): "${textContent}"`);
+
+        // Reenviar asincrónicamente a n8n para el bot de IA / automatización
+        forwardToN8n({
+          event: 'incoming_message',
+          cliente_id: clienteId,
+          cliente_nombre: cliente ? cliente.nombre : null,
+          cliente_dni: cliente ? cliente.dni : null,
+          telefono: fromPhone,
+          mensaje: textContent,
+          tipo: msg.type || 'texto',
+          wa_message_id: waMsgId,
+          media_id: mediaId,
+          media_url: mediaId ? `https://segucar-kuu2.onrender.com/api/whatsapp/media/${mediaId}` : null,
+          timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
+          raw_message: msg
+        }).catch(err => console.error('[n8n Forward Catch]', err.message));
       });
     }
 
@@ -403,6 +452,7 @@ module.exports = {
   sendTemplateMessage,
   sendMediaMessage,
   processWebhookPayload,
+  forwardToN8n,
   getChatHistory,
   getConversacionesBandeja
 };

@@ -188,6 +188,7 @@ db.exec(`
         phone_number_id TEXT DEFAULT '',
         modo TEXT DEFAULT 'simulacion', -- 'simulacion' (web.whatsapp fallback) | 'oficial' (360dialog API)
         webhook_url TEXT DEFAULT '',
+        n8n_webhook_url TEXT DEFAULT '',
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -248,6 +249,15 @@ const addColumnClientes = (colName, colDef) => {
         // Ignorar si la columna ya existe
     }
 };
+const addColumnConfigWa = (colName, colDef) => {
+    try {
+        db.exec(`ALTER TABLE config_whatsapp_api ADD COLUMN ${colName} ${colDef}`);
+    } catch (e) {
+        // Ignorar si la columna ya existe
+    }
+};
+
+addColumnConfigWa('n8n_webhook_url', "TEXT DEFAULT ''");
 
 addColumnClientes('origen', "TEXT DEFAULT 'NRE'");
 addColumnCuotas('pdf_nre_url', 'TEXT');
