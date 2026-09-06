@@ -294,6 +294,36 @@ function processWebhookPayload(payload) {
       value.messages.forEach(msg => {
         const fromPhone = formatPhone(msg.from);
         const waMsgId = msg.id;
+
+        // Caso especial 1: Mensaje Editado por el usuario en WhatsApp
+        if (msg.type === 'edit' && msg.edit) {
+          const origId = msg.edit.original_message_id;
+          const editedText = msg.edit.message?.text?.body || msg.edit.text?.body || '';
+
+          console.log(`[WA Edición] Mensaje original ${origId} de ${fromPhone} editado a: "${editedText}"`);
+
+          if (origId && editedText) {
+            try {
+              db.prepare(`
+                UPDATE mensajes_whatsapp
+                SET mensaje = ?, meta_data = ?
+                WHERE wa_message_id = ?
+              `).run(editedText, JSON.stringify(msg), origId);
+            } catch (editErr) {
+              console.error('[WA Edición Error]', editErr.message);
+            }
+          }
+
+          // No reenviar al bot de n8n para no generar respuestas duplicadas
+          return;
+        }
+
+        // Caso especial 2: Reacciones con emojis (👍, ❤️, etc.)
+        if (msg.type === 'reaction') {
+          console.log(`[WA Reacción] De ${fromPhone}: ${msg.reaction?.emoji || 'emoji'}`);
+          return;
+        }
+
         let textContent = '';
         let mediaId = null;
 
