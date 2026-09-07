@@ -372,7 +372,7 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
         const hStr = `${String(hDate.getDate()).padStart(2, '0')}/${String(hDate.getMonth() + 1).padStart(2, '0')}/${hDate.getFullYear()}`;
 
         const queryParams = new URLSearchParams({
-            orga: '7',
+            orga: '9902073',
             marca: String(marcaObj.val),
             anio: String(anio),
             modelo: String(modeloObj.val),
@@ -478,8 +478,8 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
 
         planes.sort((a, b) => a.cuota_mensual - b.cuota_mensual);
 
-        // ─── REGLA DE SUSCRIPCIÓN NRE: TOPE DE SUMA ASEGURADA PARA CASCO ($15.000.000) ───
-        const MAX_SUMA_NRE_CASCO = 15000000;
+        // ─── REGLA DE SUSCRIPCIÓN NRE: TOPE DE SUMA ASEGURADA PARA CASCO ($20.000.000) ───
+        const MAX_SUMA_NRE_CASCO = 20000000;
         const superaTopeCasco = sumaAsegurada > MAX_SUMA_NRE_CASCO;
         
         let planesFinales = planes;
@@ -491,7 +491,7 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
             cascoDisponibleNRE = false;
             // En NRE solo se puede emitir Responsabilidad Civil (Plan A) si supera el tope
             planesFinales = planes.filter(p => p.codigo === 'A');
-            cascoObservacion = `La suma asegurada ($ ${sumaAsegurada.toLocaleString('es-AR')}) supera el tope máximo de suscripción de Casco en NRE ($ 15.000.000). En NRE únicamente se encuentra disponible Responsabilidad Civil (Plan A). Para coberturas de Casco (Robo, Incendio, Terceros Completo o Todo Riesgo), el vehículo se cotiza por Agrosalta (AGS) o asesor comercial.`;
+            cascoObservacion = `La suma asegurada ($ ${sumaAsegurada.toLocaleString('es-AR')}) supera el tope máximo de suscripción de Casco en NRE ($ 20.000.000). En NRE únicamente se encuentra disponible Responsabilidad Civil (Plan A). Para coberturas de Casco (Robo, Incendio, Terceros Completo o Todo Riesgo), el vehículo se cotiza por Agrosalta (AGS) o asesor comercial.`;
             sugerenciaAseguradoraCasco = 'AGS';
         }
 

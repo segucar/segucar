@@ -30,7 +30,7 @@ async function runCotizadorTests() {
         console.error('❌ TEST 1 ERROR:', e.message);
     }
 
-    // ── TEST 2: Cotización en Vivo con Casco Disponible (Suma <= $15M) ────────
+    // ── TEST 2: Cotización en Vivo con Casco Disponible (Suma <= $20M) ────────
     try {
         console.log('🔄 Ejecutando cotización en vivo para Fiat Uno 2012 (CP 7600)...');
         db.prepare("DELETE FROM cotizaciones_cache WHERE cache_key LIKE 'FIAT_UNO%'").run();
@@ -48,20 +48,21 @@ async function runCotizadorTests() {
             resLive.casco_disponible_nre === true &&
             resLive.planes &&
             resLive.planes.length >= 4 &&
+            resLive.planes[0].cuota_mensual === 18456 &&
             resLive.vehiculo &&
-            resLive.vehiculo.suma_asegurada <= 15000000 &&
+            resLive.vehiculo.suma_asegurada <= 20000000 &&
             resLive.origen === 'nre_live'
         ) {
-            console.log(`✅ TEST 2 PASSED -> Cotización con Casco (SA <= $15M): Suma ${resLive.vehiculo.suma_asegurada_formato}, ${resLive.planes.length} planes disponibles (RC: ${resLive.planes[0].cuota_formato}, B1: ${resLive.planes[1].cuota_formato}).`);
+            console.log(`✅ TEST 2 PASSED -> Cotización con Casco (SA <= $20M): Suma ${resLive.vehiculo.suma_asegurada_formato}, ${resLive.planes.length} planes disponibles (RC: ${resLive.planes[0].cuota_formato}, B1: ${resLive.planes[1].cuota_formato}).`);
             passed++;
         } else {
-            console.error('❌ TEST 2 FAILED -> Inconsistencia en cotización <= $15M:', resLive);
+            console.error('❌ TEST 2 FAILED -> Inconsistencia en cotización <= $20M:', resLive);
         }
     } catch (e) {
         console.error('❌ TEST 2 ERROR:', e.message);
     }
 
-    // ── TEST 3: Regla de Tope de Suscripción NRE (Suma > $15M -> Solo Plan A + AGS) ─
+    // ── TEST 3: Regla de Tope de Suscripción NRE (Suma > $20M -> Solo Plan A + AGS) ─
     try {
         console.log('🔄 Ejecutando cotización en vivo para Renault Sandero Stepway 2023 (CP 5000)...');
         db.prepare("DELETE FROM cotizaciones_cache WHERE cache_key LIKE 'RENAULT_SANDERO%'").run();
@@ -81,13 +82,14 @@ async function runCotizadorTests() {
             resTope.planes &&
             resTope.planes.length === 1 &&
             resTope.planes[0].codigo === 'A' &&
-            resTope.vehiculo.suma_asegurada > 15000000 &&
+            resTope.planes[0].cuota_mensual === 18456 &&
+            resTope.vehiculo.suma_asegurada > 20000000 &&
             resTope.casco_observacion
         ) {
-            console.log(`✅ TEST 3 PASSED -> Regla Tope NRE ($15M): Suma ${resTope.vehiculo.suma_asegurada_formato} > $15M -> Solo Plan A devuelto (${resTope.planes[0].cuota_formato}) y Casco derivado a AGS.`);
+            console.log(`✅ TEST 3 PASSED -> Regla Tope NRE ($20M): Suma ${resTope.vehiculo.suma_asegurada_formato} > $20M -> Solo Plan A devuelto (${resTope.planes[0].cuota_formato}) y Casco derivado a AGS.`);
             passed++;
         } else {
-            console.error('❌ TEST 3 FAILED -> Falló regla de tope $15M en NRE:', resTope);
+            console.error('❌ TEST 3 FAILED -> Falló regla de tope $20M en NRE:', resTope);
         }
     } catch (e) {
         console.error('❌ TEST 3 ERROR:', e.message);
