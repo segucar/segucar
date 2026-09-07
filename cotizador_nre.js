@@ -418,14 +418,18 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
             return armarRespuestaFallback(marcaInput, modeloInput, anioInput, codp, 'nre_sin_planes_disponibles');
         }
 
-        // Parsea planes y cuotas desde el contenido de emimuestro.php
+        // Parsea los 7 planes y cuotas desde el contenido de emimuestro.php usando Cheerio
         const planes = [];
-        const regexPlan = /Cobertura:\s*([A-Za-z0-9\s]+?)\s*(?:Suma:\s*\$\s*[\d.,]+|Sin Suma)?\s*Costo mensual\s*:\s*\$\s*([\d.,]+)/gi;
-        let match;
+        $muestro('.panel-info').each((i, el) => {
+            const rawHeading = $muestro(el).find('.panel-heading').text().replace(/\s+/g, ' ').trim();
+            const rawBody = $muestro(el).find('.panel-body').text().replace(/\s+/g, ' ').trim();
+            if (rawHeading.includes('Cotización') || !rawBody.includes('Costo mensual')) return;
 
-        while ((match = regexPlan.exec(rawText)) !== null) {
-            const rawNombre = match[1].trim();
-            const cuotaNum = parsePrecioNRE(match[2]);
+            const matchCosto = rawBody.match(/Costo mensual\s*:\s*\$\s*([\d.,]+)/i);
+            if (!matchCosto) return;
+
+            const cuotaNum = parsePrecioNRE(matchCosto[1]);
+            const rawNombre = rawHeading.replace(/^Cobertura:\s*/i, '').trim();
 
             let codigo = 'OTRO';
             let descripcion = 'Cobertura aseguradora Triunvirato';
@@ -470,7 +474,7 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
                     cuota_formato: formatPesos(cuotaNum)
                 });
             }
-        }
+        });
 
         if (planes.length === 0) {
             return armarRespuestaFallback(marcaInput, modeloInput, anioInput, codp, 'parseo_planes_vacio');
