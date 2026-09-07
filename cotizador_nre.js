@@ -478,6 +478,30 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
 
         planes.sort((a, b) => a.cuota_mensual - b.cuota_mensual);
 
+        // ─── REGLA DE SUSCRIPCIÓN NRE: TOPE DE SUMA ASEGURADA PARA CASCO ($15.000.000) ───
+        const MAX_SUMA_NRE_CASCO = 15000000;
+        const superaTopeCasco = sumaAsegurada > MAX_SUMA_NRE_CASCO;
+        
+        let planesFinales = planes;
+        let cascoDisponibleNRE = true;
+        let cascoObservacion = null;
+        let sugerenciaAseguradoraCasco = 'NRE';
+
+        if (superaTopeCasco) {
+            cascoDisponibleNRE = false;
+            // En NRE solo se puede emitir Responsabilidad Civil (Plan A) si supera el tope
+            planesFinales = planes.filter(p => p.codigo === 'A');
+            cascoObservacion = `La suma asegurada ($ ${sumaAsegurada.toLocaleString('es-AR')}) supera el tope máximo de suscripción de Casco en NRE ($ 15.000.000). En NRE únicamente se encuentra disponible Responsabilidad Civil (Plan A). Para coberturas de Casco (Robo, Incendio, Terceros Completo o Todo Riesgo), el vehículo se cotiza por Agrosalta (AGS) o asesor comercial.`;
+            sugerenciaAseguradoraCasco = 'AGS';
+        }
+
+        // Resolución de localidad amigable según CP
+        let localidadDesc = 'Buenos Aires / Interior';
+        if (codp === '7600') localidadDesc = 'Mar del Plata';
+        else if (codp === '1900') localidadDesc = 'La Plata';
+        else if (codp === '5000') localidadDesc = 'Córdoba';
+        else if (codp === '7630') localidadDesc = 'Necochea';
+
         return {
             ok: true,
             fallback_humano: false,
@@ -486,11 +510,15 @@ async function cotizarEnNRE(marcaInput, modeloInput, anioInput, codpInput, usoIn
                 modelo: modeloObj.text.trim(),
                 anio: anio,
                 codp: codp,
-                localidad: codp === '7600' ? 'Mar del Plata' : (codp === '1900' ? 'La Plata' : 'Buenos Aires / Interior'),
+                localidad: localidadDesc,
                 suma_asegurada: sumaAsegurada,
                 suma_asegurada_formato: formatPesos(sumaAsegurada)
             },
-            planes,
+            casco_disponible_nre: cascoDisponibleNRE,
+            limite_suma_casco_nre: MAX_SUMA_NRE_CASCO,
+            casco_observacion: cascoObservacion || undefined,
+            sugerencia_aseguradora_casco: sugerenciaAseguradoraCasco,
+            planes: planesFinales,
             origen: 'nre_live',
             timestamp: new Date().toISOString()
         };
