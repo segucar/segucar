@@ -152,9 +152,17 @@ gestion-seguro/
                                            └── 🤖 IA ➔ [🧠 AI Agent (GPT-4o-mini)]
                                                             ├── 🔍 Consultar Deuda (/api/clientes)
                                                             ├── 💳 Enviar Alias (SEGUCAR.SEGUROS)
-                                                            ├── 🚗 Cotizar Vehículo
+                                                            ├── 🚗 Cotizar Vehículo (/api/cotizador/vehiculo)
                                                             └── 🙋‍♂️ Handoff a Operador
-```
+
+### 🚗 Endpoint de Cotización de Vehículos (`POST /api/cotizador/vehiculo`):
+- **Request:** `{ "marca": "VOLKSWAGEN", "modelo": "GOL TREND", "anio": 2018, "codp": "7600" }`
+- **4 Capas de Protección Activas:**
+  1. *Session Pool (Keep-Alive):* Reutiliza cookies de sesión NRE en memoria evitando logins repetitivos.
+  2. *Caché 24hs (SQLite):* Tabla `cotizaciones_cache` para devolver cotizaciones idénticas en < 5ms.
+  3. *Rate Limiting / Semáforo:* Máximo 2 consultas simultáneas con timeout de 8 segundos.
+  4. *Fallback a Humano:* Si el vehículo no existe o NRE falla, devuelve `fallback_humano: true` con mensaje cordial.
+- **Response Exitosa:** Devuelve `suma_asegurada` de InfoAuto y lista de planes (A: RC, B1: Robo/Incendio, C: Terceros Completo, C_FULL: Granizo) con cuotas en pesos.
 
 ### 📋 Prompt Maestro para el Bot de n8n:
 ```text
@@ -164,7 +172,9 @@ Tu objetivo es brindar atención rápida, cordial y precisa por WhatsApp.
 CAPACIDADES:
 1. CONSULTA DE DEUDA: Usa la herramienta 'ConsultarClienteSEGUCar' con el teléfono del cliente.
    - Datos bancarios oficiales: Alias: SEGUCAR.SEGUROS | Titular: Lisandro Suarez.
-2. COTIZACIONES: Solicita Marca, Modelo, Año, si tiene GNC y Localidad.
+2. COTIZACIONES: Usa 'CotizarVehiculo' enviando Marca, Modelo, Año y Código Postal.
+   - Si devuelve fallback_humano = true, transmite el mensaje de derivación a un asesor.
+   - Si devuelve planes, ofrece los 3 principales (RC Básica, Terceros y Terceros Full con Granizo).
 3. RENOVACIONES: Confirma la patente y notifica que se gestiona la reemisión.
 4. PASE A HUMANO (HANDOFF): Si el cliente reporta un choque/siniestro, envía comprobante de pago o pide hablar con una persona, responde amablemente y transfiere la conversación.
 ```

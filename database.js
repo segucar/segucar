@@ -192,6 +192,21 @@ db.exec(`
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 🚗 TABLA: Caché de Cotizaciones de Vehículos (TTL 24hs)
+    CREATE TABLE IF NOT EXISTS cotizaciones_cache (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cache_key TEXT UNIQUE,
+        marca TEXT,
+        modelo TEXT,
+        anio INTEGER,
+        codp TEXT,
+        resultado_json TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_key ON cotizaciones_cache(cache_key);
+    CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_created ON cotizaciones_cache(created_at);
+
     CREATE INDEX IF NOT EXISTS idx_polizas_cliente_id ON polizas(cliente_id);
     CREATE INDEX IF NOT EXISTS idx_polizas_operacion ON polizas(operacion);
     CREATE INDEX IF NOT EXISTS idx_polizas_patente ON polizas(patente);

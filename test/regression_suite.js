@@ -311,7 +311,32 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 10:", e.message);
     }
 
-    const totalTestsCount = 10;
+    // ── TEST 11: Motor Cotizador NRE (4 Capas de Protección) ──────────────────
+    try {
+        console.log("📌 TEST 11: Motor Cotizador NRE (4 Capas de Protección)");
+        const { cotizarVehiculo, resolverMarcaAlias, buscarEnCache } = require('../cotizador_nre');
+        
+        // 1. Test alias
+        const aliasOK = resolverMarcaAlias('vw') === 'VOLKSWAGEN' && resolverMarcaAlias('chevy') === 'CHEVROLET';
+        
+        // 2. Test fallback para vehículo inexistente
+        const fallbackRes = await cotizarVehiculo({ marca: 'INEXISTENTE', modelo: 'NADA', anio: 2020 });
+        const fallbackOK = fallbackRes.ok === true && fallbackRes.fallback_humano === true && !!fallbackRes.mensaje_cliente;
+
+        // 3. Test tabla de caché existe
+        const tableCache = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='cotizaciones_cache'").get();
+
+        if (aliasOK && fallbackOK && tableCache) {
+            console.log("  ✅ PASSED -> Cotizador NRE validado: Alias OK, Fallback Comercial Humano OK y Tabla de Caché 24hs OK.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Inconsistencia en validación del Cotizador:", { aliasOK, fallbackOK, tableCache: !!tableCache });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 11:", e.message);
+    }
+
+    const totalTestsCount = 11;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

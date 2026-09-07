@@ -9,6 +9,7 @@ const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
 const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
 const { syncAGS } = require('./sync_ags');
+const { cotizarVehiculo } = require('./cotizador_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
 const waService = require('./whatsapp_service');
 
@@ -90,7 +91,7 @@ const crypto = require('crypto');
 const AUTH_USER = (process.env.ADMIN_USER || 'SUA').trim().toUpperCase();
 const AUTH_PASS = (process.env.ADMIN_PASS || 'SUA').trim();
 const AUTH_SECRET = process.env.AUTH_SECRET || 'segucar-auth-secret-sua-2026-secure';
-const BOT_API_KEY = (process.env.BOT_API_KEY || 'segucar_bot_8am_n8n_sec_2026').trim();
+const BOT_API_KEY = (process.env.BOT_API_KEY || '').trim();
 const AUTH_COOKIE_NAME = 'segucar_auth_token';
 
 function parseCookies(cookieHeader) {
@@ -148,8 +149,8 @@ function checkRequestAuth(req) {
     }
 
     if (
-        (apiKey && (apiKey === BOT_API_KEY || apiKey === AUTH_SECRET || apiKey.trim().toUpperCase() === AUTH_USER)) ||
-        (bearerToken && (bearerToken === BOT_API_KEY || bearerToken === AUTH_SECRET))
+        (apiKey && ((BOT_API_KEY && apiKey === BOT_API_KEY) || apiKey === AUTH_SECRET || apiKey.trim().toUpperCase() === AUTH_USER)) ||
+        (bearerToken && ((BOT_API_KEY && bearerToken === BOT_API_KEY) || bearerToken === AUTH_SECRET))
     ) {
         return true;
     }
@@ -2565,6 +2566,42 @@ app.post('/api/scrape-telefonos', async (req, res) => {
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+//  COTIZADOR DE VEHÍCULOS (NRE LIVE + CACHÉ 24HS + FALLBACK A HUMANO)
+// ═══════════════════════════════════════════════════════════════════════════
+
+app.post('/api/cotizador/vehiculo', async (req, res) => {
+    try {
+        const { marca, modelo, anio, codp, uso, telefono } = req.body || {};
+        if (!marca || !modelo || !anio) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Parámetros obligatorios faltantes: marca, modelo y anio.'
+            });
+        }
+
+        const resultado = await cotizarVehiculo({
+            marca,
+            modelo,
+            anio,
+            codp: codp || '7600',
+            uso: uso || 1
+        });
+
+        console.log(`🚗 [Cotizador API] ${marca} ${modelo} (${anio}) CP:${codp || '7600'} -> Fallback: ${!!resultado.fallback_humano} | Origen: ${resultado.origen || 'fallback'}`);
+
+        res.json(resultado);
+    } catch (error) {
+        console.error('❌ Error en /api/cotizador/vehiculo:', error);
+        res.status(500).json({
+            ok: true,
+            fallback_humano: true,
+            mensaje_cliente: '¡Perfecto! Ya le transferí los datos de tu vehículo a un asesor comercial para confirmarte la mejor cotización bonificada personalizada.',
+            motivo: 'error_interno_servidor'
+        });
     }
 });
 
