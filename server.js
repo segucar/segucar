@@ -2846,12 +2846,22 @@ app.post('/api/whatsapp/preflight', (req, res) => {
 });
 
 app.post('/api/whatsapp/enviar', async (req, res) => {
-
     try {
-        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente } = req.body;
-        console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, poliza_operacion, poliza_patente });
+        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente, origen: explicitOrigen } = req.body;
+        console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, poliza_operacion, poliza_patente, explicitOrigen });
         
         if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
+
+        // Determinar si la petición proviene de un operador humano del CRM o del Bot automatizado
+        const hasBotKey = (req.headers['x-api-key'] || req.headers['x-crm-api-key'] || '').trim();
+        const isBot = explicitOrigen === 'bot' || (!explicitOrigen && hasBotKey === 'segucar_bot_8am_n8n_sec_2026');
+        const origen = explicitOrigen || (isBot ? 'bot' : 'humano_crm');
+        const autor = isBot ? 'bot' : 'humano';
+
+        // Si es intervención humana desde el CRM, auto-silenciar el bot para este teléfono (24h)
+        if (!isBot && telefono) {
+            waService.silenciarBot(telefono, { horas: 24, motivo: 'intervencion_humano_crm', clienteId: cliente_id, autor: 'humano' });
+        }
 
         let result;
         if (tipo_plantilla) {
@@ -2875,10 +2885,10 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
             }
 
             console.log(`[/api/whatsapp/enviar] Sending HSM template: "${tipo_plantilla}" to ${telefono} with params:`, templateParams);
-            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es_AR', templateParams);
+            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es_AR', templateParams, { origen, autor });
         } else {
-            console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono}`);
-            result = await waService.sendTextMessage(cliente_id, telefono, mensaje);
+            console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono} (Origen: ${origen})`);
+            result = await waService.sendTextMessage(cliente_id, telefono, mensaje, { origen, autor });
         }
 
         if (result && result.ok) {
@@ -2937,18 +2947,61 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
 const uploadWaMedia = multer({ dest: path.join(__dirname, 'public', 'uploads') });
 app.post('/api/whatsapp/enviar-media', uploadWaMedia.single('archivo'), async (req, res) => {
     try {
-        const { cliente_id, telefono } = req.body;
+        const { cliente_id, telefono, origen: explicitOrigen } = req.body;
         if (!req.file) return res.status(400).json({ error: 'Archivo no proporcionado' });
+
+        const hasBotKey = (req.headers['x-api-key'] || req.headers['x-crm-api-key'] || '').trim();
+        const isBot = explicitOrigen === 'bot' || (!explicitOrigen && hasBotKey === 'segucar_bot_8am_n8n_sec_2026');
+        const origen = explicitOrigen || (isBot ? 'bot' : 'humano_crm');
+        const autor = isBot ? 'bot' : 'humano';
+
+        if (!isBot && telefono) {
+            waService.silenciarBot(telefono, { horas: 24, motivo: 'intervencion_humano_crm', clienteId: cliente_id, autor: 'humano' });
+        }
 
         const origin = req.protocol + '://' + req.get('host');
         const fileUrl = `${origin}/uploads/${req.file.filename}`;
         const fileName = req.file.originalname;
         const mimeType = req.file.mimetype;
 
-        const result = await waService.sendMediaMessage(cliente_id, telefono, fileUrl, fileName, mimeType);
+        const result = await waService.sendMediaMessage(cliente_id, telefono, fileUrl, fileName, mimeType, { origen, autor });
         res.json(result);
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── RUTAS DE GESTIÓN DEL BOT (ESTADO, PAUSAR Y ACTIVAR) ────────────────────
+app.get('/api/whatsapp/conversacion/:telefono/estado', (req, res) => {
+    try {
+        const { telefono } = req.params;
+        if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
+        const estado = waService.getEstadoBot(telefono);
+        res.json({ ok: true, ...estado });
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+app.post('/api/whatsapp/conversacion/pausar-bot', (req, res) => {
+    try {
+        const { telefono, horas = 24, motivo = 'manual_ui', cliente_id } = req.body;
+        if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
+        const result = waService.silenciarBot(telefono, { horas: Number(horas) || 24, motivo, clienteId: cliente_id, autor: 'humano' });
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+app.post('/api/whatsapp/conversacion/activar-bot', (req, res) => {
+    try {
+        const { telefono } = req.body;
+        if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
+        const result = waService.activarBot(telefono);
+        res.json(result);
+    } catch (err) {
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 

@@ -132,20 +132,163 @@ function formatPhone(phone) {
   return str.startsWith('54') ? str : '54' + str;
 }
 
+function parseDbDate(dateStr) {
+  if (!dateStr) return null;
+  if (dateStr instanceof Date) return dateStr;
+  const str = String(dateStr).trim();
+  if (str.endsWith('Z') || str.includes('T')) {
+    return new Date(str);
+  }
+  // Formato SQLite "YYYY-MM-DD HH:mm:ss" es UTC
+  return new Date(str.replace(' ', 'T') + 'Z');
+}
+
+/**
+ * Obtiene el estado actual del bot para un número de teléfono.
+ * Evalúa automáticamente si el tiempo de silencio ya expiró.
+ */
+function getEstadoBot(phone) {
+  const formattedPhone = formatPhone(phone);
+  if (!formattedPhone) return { bot_activo: true, estado_bot: 'activo' };
+
+  try {
+    const row = db.prepare(`
+      SELECT telefono, cliente_id, estado_bot, silenciado_hasta, motivo, ultimo_autor, updated_at
+      FROM conversaciones_estado_bot
+      WHERE telefono = ?
+    `).get(formattedPhone);
+
+    if (!row) {
+      return {
+        telefono: formattedPhone,
+        bot_activo: true,
+        estado_bot: 'activo',
+        silenciado_hasta: null,
+        motivo: null,
+        ultimo_autor: null
+      };
+    }
+
+    // Evaluar si el silencio expiró
+    if (row.estado_bot === 'silenciado') {
+      if (row.silenciado_hasta) {
+        const parsedDate = parseDbDate(row.silenciado_hasta);
+        const expiresAt = parsedDate ? parsedDate.getTime() : 0;
+        const now = Date.now();
+        if (now >= expiresAt) {
+          // Expiró: reactivar automáticamente
+          db.prepare(`
+            UPDATE conversaciones_estado_bot
+            SET estado_bot = 'activo', silenciado_hasta = NULL, motivo = 'expiracion_silencio', updated_at = CURRENT_TIMESTAMP
+            WHERE telefono = ?
+          `).run(formattedPhone);
+
+          return {
+            telefono: formattedPhone,
+            bot_activo: true,
+            estado_bot: 'activo',
+            silenciado_hasta: null,
+            motivo: 'expiracion_silencio',
+            ultimo_autor: row.ultimo_autor
+          };
+        }
+      }
+      return {
+        telefono: formattedPhone,
+        bot_activo: false,
+        estado_bot: 'silenciado',
+        silenciado_hasta: row.silenciado_hasta,
+        motivo: row.motivo,
+        ultimo_autor: row.ultimo_autor
+      };
+    }
+
+    return {
+      telefono: formattedPhone,
+      bot_activo: true,
+      estado_bot: row.estado_bot || 'activo',
+      silenciado_hasta: null,
+      motivo: row.motivo,
+      ultimo_autor: row.ultimo_autor
+    };
+  } catch (err) {
+    console.error('[WA getEstadoBot Error]', err.message);
+    return { bot_activo: true, estado_bot: 'activo' };
+  }
+}
+
+/**
+ * Silencia el bot para una conversación por N horas (default 24h)
+ */
+function silenciarBot(phone, { horas = 24, motivo = 'intervencion_humano_crm', clienteId = null, autor = 'humano' } = {}) {
+  const formattedPhone = formatPhone(phone);
+  if (!formattedPhone) return { ok: false, error: 'Teléfono inválido' };
+
+  try {
+    const validClienteId = resolveValidClienteId(clienteId);
+    const expiresAt = new Date(Date.now() + horas * 3600 * 1000).toISOString();
+
+    db.prepare(`
+      INSERT INTO conversaciones_estado_bot (telefono, cliente_id, estado_bot, silenciado_hasta, motivo, ultimo_autor, updated_at)
+      VALUES (?, ?, 'silenciado', ?, ?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(telefono) DO UPDATE SET
+        cliente_id = COALESCE(excluded.cliente_id, cliente_id),
+        estado_bot = 'silenciado',
+        silenciado_hasta = excluded.silenciado_hasta,
+        motivo = excluded.motivo,
+        ultimo_autor = excluded.ultimo_autor,
+        updated_at = CURRENT_TIMESTAMP
+    `).run(formattedPhone, validClienteId, expiresAt, motivo, autor);
+
+    console.log(`[WA Bot State] ⏸️ Bot silenciado para ${formattedPhone} por ${horas}hs (Hasta ${expiresAt}) | Motivo: ${motivo}`);
+    return { ok: true, telefono: formattedPhone, estado_bot: 'silenciado', silenciado_hasta: expiresAt, motivo };
+  } catch (err) {
+    console.error('[WA silenciarBot Error]', err);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Reactiva el bot inmediatamente para un número
+ */
+function activarBot(phone) {
+  const formattedPhone = formatPhone(phone);
+  if (!formattedPhone) return { ok: false, error: 'Teléfono inválido' };
+
+  try {
+    db.prepare(`
+      INSERT INTO conversaciones_estado_bot (telefono, estado_bot, silenciado_hasta, motivo, ultimo_autor, updated_at)
+      VALUES (?, 'activo', NULL, 'reactivado_manual', 'humano', CURRENT_TIMESTAMP)
+      ON CONFLICT(telefono) DO UPDATE SET
+        estado_bot = 'activo',
+        silenciado_hasta = NULL,
+        motivo = 'reactivado_manual',
+        ultimo_autor = 'humano',
+        updated_at = CURRENT_TIMESTAMP
+    `).run(formattedPhone);
+
+    console.log(`[WA Bot State] ▶️ Bot reactivado para ${formattedPhone}`);
+    return { ok: true, telefono: formattedPhone, estado_bot: 'activo' };
+  } catch (err) {
+    console.error('[WA activarBot Error]', err);
+    return { ok: false, error: err.message };
+  }
+}
+
 /**
  * Envía un mensaje de texto libre a través de 360dialog API (dentro de ventana de 24hs)
  */
-async function sendTextMessage(clienteId, phone, text) {
+async function sendTextMessage(clienteId, phone, text, { origen = 'bot', autor = null } = {}) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
   const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
-    console.log(`[WA Simulación] Mensaje a ${formattedPhone}: "${text}"`);
+    console.log(`[WA Simulación] Mensaje a ${formattedPhone}: "${text}" (Origen: ${origen})`);
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
-      VALUES (?, 'saliente', ?, ?, 'texto', 'enviado')
-    `).run(validClienteId, formattedPhone, text);
+      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, origen, autor)
+      VALUES (?, 'saliente', ?, ?, 'texto', 'enviado', ?, ?)
+    `).run(validClienteId, formattedPhone, text, origen, autor);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -169,17 +312,17 @@ async function sendTextMessage(clienteId, phone, text) {
     if (!response.ok) {
       console.error('[WA API Error]', data);
       db.prepare(`
-        INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-        VALUES (?, 'saliente', ?, ?, 'texto', 'fallido', ?)
-      `).run(validClienteId, formattedPhone, text, JSON.stringify(data));
+        INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+        VALUES (?, 'saliente', ?, ?, 'texto', 'fallido', ?, ?, ?)
+      `).run(validClienteId, formattedPhone, text, JSON.stringify(data), origen, autor);
       return { ok: false, error: data.error || 'Error al enviar por 360dialog' };
     }
 
     const waMsgId = data.messages && data.messages[0] ? data.messages[0].id : null;
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-      VALUES (?, ?, 'saliente', ?, ?, 'texto', 'enviado', ?)
-    `).run(validClienteId, waMsgId, formattedPhone, text, JSON.stringify(data));
+      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+      VALUES (?, ?, 'saliente', ?, ?, 'texto', 'enviado', ?, ?, ?)
+    `).run(validClienteId, waMsgId, formattedPhone, text, JSON.stringify(data), origen, autor);
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
@@ -191,17 +334,17 @@ async function sendTextMessage(clienteId, phone, text) {
 /**
  * Envía una plantilla pre-aprobada de WhatsApp
  */
-async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = []) {
+async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = [], { origen = 'bot', autor = null } = {}) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
   const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
-    console.log(`[WA Simulación Plantilla] ${templateName} a ${formattedPhone}`);
+    console.log(`[WA Simulación Plantilla] ${templateName} a ${formattedPhone} (Origen: ${origen})`);
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
-      VALUES (?, 'saliente', ?, ?, 'plantilla', 'enviado')
-    `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`);
+      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, origen, autor)
+      VALUES (?, 'saliente', ?, ?, 'plantilla', 'enviado', ?, ?)
+    `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`, origen, autor);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -241,17 +384,17 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
     if (!response.ok) {
       console.error('[WA API Template Error]', data);
       db.prepare(`
-        INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-        VALUES (?, 'saliente', ?, ?, 'plantilla', 'fallido', ?)
-      `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
+        INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+        VALUES (?, 'saliente', ?, ?, 'plantilla', 'fallido', ?, ?, ?)
+      `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data), origen, autor);
       return { ok: false, error: data.meta?.developer_message || data.error?.message || data.error || 'Error al enviar plantilla' };
     }
 
     const waMsgId = data.messages && data.messages[0] ? data.messages[0].id : null;
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-      VALUES (?, ?, 'saliente', ?, ?, 'plantilla', 'enviado', ?)
-    `).run(validClienteId, waMsgId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data));
+      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+      VALUES (?, ?, 'saliente', ?, ?, 'plantilla', 'enviado', ?, ?, ?)
+    `).run(validClienteId, waMsgId, formattedPhone, `[Plantilla: ${templateName}]`, JSON.stringify(data), origen, autor);
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
@@ -354,27 +497,34 @@ function processWebhookPayload(payload) {
         const clienteId = cliente ? cliente.id : null;
 
         db.prepare(`
-          INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-          VALUES (?, ?, 'entrante', ?, ?, ?, 'recibido', ?)
+          INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+          VALUES (?, ?, 'entrante', ?, ?, ?, 'recibido', ?, 'cliente', 'cliente')
         `).run(clienteId, waMsgId, fromPhone, textContent, msg.type || 'texto', JSON.stringify(msg));
 
-        console.log(`[WA Entrante] De ${fromPhone} (Cliente ${clienteId || 'Desconocido'}): "${textContent}"`);
+        // Verificar si el bot está silenciado para esta conversación
+        const botState = getEstadoBot(fromPhone);
 
-        // Reenviar asincrónicamente a n8n para el bot de IA / automatización
-        forwardToN8n({
-          event: 'incoming_message',
-          cliente_id: clienteId,
-          cliente_nombre: cliente ? cliente.nombre : null,
-          cliente_dni: cliente ? cliente.dni : null,
-          telefono: fromPhone,
-          mensaje: textContent,
-          tipo: msg.type || 'texto',
-          wa_message_id: waMsgId,
-          media_id: mediaId,
-          media_url: mediaId ? `https://segucar-kuu2.onrender.com/api/whatsapp/media/${mediaId}` : null,
-          timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
-          raw_message: msg
-        }).catch(err => console.error('[n8n Forward Catch]', err.message));
+        if (!botState.bot_activo) {
+          console.log(`[WA Webhook] 👤 Mensaje de ${fromPhone} guardado en bandeja pero NO reenviado a n8n (Bot silenciado por ${botState.motivo || 'atención humana'} hasta ${botState.silenciado_hasta})`);
+        } else {
+          console.log(`[WA Entrante] De ${fromPhone} (Cliente ${clienteId || 'Desconocido'}): "${textContent}"`);
+
+          // Reenviar asincrónicamente a n8n para el bot de IA / automatización
+          forwardToN8n({
+            event: 'incoming_message',
+            cliente_id: clienteId,
+            cliente_nombre: cliente ? cliente.nombre : null,
+            cliente_dni: cliente ? cliente.dni : null,
+            telefono: fromPhone,
+            mensaje: textContent,
+            tipo: msg.type || 'texto',
+            wa_message_id: waMsgId,
+            media_id: mediaId,
+            media_url: mediaId ? `https://segucar-kuu2.onrender.com/api/whatsapp/media/${mediaId}` : null,
+            timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
+            raw_message: msg
+          }).catch(err => console.error('[n8n Forward Catch]', err.message));
+        }
       });
     }
 
@@ -414,10 +564,15 @@ function getConversacionesBandeja() {
         m.cliente_id,
         COALESCE(c.nombre, 'Contacto ' || m.telefono) as cliente_nombre,
         COALESCE(c.telefono, m.telefono) as cliente_telefono,
+        m.telefono,
         m.mensaje as ultimo_mensaje,
         m.direccion as ultima_direccion,
         m.estado as ultimo_estado,
         m.created_at as ultima_fecha,
+        m.origen as ultimo_origen,
+        COALESCE(eb.estado_bot, 'activo') as estado_bot,
+        eb.silenciado_hasta,
+        eb.motivo as motivo_silencio,
         (
           SELECT COUNT(*) 
           FROM mensajes_whatsapp m2 
@@ -426,6 +581,7 @@ function getConversacionesBandeja() {
         ) as sin_leer
       FROM mensajes_whatsapp m
       LEFT JOIN clientes c ON m.cliente_id = c.id
+      LEFT JOIN conversaciones_estado_bot eb ON eb.telefono = m.telefono
       WHERE m.id IN (
         SELECT MAX(id) FROM mensajes_whatsapp GROUP BY COALESCE(cliente_id, telefono)
       )
@@ -441,17 +597,17 @@ function getConversacionesBandeja() {
 /**
  * Envía un archivo multimedia (PDF, imagen, etc.) por WhatsApp
  */
-async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 'application/pdf') {
+async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 'application/pdf', { origen = 'bot', autor = null } = {}) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
   const validClienteId = resolveValidClienteId(clienteId);
 
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
-    console.log(`[WA Simulación Archivo] ${fileName} (${fileUrl}) a ${formattedPhone}`);
+    console.log(`[WA Simulación Archivo] ${fileName} (${fileUrl}) a ${formattedPhone} (Origen: ${origen})`);
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado)
-      VALUES (?, 'saliente', ?, ?, 'archivo', 'enviado')
-    `).run(validClienteId, formattedPhone, `📎 [Archivo: ${fileName}] (${fileUrl})`);
+      INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, origen, autor)
+      VALUES (?, 'saliente', ?, ?, 'archivo', 'enviado', ?, ?)
+    `).run(validClienteId, formattedPhone, `📎 [Archivo: ${fileName}] (${fileUrl})`, origen, autor);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -484,9 +640,9 @@ async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 
 
     const waMsgId = data.messages && data.messages[0] ? data.messages[0].id : null;
     const res = db.prepare(`
-      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data)
-      VALUES (?, ?, 'saliente', ?, ?, 'archivo', 'enviado', ?)
-    `).run(validClienteId, waMsgId, formattedPhone, `📎 ${fileName} (${fileUrl})`, JSON.stringify(data));
+      INSERT INTO mensajes_whatsapp (cliente_id, wa_message_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
+      VALUES (?, ?, 'saliente', ?, ?, 'archivo', 'enviado', ?, ?, ?)
+    `).run(validClienteId, waMsgId, formattedPhone, `📎 ${fileName} (${fileUrl})`, JSON.stringify(data), origen, autor);
 
     return { ok: true, wa_message_id: waMsgId, id: res.lastInsertRowid };
   } catch (err) {
@@ -499,6 +655,9 @@ module.exports = {
   getConfig,
   saveConfig,
   formatPhone,
+  getEstadoBot,
+  silenciarBot,
+  activarBot,
   sendTextMessage,
   sendTemplateMessage,
   sendMediaMessage,

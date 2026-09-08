@@ -336,7 +336,78 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 11:", e.message);
     }
 
-    const totalTestsCount = 11;
+    // ── TEST 12: Detección de Agente Humano y Silenciamiento Inteligente del Bot ──
+    try {
+        console.log("📌 TEST 12: Detección de Agente Humano y Silenciamiento Inteligente del Bot");
+        const waService = require('../whatsapp_service');
+        const testPhone = '5492235001122';
+
+        // 1. Limpieza previa
+        db.prepare("DELETE FROM conversaciones_estado_bot WHERE telefono = ?").run(testPhone);
+        db.prepare("DELETE FROM mensajes_whatsapp WHERE telefono = ?").run(testPhone);
+
+        // 2. Estado inicial de contacto nuevo -> bot activo
+        const st1 = waService.getEstadoBot(testPhone);
+        const st1Ok = st1.bot_activo === true && st1.estado_bot === 'activo';
+
+        // 3. Simular intervención humana desde el CRM -> silenciar bot 24h
+        const silRes = waService.silenciarBot(testPhone, { horas: 24, motivo: 'intervencion_humano_crm', autor: 'humano' });
+        const st2 = waService.getEstadoBot(testPhone);
+        const st2Ok = silRes.ok === true && st2.bot_activo === false && st2.estado_bot === 'silenciado' && st2.motivo === 'intervencion_humano_crm';
+
+        // 4. Simular procesamiento de webhook entrante de cliente en chat silenciado
+        const mockWebhookPayload = {
+            entry: [{
+                changes: [{
+                    value: {
+                        messages: [{
+                            from: testPhone,
+                            id: 'wamid.TEST_HUMANO_SILENCE_123',
+                            type: 'text',
+                            text: { body: 'Hola, tengo una duda sobre la póliza' },
+                            timestamp: Math.floor(Date.now() / 1000)
+                        }]
+                    }
+                }]
+            }]
+        };
+
+        const procRes = waService.processWebhookPayload(mockWebhookPayload);
+        const msgGuardado = db.prepare("SELECT * FROM mensajes_whatsapp WHERE wa_message_id = 'wamid.TEST_HUMANO_SILENCE_123'").get();
+        const procOk = procRes.ok === true && procRes.processed === true && !!msgGuardado && msgGuardado.origen === 'cliente';
+
+        // 5. Reactivación manual vía activarBot
+        const actRes = waService.activarBot(testPhone);
+        const st3 = waService.getEstadoBot(testPhone);
+        const st3Ok = actRes.ok === true && st3.bot_activo === true && st3.estado_bot === 'activo';
+
+        // 6. Evaluación de expiración automática de silencio en el pasado
+        db.prepare(`
+            INSERT INTO conversaciones_estado_bot (telefono, estado_bot, silenciado_hasta, motivo, ultimo_autor, updated_at)
+            VALUES (?, 'silenciado', datetime('now', '-2 hours'), 'intervencion_humano_crm', 'humano', CURRENT_TIMESTAMP)
+            ON CONFLICT(telefono) DO UPDATE SET
+                estado_bot = 'silenciado',
+                silenciado_hasta = datetime('now', '-2 hours')
+        `).run(testPhone);
+
+        const stExpired = waService.getEstadoBot(testPhone);
+        const expiredOk = stExpired.bot_activo === true && stExpired.estado_bot === 'activo' && stExpired.motivo === 'expiracion_silencio';
+
+        // 7. Limpieza posterior
+        db.prepare("DELETE FROM conversaciones_estado_bot WHERE telefono = ?").run(testPhone);
+        db.prepare("DELETE FROM mensajes_whatsapp WHERE telefono = ?").run(testPhone);
+
+        if (st1Ok && st2Ok && procOk && st3Ok && expiredOk) {
+            console.log("  ✅ PASSED -> Detección de Agente Humano validada: Estado inicial activo, Silenciado automático 24hs, Guarda mensaje sin invocar bot y Auto-reactivación por expiración OK.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Falla en ciclo de vida de Silenciamiento:", { st1Ok, st2Ok, procOk, st3Ok, expiredOk });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 12:", e.message);
+    }
+
+    const totalTestsCount = 12;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

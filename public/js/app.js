@@ -477,6 +477,75 @@ function renderWaChatMessages(history) {
   elMsgs.scrollTop = elMsgs.scrollHeight;
 }
 
+let waCurrentBotState = null;
+
+async function updateWaBotStateUI(phone) {
+  const badge = document.getElementById('waBotControlBadge');
+  const btnToggle = document.getElementById('waBtnToggleBot');
+  const dot = document.getElementById('waBotStatusDot');
+  const text = document.getElementById('waBotStatusText');
+  if (!badge || !btnToggle || !phone) return;
+
+  try {
+    const r = await fetch(`/api/whatsapp/conversacion/${phone}/estado`);
+    const res = await r.json();
+    if (res.ok) {
+      waCurrentBotState = res;
+      badge.style.display = 'inline-flex';
+      btnToggle.style.display = 'inline-block';
+
+      if (!res.bot_activo) {
+        // Silenciado / Atención Humana
+        badge.style.background = 'rgba(239,68,68,0.15)';
+        badge.style.color = '#ef4444';
+        badge.style.border = '1px solid rgba(239,68,68,0.3)';
+        dot.style.background = '#ef4444';
+        const horaVto = res.silenciado_hasta ? new Date(res.silenciado_hasta).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+        text.innerText = `🔴 Atención Humana ${horaVto ? `(hasta ${horaVto})` : ''}`;
+        btnToggle.innerText = '▶️ Reanudar Bot IA';
+        btnToggle.title = 'Reanudar respuestas automáticas del bot';
+      } else {
+        // Activo / IA
+        badge.style.background = 'rgba(0,168,132,0.15)';
+        badge.style.color = '#00a884';
+        badge.style.border = '1px solid rgba(0,168,132,0.3)';
+        dot.style.background = '#00a884';
+        text.innerText = '🟢 Bot IA Activo';
+        btnToggle.innerText = '⏸️ Pausar Bot 24h';
+        btnToggle.title = 'Pausar bot para atención humana directa';
+      }
+    }
+  } catch (e) {
+    console.error('Error fetching bot state:', e);
+  }
+}
+
+async function toggleWaBotState() {
+  if (!waSelectedClient || !waSelectedClient.telefono) return;
+  const isSilenciado = waCurrentBotState && !waCurrentBotState.bot_activo;
+  const endpoint = isSilenciado ? '/api/whatsapp/conversacion/activar-bot' : '/api/whatsapp/conversacion/pausar-bot';
+  const body = isSilenciado 
+    ? { telefono: waSelectedClient.telefono } 
+    : { telefono: waSelectedClient.telefono, horas: 24, motivo: 'manual_ui', cliente_id: waSelectedClient.id };
+
+  try {
+    const r = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const res = await r.json();
+    if (res.ok) {
+      updateWaBotStateUI(waSelectedClient.telefono);
+      loadBandejaWA();
+    } else {
+      alert('Error cambiando estado del bot: ' + (res.error || 'Desconocido'));
+    }
+  } catch (e) {
+    alert('Error de red: ' + e.message);
+  }
+}
+
 async function loadBandejaWA() {
   const elList = document.getElementById('waChatList');
   if (!elList) return;
@@ -492,12 +561,19 @@ async function loadBandejaWA() {
 
     elList.innerHTML = chats.map(c => {
       const isSelected = waSelectedClient && waSelectedClient.id === c.cliente_id;
+      const isSilenciado = c.estado_bot === 'silenciado';
       return `
-        <div onclick="selectWaChat(${c.cliente_id}, '${escapeHtml(c.cliente_nombre)}', '${c.cliente_telefono}')" style="background:${isSelected ? '#2a3942' : 'transparent'};border-radius:10px;padding:12px 14px;cursor:pointer;transition:background 0.15s ease;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,0.03);">
-          <div style="width:42px;height:42px;border-radius:50%;background:#6b7c85;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0;">👤</div>
+        <div onclick="selectWaChat(${c.cliente_id}, '${escapeHtml(c.cliente_nombre)}', '${c.cliente_telefono || c.telefono}')" style="background:${isSelected ? '#2a3942' : 'transparent'};border-radius:10px;padding:12px 14px;cursor:pointer;transition:background 0.15s ease;display:flex;align-items:center;gap:12px;border-bottom:1px solid rgba(255,255,255,0.03);">
+          <div style="width:42px;height:42px;border-radius:50%;background:#6b7c85;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:1.1rem;flex-shrink:0;position:relative;">
+            👤
+            ${isSilenciado ? `<span style="position:absolute;bottom:0;right:0;width:12px;height:12px;background:#ef4444;border:2px solid #111b21;border-radius:50%;" title="Atención Humana (Bot pausado)"></span>` : ''}
+          </div>
           <div style="flex:1;overflow:hidden;">
             <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
-              <strong style="font-size:0.92rem;color:#e9edef;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.cliente_nombre)}</strong>
+              <strong style="font-size:0.92rem;color:#e9edef;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:flex;align-items:center;gap:6px;">
+                ${escapeHtml(c.cliente_nombre)}
+                ${isSilenciado ? `<span style="font-size:0.65rem;background:rgba(239,68,68,0.2);color:#ef4444;border-radius:4px;padding:1px 4px;font-weight:700;">Humano</span>` : ''}
+              </strong>
               <span style="font-size:0.72rem;color:${c.sin_leer > 0 ? '#00a884' : '#8696a0'};font-weight:${c.sin_leer > 0 ? '700' : '400'};">
                 ${new Date(c.ultima_fecha).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
               </span>
@@ -539,6 +615,9 @@ async function selectWaChat(clienteId, nombre, telefono) {
   const liveInd = document.getElementById('waLiveIndicator');
   if (liveInd) liveInd.style.display = 'inline-flex';
 
+  // Actualizar estado del bot en UI
+  updateWaBotStateUI(telefono);
+
   const elMsgs = document.getElementById('waChatMessages');
   elMsgs.innerHTML = '<div style="color:#8696a0;text-align:center;margin-top:40px;">Cargando mensajes...</div>';
 
@@ -577,7 +656,7 @@ async function handleSendWaChat(event) {
 
     const res = await r.json();
     if (res.ok) {
-      // Recargar chat para ver el mensaje enviado
+      // Recargar chat para ver el mensaje enviado y actualizar estado a silenciado
       selectWaChat(waSelectedClient.id, waSelectedClient.nombre, waSelectedClient.telefono);
     } else {
       alert('Error enviando mensaje: ' + (res.error || 'Desconocido'));

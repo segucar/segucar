@@ -204,6 +204,21 @@ db.exec(`
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 🤖 TABLA: Estado del Bot por Conversación (Silenciamiento y Atención Humana)
+    CREATE TABLE IF NOT EXISTS conversaciones_estado_bot (
+        telefono TEXT PRIMARY KEY,
+        cliente_id INTEGER REFERENCES clientes(id) ON DELETE SET NULL,
+        estado_bot TEXT NOT NULL DEFAULT 'activo', -- 'activo' | 'silenciado'
+        silenciado_hasta DATETIME NULL,
+        motivo TEXT NULL, -- 'intervencion_humano_crm' | 'intervencion_humano_app' | 'manual_ui' | 'handoff_ia'
+        ultimo_autor TEXT NULL, -- 'bot' | 'humano' | 'cliente'
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_conversaciones_estado_bot_estado ON conversaciones_estado_bot(estado_bot, silenciado_hasta);
+    CREATE INDEX IF NOT EXISTS idx_conversaciones_estado_bot_cliente ON conversaciones_estado_bot(cliente_id);
+
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_key ON cotizaciones_cache(cache_key);
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_created ON cotizaciones_cache(created_at);
 
@@ -271,8 +286,17 @@ const addColumnConfigWa = (colName, colDef) => {
         // Ignorar si la columna ya existe
     }
 };
+const addColumnMensajesWa = (colName, colDef) => {
+    try {
+        db.exec(`ALTER TABLE mensajes_whatsapp ADD COLUMN ${colName} ${colDef}`);
+    } catch (e) {
+        // Ignorar si la columna ya existe
+    }
+};
 
 addColumnConfigWa('n8n_webhook_url', "TEXT DEFAULT ''");
+addColumnMensajesWa('origen', "TEXT DEFAULT 'bot'");
+addColumnMensajesWa('autor', "TEXT NULL");
 
 addColumnClientes('origen', "TEXT DEFAULT 'NRE'");
 addColumnCuotas('pdf_nre_url', 'TEXT');
