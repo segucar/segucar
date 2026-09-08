@@ -3046,13 +3046,13 @@ app.get('/api/whatsapp/media/:mediaId', async (req, res) => {
 });
 
 // POST Webhook oficial para 360dialog / Meta (Mensajes entrantes y cambios de estado)
-app.post('/api/webhooks/whatsapp', (req, res) => {
+app.post('/api/webhooks/whatsapp', async (req, res) => {
     try {
-        const result = waService.processWebhookPayload(req.body);
+        const result = await waService.processWebhookPayload(req.body);
         res.json(result);
     } catch (err) {
         console.error('[Webhook Error]', err);
-        res.status(200).json({ ok: true }); // Responder 200 siempre a Meta para evitar des-suscripción
+        res.status(200).json({ ok: true, error: err.message }); // Responder 200 siempre a Meta para evitar des-suscripción
     }
 });
 

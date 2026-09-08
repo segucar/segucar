@@ -372,7 +372,7 @@ async function runRegressionSuite() {
             }]
         };
 
-        const procRes = waService.processWebhookPayload(mockWebhookPayload);
+        const procRes = await waService.processWebhookPayload(mockWebhookPayload);
         const msgGuardado = db.prepare("SELECT * FROM mensajes_whatsapp WHERE wa_message_id = 'wamid.TEST_HUMANO_SILENCE_123'").get();
         const procOk = procRes.ok === true && procRes.processed === true && !!msgGuardado && msgGuardado.origen === 'cliente';
 

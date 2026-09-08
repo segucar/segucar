@@ -97,7 +97,10 @@ async function forwardToN8n(eventData) {
   try {
     const cfg = getConfig();
     const n8nUrl = (process.env.N8N_WEBHOOK_URL || cfg.n8n_webhook_url || '').trim();
-    if (!n8nUrl) return;
+    if (!n8nUrl) {
+      console.warn('[n8n Forward] Sin URL de webhook de n8n configurada.');
+      return { ok: false, error: 'sin_url_configurada' };
+    }
 
     console.log(`[n8n Forward] Reenviando mensaje entrante a n8n: ${n8nUrl}`);
     const res = await fetch(n8nUrl, {
@@ -110,12 +113,22 @@ async function forwardToN8n(eventData) {
       body: JSON.stringify(eventData)
     });
     const respText = await res.text();
-    console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status} - ${respText}`);
+    console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status} | Body: ${respText.substring(0, 200)}`);
     if (!res.ok) {
       console.warn(`⚠️ [n8n Forward Warning] n8n rechazó el mensaje (HTTP ${res.status}): ${respText}`);
     }
+    return {
+      ok: res.ok,
+      status: res.status,
+      url: n8nUrl,
+      response: respText
+    };
   } catch (err) {
     console.error('[n8n Forward Error] Falló reenvío a n8n:', err.message);
+    return {
+      ok: false,
+      error: err.message
+    };
   }
 }
 
@@ -406,7 +419,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
 /**
  * Procesa webhooks entrantes de Meta / 360dialog (Mensajes entrantes y estados de entrega)
  */
-function processWebhookPayload(payload) {
+async function processWebhookPayload(payload) {
   try {
     const entry = payload.entry && payload.entry[0];
     const changes = entry && entry.changes && entry.changes[0];
@@ -432,9 +445,11 @@ function processWebhookPayload(payload) {
       });
     }
 
+    const n8nResults = [];
+
     // 2. Procesar Mensajes Entrantes de Clientes
     if (value.messages && value.messages.length > 0) {
-      value.messages.forEach(msg => {
+      for (const msg of value.messages) {
         const fromPhone = formatPhone(msg.from);
         const waMsgId = msg.id;
 
@@ -458,13 +473,13 @@ function processWebhookPayload(payload) {
           }
 
           // No reenviar al bot de n8n para no generar respuestas duplicadas
-          return;
+          continue;
         }
 
         // Caso especial 2: Reacciones con emojis (👍, ❤️, etc.)
         if (msg.type === 'reaction') {
           console.log(`[WA Reacción] De ${fromPhone}: ${msg.reaction?.emoji || 'emoji'}`);
-          return;
+          continue;
         }
 
         let textContent = '';
@@ -506,11 +521,17 @@ function processWebhookPayload(payload) {
 
         if (!botState.bot_activo) {
           console.log(`[WA Webhook] 👤 Mensaje de ${fromPhone} guardado en bandeja pero NO reenviado a n8n (Bot silenciado por ${botState.motivo || 'atención humana'} hasta ${botState.silenciado_hasta})`);
+          n8nResults.push({
+            telefono: fromPhone,
+            bot_silenciado: true,
+            motivo: botState.motivo,
+            silenciado_hasta: botState.silenciado_hasta
+          });
         } else {
           console.log(`[WA Entrante] De ${fromPhone} (Cliente ${clienteId || 'Desconocido'}): "${textContent}"`);
 
-          // Reenviar asincrónicamente a n8n para el bot de IA / automatización
-          forwardToN8n({
+          // Reenviar a n8n para el bot de IA / automatización
+          const fwd = await forwardToN8n({
             event: 'incoming_message',
             cliente_id: clienteId,
             cliente_nombre: cliente ? cliente.nombre : null,
@@ -523,12 +544,17 @@ function processWebhookPayload(payload) {
             media_url: mediaId ? `https://segucar-kuu2.onrender.com/api/whatsapp/media/${mediaId}` : null,
             timestamp: msg.timestamp || Math.floor(Date.now() / 1000),
             raw_message: msg
-          }).catch(err => console.error('[n8n Forward Catch]', err.message));
+          });
+          n8nResults.push({
+            telefono: fromPhone,
+            bot_silenciado: false,
+            n8n_response: fwd
+          });
         }
-      });
+      }
     }
 
-    return { ok: true, processed: true };
+    return { ok: true, processed: true, n8n_dispatches: n8nResults };
   } catch (err) {
     console.error('[WA Webhook Error]', err);
     return { ok: false, error: err.message };
