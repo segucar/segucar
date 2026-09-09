@@ -12,6 +12,7 @@ const { syncAGS } = require('./sync_ags');
 const { cotizarVehiculo } = require('./cotizador_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
 const waService = require('./whatsapp_service');
+const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = require('./automation_scheduler');
 
 // ─── MIGRACIÓN AUTOMÁTICA: Alinear plantillas con nombres de Meta ────────────
 (function migrarPlantillas() {
@@ -4103,83 +4104,46 @@ app.get('/api/public/comprobantes', (req, res) => {
     }
 });
 
-// ─── ENDPOINT AUTOMATIZACIÓN N8N ─────────────────────────────────────────────
+// ─── ENDPOINTS AUTOMATIZACIÓN (8:00 AM) ──────────────────────────────────────
 // GET /api/automation/pendientes-hoy
-// n8n llama a este endpoint todos los días a las 9am y envía WhatsApps automáticamente.
+// Devuelve la lista de pendientes evaluados para hoy (o la fecha provista ?fecha=YYYY-MM-DD)
 app.get('/api/automation/pendientes-hoy', (req, res) => {
     try {
-        const hoy = new Date();
-        if (esNoHabil(hoy)) {
-            return res.json({ dia_no_habil: true, pendientes: [] });
-        }
-
-        const allPolizas = db.prepare(`
-            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento,
-                   p.fin_vigencia_poliza, p.cuotas_debe, p.saldo_pendiente,
-                   c.nombre, c.telefono, c.id as cliente_id
-            FROM polizas p
-            JOIN clientes c ON p.cliente_id = c.id
-            WHERE c.telefono IS NOT NULL AND length(c.telefono) >= 10
-        `).all();
-
-        const pendientes = [];
-
-        for (const p of allPolizas) {
-            if (!p.fecha_vencimiento || !p.telefono) continue;
-
-            const fv = new Date(p.fecha_vencimiento + 'T12:00:00-03:00');
-            const diffHoras = (fv - hoy) / (1000 * 60 * 60);
-            const cuotasDebe = parseInt(p.cuotas_debe || 0);
-            const saldo = parseFloat(p.saldo_pendiente || 0);
-
-            let tipo = null;
-            let plantilla = null;
-
-            if (diffHoras > 0 && diffHoras <= 48 && saldo <= 0)
-                { tipo = 'recordatorio_48hs'; plantilla = 'recordatorio_preventivo_48hs'; }
-            else if (diffHoras < 0 && diffHoras >= -48 && cuotasDebe >= 1)
-                { tipo = 'primer_aviso'; plantilla = 'primer_aviso_vencida_48hs'; }
-            else if (diffHoras < -48 && diffHoras >= -96 && cuotasDebe >= 1)
-                { tipo = 'segundo_aviso'; plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs'; }
-            // Mora Crítica (+96 hs) eliminada del flujo de cobranzas (Opción A).
-            // Los contratos en mora >96hs ya no generan plantilla de WhatsApp.
-            // else if (diffHoras < -96 && cuotasDebe >= 2)
-            //     { tipo = 'mora_critica'; plantilla = 'mora_critica_impaga'; }
-
-            // Renovación en 7 días (usa fin_vigencia_poliza)
-            if (!tipo && p.fin_vigencia_poliza) {
-                const fvP = new Date(p.fin_vigencia_poliza + 'T12:00:00-03:00');
-                const diasPoliza = (fvP - hoy) / (1000 * 60 * 60 * 24);
-                if (diasPoliza >= 0 && diasPoliza <= 7)
-                    { tipo = 'renovacion_7_dias'; plantilla = 'aviso_renovacion_7_dias'; }
-            }
-
-            if (tipo) {
-                pendientes.push({
-                    cliente_id: p.cliente_id,
-                    nombre: p.nombre,
-                    telefono: p.telefono,
-                    operacion: p.operacion || '',
-                    patente: p.patente || '',
-                    fecha_vencimiento: p.fecha_vencimiento,
-                    cuotas_debe: cuotasDebe,
-                    tipo,
-                    plantilla,
-                    parametros: [p.operacion || p.patente || '', p.patente || '']
-                });
-            }
-        }
-
-        res.json({
-            dia_no_habil: false,
-            fecha: toLocalISOString(hoy),
-            total: pendientes.length,
-            pendientes
-        });
+        const fechaParam = req.query.fecha || null;
+        const resultado = obtenerPendientesHoy(db, fechaParam);
+        res.json(resultado);
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
+
+// POST /api/automation/ejecutar-despacho
+// Ejecuta el despacho diario de forma manual o programada (soporta dry_run, force, fecha, delay_ms).
+app.post('/api/automation/ejecutar-despacho', async (req, res) => {
+    if (!checkRequestAuth(req)) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Acceso no autorizado. Proveer x-api-key o iniciar sesión.' });
+    }
+    try {
+        const dryRun = req.body.dry_run === true || req.body.dry_run === 'true';
+        const force = req.body.force === true || req.body.force === 'true';
+        const fechaRef = req.body.fecha || null;
+        const delayMs = req.body.delay_ms !== undefined ? parseInt(req.body.delay_ms, 10) : 2500;
+
+        const resultado = await ejecutarDespachoDiario({
+            dryRun,
+            db,
+            waService,
+            force,
+            fechaRef,
+            delayMs
+        });
+
+        res.json(resultado);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 
 if (require.main === module) {
     app.listen(PORT, '0.0.0.0', () => {
@@ -4308,5 +4272,8 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
     setInterval(correrAutoSyncAGS, INTERVALO_MS);
     console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
 })();
+
+// ─── DESPACHADOR AUTOMÁTICO DE WHATSAPP 8:00 AM ────────────────────────────
+iniciarScheduler8AM({ db, waService });
 
 module.exports = app;

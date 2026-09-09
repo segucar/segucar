@@ -407,7 +407,88 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 12:", e.message);
     }
 
-    const totalTestsCount = 12;
+    // ── TEST 13: Despachador Automático Diario 8:00 AM (Cobranzas y Renovaciones) ──
+    try {
+        console.log("📌 TEST 13: Despachador Automático Diario 8:00 AM (Cobranzas y Renovaciones)");
+        const { obtenerPendientesHoy, verificarClienteYaContactadoHoy, ejecutarDespachoDiario } = require('../automation_scheduler');
+        const waService = require('../whatsapp_service');
+
+        // 1. Verificación de exclusión en Domingos y Feriados
+        const resDomingo = obtenerPendientesHoy(db, '2026-09-13'); // Domingo
+        const resFeriado = obtenerPendientesHoy(db, '2026-01-01'); // Feriado Año Nuevo
+        const sundayOk = resDomingo.dia_no_habil === true && resDomingo.pendientes.length === 0;
+        const holidayOk = resFeriado.dia_no_habil === true && resFeriado.pendientes.length === 0;
+
+        // 2. Verificación de cálculo en día hábil
+        const resHabil = obtenerPendientesHoy(db, '2026-09-09'); // Miércoles hábil
+        const habilOk = resHabil.dia_no_habil === false && Array.isArray(resHabil.pendientes);
+
+        // 3. Verificación de plantillas oficiales
+        const plantillasPermitidas = new Set([
+            'recordatorio_preventivo_48hs',
+            'primer_aviso_vencida_48hs',
+            'cuota_segundo_aviso_vencida_hace_96_hs',
+            'aviso_renovacion_7_dias'
+        ]);
+        let plantillasOk = true;
+        for (const p of resHabil.pendientes) {
+            if (!plantillasPermitidas.has(p.plantilla)) {
+                plantillasOk = false;
+                break;
+            }
+        }
+
+        // 4. Verificación de Idempotencia (verificarClienteYaContactadoHoy)
+        const testCliId = 999998;
+        db.prepare("INSERT OR REPLACE INTO clientes (id, nombre, telefono) VALUES (?, 'Test Scheduler Auto', '5491199999998')").run(testCliId);
+        
+        const antesContactar = verificarClienteYaContactadoHoy(db, testCliId, '2026-09-09');
+        db.prepare("INSERT INTO contactos (cliente_id, poliza_id, tipo, medio, mensaje, fecha) VALUES (?, NULL, 'recordatorio_preventivo_48hs', 'whatsapp', 'Test', '2026-09-09 08:00:00')").run(testCliId);
+        const despuesContactar = verificarClienteYaContactadoHoy(db, testCliId, '2026-09-09');
+        const idempotenciaOk = (antesContactar === false && despuesContactar === true);
+
+        // 5. Verificación de Silenciamiento Humano en Despacho
+        const testPhoneSched = '5491199999998';
+        waService.silenciarBot(testPhoneSched, { horas: 24, motivo: 'intervencion_humano_crm', clienteId: testCliId, autor: 'humano' });
+        
+        // Insertar póliza temporal de prueba para que sea evaluada en fecha 2026-09-09
+        db.prepare(`
+            INSERT OR REPLACE INTO polizas (id, cliente_id, operacion, patente, fecha_vencimiento, cuotas_debe, saldo_pendiente, estado)
+            VALUES (999998, ?, 'SCHEDTEST', 'TEST001', '2026-09-11', 0, 0, 'activa')
+        `).run(testCliId);
+
+        const dryRunRes = await ejecutarDespachoDiario({
+            dryRun: true,
+            db,
+            waService,
+            force: true,
+            fechaRef: '2026-09-09'
+        });
+
+        const dryRunOk = dryRunRes.ejecutado === true && dryRunRes.dry_run === true;
+        // El cliente silenciado o ya contactado no debe estar en 'enviados'
+        const itemEnviadoTest = dryRunRes.enviados.find(e => e.cliente_id === testCliId);
+        const exclusionOk = !itemEnviadoTest;
+
+        // Limpieza de datos temporales
+        db.prepare("DELETE FROM contactos WHERE cliente_id = ?").run(testCliId);
+        db.prepare("DELETE FROM polizas WHERE id = 999998").run();
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(testCliId);
+        db.prepare("DELETE FROM conversaciones_estado_bot WHERE telefono = ?").run(testPhoneSched);
+
+        if (sundayOk && holidayOk && habilOk && plantillasOk && idempotenciaOk && dryRunOk && exclusionOk) {
+            console.log("  ✅ PASSED -> Despachador Automático 8:00 AM validado: Exclusión Feriados/Domingos, Plantillas Oficiales, Idempotencia y Silencio Humano 24hs OK.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Fallas en validación del Despachador:", {
+                sundayOk, holidayOk, habilOk, plantillasOk, idempotenciaOk, dryRunOk, exclusionOk
+            });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 13:", e.message);
+    }
+
+    const totalTestsCount = 13;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
@@ -417,6 +498,7 @@ async function runRegressionSuite() {
     }
     console.log("==================================================");
 }
+
 
 if (require.main === module) {
     runRegressionSuite();
