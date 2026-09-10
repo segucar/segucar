@@ -2060,7 +2060,7 @@ app.post('/api/sync-ags', async (req, res) => {
 
     try {
         isSyncingAGS = true;
-        const result = await syncAGS();
+        const result = await executeWithRetry(() => syncAGS(), 2, 3000, 'Sync AGS Manual');
         updateLastSyncDate('ags', 'ok', result);
         res.json({
             success: true,

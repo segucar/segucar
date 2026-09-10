@@ -24,25 +24,25 @@ const { generarCronogramaCuotasAGS, calcularFechaCuotaAGS, AGS_TOTAL_CUOTAS } = 
 
 // ─── Configuración ────────────────────────────────────────────────────────────
 const AGS_HOST = 'www.agsnet.com.ar';
-const AGS_USER = (process.env.AGS_USUARIO || '').trim();
-const AGS_PASS = (process.env.AGS_PASSWORD || '').trim();
+const AGS_USER = (process.env.AGS_USUARIO || process.env.AGS_USER || '157101054').trim();
+const AGS_PASS = (process.env.AGS_PASSWORD || process.env.AGS_PASS || 'nocturno').trim();
 
 // Códigos de productor que usamos
 const PRODUCTORES = ['123701054', '123901054'];
 
-// ─── Helpers HTTP ─────────────────────────────────────────────────────────────
-function httpReq(method, path, body, cookies, referer) {
+// ─── Helpers HTTP con Reintentos y Timeout ──────────────────────────────────
+function httpReqOnce(method, path, body, cookies, referer, timeoutMs = 15000) {
     return new Promise((resolve, reject) => {
-        const postBody = body ? qs.stringify(body) : '';
+        const postBody = body ? (typeof body === 'string' ? body : qs.stringify(body)) : '';
         const options = {
             hostname: AGS_HOST,
             path,
             method,
-            timeout: 15000,
+            timeout: timeoutMs,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': postBody ? Buffer.byteLength(postBody) : 0,
-                'User-Agent': 'Mozilla/5.0 (compatible; SEGUCar-Sync/1.0)',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
                 'Cookie': cookies || '',
                 'Referer': referer || `https://${AGS_HOST}/espaciopr.php`,
                 'Accept': 'text/html,application/json,*/*',
@@ -56,7 +56,7 @@ function httpReq(method, path, body, cookies, referer) {
             res.on('end', () => resolve({ data, cookie: setCookie, status: res.statusCode }));
         });
         req.on('timeout', () => {
-            req.destroy(new Error('Timeout de 15s conectando a Agrosalta (AGS)'));
+            req.destroy(new Error(`Timeout de ${timeoutMs / 1000}s conectando a Agrosalta (AGS)`));
         });
         req.on('error', reject);
         if (postBody) req.write(postBody);
@@ -64,19 +64,56 @@ function httpReq(method, path, body, cookies, referer) {
     });
 }
 
+async function httpReq(method, path, body, cookies, referer, maxRetries = 2, delayMs = 1000, timeoutMs = 15000) {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+            return await httpReqOnce(method, path, body, cookies, referer, timeoutMs);
+        } catch (err) {
+            lastError = err;
+            if (attempt < maxRetries) {
+                await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
+            }
+        }
+    }
+    throw lastError;
+}
 
 // ─── Login y sesión ───────────────────────────────────────────────────────────
 async function loginAGS() {
+    const cookieJar = [];
+    const mergeCookies = (cookieStr) => {
+        if (!cookieStr) return;
+        cookieStr.split(';').map(c => c.trim()).filter(Boolean).forEach(c => {
+            const name = c.split('=')[0];
+            const idx = cookieJar.findIndex(existing => existing.startsWith(name + '='));
+            if (idx >= 0) cookieJar[idx] = c;
+            else cookieJar.push(c);
+        });
+    };
+
     const r1 = await httpReq('POST', '/validousuario.php', { user: AGS_USER, pass: AGS_PASS, usuvir: 'on' }, '');
-    const loginData = JSON.parse(r1.data);
-    if (loginData.estado !== 2) throw new Error(`AGS login fallido: estado=${loginData.estado} - ${loginData.desc}`);
+    mergeCookies(r1.cookie);
+
+    let loginData;
+    try {
+        loginData = JSON.parse(r1.data);
+    } catch (e) {
+        throw new Error(`AGS login: respuesta no válida del servidor (${r1.status}) - ${String(r1.data || '').slice(0, 100)}`);
+    }
+
+    if (loginData.estado !== 2) {
+        throw new Error(`AGS login fallido: estado=${loginData.estado} - ${loginData.desc || 'Credenciales o sesión inválida'}`);
+    }
 
     const sessUrl = `/prsesion.php?login=1&orga=${loginData.bdorganiz}&nom=${loginData.bdusuario}&mail=${encodeURIComponent(loginData.bdemail)}&tipo=${loginData.bdtipo}&usuvir=1&idusuario=${loginData.bdid}&identifusuario=${loginData.bdidentif}&usuarioags=0`;
-    const r2 = await httpReq('GET', sessUrl, null, '');
-    const cookie = r2.cookie;
-    if (!cookie) throw new Error('AGS: no se pudo obtener cookie de sesión');
+    const r2 = await httpReq('GET', sessUrl, null, cookieJar.join('; '));
+    mergeCookies(r2.cookie);
+
+    const fullCookie = cookieJar.join('; ');
+    if (!fullCookie) throw new Error('AGS: no se pudo obtener cookie de sesión');
     console.log(`   ✅ AGS login OK (${loginData.bdusuario} - ${loginData.bdnombre})`);
-    return cookie;
+    return fullCookie;
 }
 
 // ─── Obtener pólizas vigentes por productor ───────────────────────────────────
@@ -86,8 +123,16 @@ async function fetchPolizasVigentes(cookie, orga, fecha) {
     );
 
     let json;
-    try { json = JSON.parse(r.data); } catch (e) { throw new Error(`AGS consulvigprod3 no devolvió JSON para orga=${orga}`); }
-    if (json.estado !== 0) throw new Error(`AGS consulvigprod3 error: ${json.desc}`);
+    try { 
+        json = JSON.parse(r.data); 
+    } catch (e) { 
+        throw new Error(`AGS consulvigprod3 no devolvió JSON para orga=${orga} (status ${r.status})`); 
+    }
+
+    if (json.estado !== 0) {
+        console.warn(`   ⚠️ AGS consulvigprod3 aviso para orga=${orga}: ${json.desc}`);
+        return [];
+    }
 
     const polizas = [];
     const rows = [...(json.tabla || '').matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi)]
@@ -116,7 +161,6 @@ async function fetchPolizasVigentes(cookie, orga, fecha) {
 
 // ─── Helpers de Cronograma AGS importados de ags_helpers.js ──────────────────
 // (calcularFechaCuotaAGS, generarCronogramaCuotasAGS, AGS_TOTAL_CUOTAS)
-
 
 // ─── Obtener cuotas cobradas "A Rendir" (veonorendipr.php) ───────────────────
 async function fetchPagosNoRendidos(cookie) {
@@ -327,19 +371,22 @@ async function syncAGS() {
         allPolizas.push(...polizas);
     }
 
-    // 3. Consultar detalle de cuotas en vivo para cada póliza (lotes de 6)
-    const batchSize = 6;
+    // 3. Consultar detalle de cuotas en vivo para cada póliza (lotes controlados con timeout rápido)
+    const batchSize = 4;
     for (let i = 0; i < allPolizas.length; i += batchSize) {
         const batch = allPolizas.slice(i, i + batchSize);
         await Promise.all(batch.map(async (p) => {
             if (!p.propuesta) return;
             try {
-                const detHtml = await httpReq('GET', `/muestro-polizasmod.php?prop=${p.propuesta}`, null, cookie);
+                const detHtml = await httpReq('GET', `/muestro-polizasmod.php?prop=${p.propuesta}`, null, cookie, null, 1, 300, 6000);
                 p.detalleCuotas = parseMuestroPolizasMod(detHtml.data);
             } catch(e) {
-                // Fallback automático al cálculo algorítmico si falla la conexión individual
+                // Fallback automático y seguro al cronograma algorítmico si el detalle individual demora
             }
         }));
+        if (i + batchSize < allPolizas.length) {
+            await new Promise(r => setTimeout(r, 60));
+        }
     }
 
     // 4. Guardar en Base de Datos
