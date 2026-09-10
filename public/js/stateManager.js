@@ -280,31 +280,32 @@ const SeguroStateManager = (function () {
     const fvCuota = poliza ? poliza.fecha_vencimiento : null;
     const diasCuota = fvCuota ? calcularDiasVencimiento(fvCuota) : 999;
 
-    // Mora vencida real: saldo > $2.500 Y la cuota ya venció (diasCuota < 0)
-    // Clientes con cuotas futuras a vencer (diasCuota >= 0) están en término.
-    const tieneMoraVencida = (saldo > 2500 || saldoExigible > 2500) && diasCuota < 0;
+    // Regla de Negocio: Póliza vigente = al día O con atraso de pago de hasta 5 días corridos.
+    // Mora vencida real que suspende vigencia: saldo > $2.500 Y atraso mayor a 5 días corridos (diasCuota < -5).
+    const tieneMoraVencida = (saldo > 2500 || saldoExigible > 2500) && diasCuota < -5;
 
     if (diasRen < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
-    // Clientes CON mora vencida en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
+    // Clientes CON mora vencida (>5 días) en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
     if (tieneMoraVencida && diasRen <= 7 && diasRen >= 0) {
       return ESTADOS.RENOVACION_DEUDA;
     }
 
-    // Clientes CON mora vencida con más de 7 días de vigencia -> VIGENTE_CON_DEUDA (Mora activa en cobranzas)
+    // Clientes CON mora vencida (>5 días) con más de 7 días de vigencia -> VIGENTE_CON_DEUDA (Mora activa en cobranzas)
     if (tieneMoraVencida && diasRen > 7) {
       return ESTADOS.VIGENTE_CON_DEUDA;
     }
 
-    // Clientes en término — vence en EXACTAMENTE 7 días -> Aviso puntual de renovación
+    // Clientes en término o gracia — vence en EXACTAMENTE 7 días -> Aviso puntual de renovación
     if (!tieneMoraVencida && diasRen === 7) {
       return ESTADOS.RENOVACION_7_DIAS;
     }
 
     return ESTADOS.CONTRATO_VIGENTE;
   }
+
 
   function evaluarProximaAccion(poliza, lastSyncDate = null) {
     const estadoCob = evaluarCobranza(poliza, lastSyncDate);

@@ -954,10 +954,10 @@ function filterByState(estadoVal) {
         summary.innerText = '— Vencimiento en los últimos 30 días.';
       } else if (estadoVal === 'vigente') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 🟢 Contrato Vigente';
-        summary.innerText = '— Contratos activos al día (sin deuda).';
+        summary.innerText = '— Contratos activos al día o atraso ≤ 5 días.';
       } else if (estadoVal === 'vigente_con_deuda' || estadoVal === 'renovacion_deuda') {
-        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚠️ Contrato con Mora (Cobranza)';
-        summary.innerText = '— Contratos vigentes con cuotas pendientes en gestión de cobranzas.';
+        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚠️ Contrato con Mora (> 5 días)';
+        summary.innerText = '— Contratos vigentes con mora vencida (> 5 días de atraso).';
       }
     }
   }

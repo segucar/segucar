@@ -686,15 +686,15 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
 
                     const saldo = parseFloat(p.saldo_pendiente || 0);
-                    let cuotaVencida = false;
+                    let cuotaMoraGrave = false;
                     if (fv && saldo > 2500) {
                         const partsCuota = fv.split('-');
                         if (partsCuota.length === 3) {
                             const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
-                            cuotaVencida = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < 0;
+                            cuotaMoraGrave = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
                         }
                     }
-                    const tieneMoraVencida = cuotaVencida;
+                    const tieneMoraVencida = cuotaMoraGrave;
 
                     if (calDiffRen === 7 && !tieneMoraVencida) {
                         polizas_vencen_semana++;
@@ -1492,9 +1492,9 @@ app.get('/api/clientes', (req, res) => {
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
-                // Contrato vigente = vigencia activa (>= hoy) y sin cuotas vencidas impagas en mora
+                // Contrato vigente = vigencia activa (>= hoy) y sin cuotas con atraso mayor a 5 días corridos
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`
-                       + ` AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime'))`
+                       + ` AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`
                        + notRenewedClause;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
@@ -1782,8 +1782,15 @@ app.get('/api/clientes', (req, res) => {
                         const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
                         const saldo = parseFloat(p.saldo_pendiente || 0);
                         const fvCuota = p.fecha_vencimiento;
-                        const cuotaVencida = fvCuota && fvCuota < hoyStr && saldo > 2500;
-                        return calDiffRen >= 0 && !cuotaVencida;
+                        let cuotaMoraGrave = false;
+                        if (fvCuota && saldo > 2500) {
+                            const partsCuota = fvCuota.split('-');
+                            if (partsCuota.length === 3) {
+                                const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
+                                cuotaMoraGrave = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
+                            }
+                        }
+                        return calDiffRen >= 0 && !cuotaMoraGrave;
                     }
 
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);

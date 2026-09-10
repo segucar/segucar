@@ -252,10 +252,10 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 8:", e.message);
     }
 
-    // ── TEST 9: Cliente con Cuota en Término en Contrato Vigente ─────────────
+    // ── TEST 9: Cliente con Cuota en Término o Gracia en Contrato Vigente ─────────────
     try {
-        console.log("📌 TEST 9: Cliente con Cuotas en Término en Contrato Vigente (Evaluación Dinámica)");
-        // Validación con cuota futura en término
+        console.log("📌 TEST 9: Cliente con Cuotas en Término o Gracia (≤ 5 días atraso) en Contrato Vigente");
+        // 1. Validación con cuota futura en término
         const polizaFutura = {
             operacion: '99999999',
             fecha_vencimiento: '2026-12-15',
@@ -264,14 +264,33 @@ async function runRegressionSuite() {
             cuotas_debe: 0
         };
         const resFutura = global.SeguroStateManager.evaluarRenovacion(polizaFutura);
+
+        // 2. Validación con cuota con atraso de 3 días (dentro del período de gracia de 5 días)
+        const d3 = new Date();
+        d3.setDate(d3.getDate() - 3);
+        const yyyy3 = d3.getFullYear();
+        const mm3 = String(d3.getMonth() + 1).padStart(2, '0');
+        const dd3 = String(d3.getDate()).padStart(2, '0');
+        const fvGracia3 = `${yyyy3}-${mm3}-${dd3}`;
+
+        const polizaGracia = {
+            operacion: '88888888',
+            fecha_vencimiento: fvGracia3,
+            fin_vigencia_poliza: '2026-12-15',
+            saldo_pendiente: 25000,
+            cuotas_debe: 1
+        };
+        const resGracia = global.SeguroStateManager.evaluarRenovacion(polizaGracia);
+
+        // 3. Validación con cuota con mora vencida (> 5 días atraso, ej. Acuña con vto 2026-08-26)
         const acuna = db.prepare("SELECT * FROM polizas WHERE operacion = '11920065'").get();
         const resAcuna = acuna ? global.SeguroStateManager.evaluarRenovacion(acuna) : null;
 
-        if (resFutura.code === 'CONTRATO_VIGENTE' && resAcuna) {
-            console.log(`  ✅ PASSED -> Póliza con cuota en término clasificada como CONTRATO_VIGENTE y Acuña (11920065, vto 2026-08-26) evaluado coherentemente (${resAcuna.code}).\n`);
+        if (resFutura.code === 'CONTRATO_VIGENTE' && resGracia.code === 'CONTRATO_VIGENTE' && resAcuna && resAcuna.code !== 'CONTRATO_VIGENTE') {
+            console.log(`  ✅ PASSED -> Regla de 5 días de gracia validada: cuota futura=${resFutura.code}, cuota atraso 3d=${resGracia.code}, mora >5d (Acuña)=${resAcuna.code}.\n`);
             totalPassed++;
         } else {
-            console.error("  ❌ FAILED -> Error en evaluación de contrato vigente:", resFutura);
+            console.error("  ❌ FAILED -> Inconsistencia en evaluación de 5 días de gracia:", { resFutura, resGracia, resAcuna });
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 9:", e.message);
