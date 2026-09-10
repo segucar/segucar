@@ -63,9 +63,13 @@ function sanitizeAndFixPhone(phone, clientCity = '') {
 }
 
 async function fetchWithRetry(url, options = {}, maxRetries = 2, delayMs = 800) {
+    const fetchOptions = {
+        ...options,
+        signal: options.signal || AbortSignal.timeout(options.timeout || 15000)
+    };
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
         try {
-            const res = await fetch(url, options);
+            const res = await fetch(url, fetchOptions);
             if (res.ok || res.status === 302) return res;
             if (attempt < maxRetries) {
                 await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
@@ -75,11 +79,12 @@ async function fetchWithRetry(url, options = {}, maxRetries = 2, delayMs = 800) 
             await new Promise(r => setTimeout(r, delayMs * (attempt + 1)));
         }
     }
-    return fetch(url, options);
+    return fetch(url, fetchOptions);
 }
 
-async function loginNRE(usuario = 'SUA', password = 'sua') {
-    const baseUrl = process.env.SISTEMA_URL || 'http://149.50.137.101/emision';
+async function loginNRE(usuario = (process.env.SISTEMA_USUARIO || 'SUA').trim(), password = (process.env.SISTEMA_PASSWORD || 'sua').trim()) {
+    const baseUrl = (process.env.SISTEMA_URL || 'http://149.50.137.101/emision').trim();
+
     let cookies = [];
     const getCookieString = () => cookies.join('; ');
     const updateCookies = (res) => {

@@ -53,6 +53,11 @@ function isOfficeHours() {
     return false;
 }
 
+async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const signal = options.signal || AbortSignal.timeout(timeoutMs);
+    return fetch(url, { ...options, signal });
+}
+
 async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassHorario = false) {
     let encontrados = 0;
     let no_encontrados = 0;
@@ -64,7 +69,7 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
         return { encontrados: 0, no_encontrados: 0, errores: 0, detalles: ['Fuera de horario laboral de la oficina.'] };
     }
 
-    const baseUrl = process.env.SISTEMA_URL || 'http://149.50.137.101/emision';
+    const baseUrl = (process.env.SISTEMA_URL || 'http://149.50.137.101/emision').trim();
     
     // Cookie management
     let cookies = [];
@@ -84,7 +89,8 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
         onProgress({ status: 'Obteniendo página de login...' });
 
         // 1. GET login page to get cookies and detect form fields
-        const loginPageRes = await fetch(`${baseUrl}/index.php`);
+        const loginPageRes = await fetchWithTimeout(`${baseUrl}/index.php`);
+
         updateCookies(loginPageRes);
         const loginPageText = await loginPageRes.text();
         const $login = cheerio.load(loginPageText);
@@ -112,7 +118,7 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
         loginParams.append(userField, usuario);
         loginParams.append(passField, password);
 
-        const loginRes = await fetch(loginUrl, {
+        const loginRes = await fetchWithTimeout(loginUrl, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -130,7 +136,7 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
             const location = loginRes.headers.get('location');
             if (location) {
                 const followUrl = location.startsWith('http') ? location : `${baseUrl}/${location.replace(/^\//, '')}`;
-                const followRes = await fetch(followUrl, {
+                const followRes = await fetchWithTimeout(followUrl, {
                     headers: { 'Cookie': getCookieString() }
                 });
                 updateCookies(followRes);
@@ -140,7 +146,7 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
             const match = loginBody.match(/window\.location\s*=\s*"([^"]+)"/);
             if (match) {
                 const redirectUrl = `${baseUrl}/${match[1]}`;
-                const followRes = await fetch(redirectUrl, {
+                const followRes = await fetchWithTimeout(redirectUrl, {
                     headers: { 'Cookie': getCookieString() }
                 });
                 updateCookies(followRes);
@@ -148,7 +154,7 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
         }
 
         // 3. Verify session
-        const checkRes = await fetch(`${baseUrl}/consulta-polizas.php`, {
+        const checkRes = await fetchWithTimeout(`${baseUrl}/consulta-polizas.php`, {
             headers: { 'Cookie': getCookieString() },
             redirect: 'manual'
         });
@@ -185,9 +191,10 @@ async function scrapeTelefonos(usuario, password, onProgress = () => {}, bypassH
             onProgress({ status: `Analizando póliza ${row.operacion} (${i + 1}/${rows.length})...` });
 
             try {
-                const detailRes = await fetch(`${baseUrl}/muestro-polizas.php?prop=${row.operacion}`, {
+                const detailRes = await fetchWithTimeout(`${baseUrl}/muestro-polizas.php?prop=${row.operacion}`, {
                     headers: { 'Cookie': getCookieString() }
                 });
+
                 
                 const detailText = await detailRes.text();
                 const $ = cheerio.load(detailText);
@@ -323,14 +330,14 @@ async function consultarPolizaSistema(operacion, usuario, password) {
     };
 
     try {
-        const loginPageRes = await fetch(`${baseUrl}/index.php`);
+        const loginPageRes = await fetchWithTimeout(`${baseUrl}/index.php`);
         updateCookies(loginPageRes);
         
         const loginParams = new URLSearchParams();
         loginParams.append('useremi', usuario);
         loginParams.append('pasemi', password);
 
-        const loginRes = await fetch(`${baseUrl}/emivali.php`, {
+        const loginRes = await fetchWithTimeout(`${baseUrl}/emivali.php`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
@@ -341,10 +348,11 @@ async function consultarPolizaSistema(operacion, usuario, password) {
         });
         updateCookies(loginRes);
 
-        const detailRes = await fetch(`${baseUrl}/muestro-polizas.php?prop=${operacion}`, {
+        const detailRes = await fetchWithTimeout(`${baseUrl}/muestro-polizas.php?prop=${operacion}`, {
             headers: { 'Cookie': getCookieString() }
         });
         const detailText = await detailRes.text();
+
         const $ = cheerio.load(detailText);
 
         let observaciones = '';

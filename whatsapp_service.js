@@ -16,10 +16,10 @@ function getApiUrl(apiKey) {
  * Obtiene la configuración actual de la API de WhatsApp de la BD
  * Defaults: Modo Oficial API con key de producción de 360dialog
  */
-const WA_DEFAULT_API_KEY = process.env.D360_API_KEY || 'tu8gwTxn2pDWW71EWJXVElDfAK';
+const WA_DEFAULT_API_KEY = (process.env.D360_API_KEY || '').trim();
 const WA_DEFAULT_MODO = 'oficial';
 const WA_DEFAULT_WEBHOOK = 'https://segucar-kuu2.onrender.com/api/webhooks/whatsapp';
-const WA_DEFAULT_N8N_WEBHOOK = process.env.N8N_WEBHOOK_URL || '';
+const WA_DEFAULT_N8N_WEBHOOK = (process.env.N8N_WEBHOOK_URL || '').trim();
 
 function getConfig() {
   try {
@@ -78,7 +78,7 @@ function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhoo
   }
 }
 
-const WA_DEFAULT_N8N_API_KEY = process.env.N8N_WEBHOOK_API_KEY || 'segucar_fase01_wa_inbound_sec_2026';
+const WA_DEFAULT_N8N_API_KEY = (process.env.N8N_WEBHOOK_API_KEY || 'segucar_fase01_wa_inbound_sec_2026').trim();
 
 function resolveValidClienteId(clienteId) {
   if (!clienteId) return null;
@@ -110,7 +110,8 @@ async function forwardToN8n(eventData) {
         'x-api-key': WA_DEFAULT_N8N_API_KEY,
         'x-source': 'segucar-backend'
       },
-      body: JSON.stringify(eventData)
+      body: JSON.stringify(eventData),
+      signal: AbortSignal.timeout(15000)
     });
     const respText = await res.text();
     console.log(`[n8n Forward] Respuesta n8n: HTTP ${res.status} | Body: ${respText.substring(0, 200)}`);
@@ -131,6 +132,7 @@ async function forwardToN8n(eventData) {
     };
   }
 }
+
 
 /**
  * Formatea un número de teléfono a formato E.164 sin '+' (ej: '5492235998888')
@@ -318,7 +320,8 @@ async function sendTextMessage(clienteId, phone, text, { origen = 'bot', autor =
         to: formattedPhone,
         type: 'text',
         text: { body: text }
-      })
+      }),
+      signal: AbortSignal.timeout(15000)
     });
 
     const data = await response.json();
@@ -388,7 +391,8 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
         'D360-API-KEY': cfg.api_key,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(15000)
     });
 
     const data = await response.json();
@@ -655,7 +659,8 @@ async function sendMediaMessage(clienteId, phone, fileUrl, fileName, mimeType = 
         to: formattedPhone,
         type: mediaType,
         [mediaType]: mediaPayload
-      })
+      }),
+      signal: AbortSignal.timeout(15000)
     });
 
     const data = await response.json();

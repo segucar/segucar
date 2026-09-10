@@ -24,8 +24,8 @@ const { generarCronogramaCuotasAGS, calcularFechaCuotaAGS, AGS_TOTAL_CUOTAS } = 
 
 // ─── Configuración ────────────────────────────────────────────────────────────
 const AGS_HOST = 'www.agsnet.com.ar';
-const AGS_USER = process.env.AGS_USUARIO || '157101054';
-const AGS_PASS = process.env.AGS_PASSWORD || 'nocturno';
+const AGS_USER = (process.env.AGS_USUARIO || '').trim();
+const AGS_PASS = (process.env.AGS_PASSWORD || '').trim();
 
 // Códigos de productor que usamos
 const PRODUCTORES = ['123701054', '123901054'];
@@ -38,6 +38,7 @@ function httpReq(method, path, body, cookies, referer) {
             hostname: AGS_HOST,
             path,
             method,
+            timeout: 15000,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Content-Length': postBody ? Buffer.byteLength(postBody) : 0,
@@ -54,11 +55,15 @@ function httpReq(method, path, body, cookies, referer) {
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve({ data, cookie: setCookie, status: res.statusCode }));
         });
+        req.on('timeout', () => {
+            req.destroy(new Error('Timeout de 15s conectando a Agrosalta (AGS)'));
+        });
         req.on('error', reject);
         if (postBody) req.write(postBody);
         req.end();
     });
 }
+
 
 // ─── Login y sesión ───────────────────────────────────────────────────────────
 async function loginAGS() {
