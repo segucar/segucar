@@ -19,7 +19,7 @@
 
 'use strict';
 
-const { esNoHabil, esHabil, getArgentinaNow, toLocalDateString } = require('./holidays_ar');
+const { esNoHabil, esHabil, getArgentinaNow, toLocalDateString, evaluarEstadoCobranzaHabil } = require('./holidays_ar');
 
 /**
  * Obtiene hora, minuto, día de la semana y fecha actual en zona horaria de Argentina.
@@ -110,12 +110,10 @@ function obtenerPendientesHoy(db, fechaRef = null) {
         };
     }
 
-    const diaSemanaHoy = hoyDate.getUTCDay(); // 0 = Domingo, 1 = Lunes, etc.
-
     const allPolizas = db.prepare(`
         SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento,
                p.fin_vigencia_poliza, p.cuotas_debe, p.saldo_pendiente,
-               c.nombre, c.telefono, c.id as cliente_id
+               c.nombre, c.telefono, c.id as cliente_id, p.aseguradora
         FROM polizas p
         JOIN clientes c ON p.cliente_id = c.id
         WHERE c.telefono IS NOT NULL 
@@ -125,47 +123,77 @@ function obtenerPendientesHoy(db, fechaRef = null) {
         ORDER BY p.id ASC
     `).all();
 
+    // Deduplicación por patente: excluir pólizas reemplazadas por renovaciones más recientes
+    const renewedPolizaIds = new Set();
+    const polizasByPatente = {};
+    for (const p of allPolizas) {
+        if (!p.patente) continue;
+        if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+        polizasByPatente[p.patente].push(p);
+    }
+    for (const pat in polizasByPatente) {
+        const group = polizasByPatente[pat];
+        if (group.length <= 1) continue;
+        group.sort((a, b) => {
+            const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+            const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+            if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+            if (a.aseguradora === b.aseguradora) {
+                return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+            }
+            return 0;
+        });
+        for (let i = 1; i < group.length; i++) {
+            renewedPolizaIds.add(group[i].id);
+        }
+    }
+
     const pendientes = [];
 
     for (const p of allPolizas) {
+        if (renewedPolizaIds.has(p.id)) continue;
         if (!p.fecha_vencimiento || !p.telefono) continue;
 
         const cuotasDebe = parseInt(p.cuotas_debe || 0, 10);
         const saldo = parseFloat(p.saldo_pendiente || 0);
-        const saldoExigible = parseFloat(p.saldo_exigible !== undefined ? p.saldo_exigible : saldo);
 
         let tipo = null;
         let plantilla = null;
 
-        const vtoDate = normalizarFecha(p.fecha_vencimiento);
-        if (vtoDate && !isNaN(vtoDate.getTime())) {
-            const calDiff = Math.round((vtoDate - hoyDate) / (1000 * 60 * 60 * 24));
+        // ── 1. Evaluar Cobranzas con la función oficial de días hábiles ──────
+        const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldo, hoyDate);
 
-            // 1. 🟡 RECORDATORIO 48 HS (Preventivo): vence en exactamente 2 días (calDiff === 2) con saldo $0 o menor a $2500
-            if (calDiff === 2 && (saldo <= 0 || saldoExigible <= 2500)) {
-                tipo = 'recordatorio_48hs';
-                plantilla = 'recordatorio_preventivo_48hs';
-            }
-            // 2. 🟠 PRIMER AVISO: vencida hace 2 días (calDiff === -2), o si hoy es lunes y venció viernes/sábado (calDiff === -3)
-            else if ((calDiff === -2 || (diaSemanaHoy === 1 && calDiff === -3)) && (cuotasDebe >= 1 || saldo > 2500)) {
-                tipo = 'primer_aviso';
-                plantilla = 'primer_aviso_vencida_48hs';
-            }
-            // 3. 🔴 SEGUNDO AVISO: vencida hace 4 días (calDiff === -4) con deuda activa
-            else if (calDiff === -4 && (cuotasDebe >= 1 || saldo > 2500)) {
-                tipo = 'segundo_aviso';
-                plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
-            }
+        if (estadoHabil === 'recordatorio_48hs') {
+            tipo = 'recordatorio_48hs';
+            plantilla = 'recordatorio_preventivo_48hs';
+        } else if (estadoHabil === 'cuota_vencida_0_48hs') {
+            tipo = 'primer_aviso';
+            plantilla = 'primer_aviso_vencida_48hs';
+        } else if (estadoHabil === 'cuota_vencida_48_96hs') {
+            tipo = 'segundo_aviso';
+            plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
         }
 
-        // 4. 📄 AVISO RENOVACIÓN 7 DÍAS: vence la vigencia en los próximos 0 a 7 días (sin deuda prioritaria)
-        if (!tipo && p.fin_vigencia_poliza) {
-            const fvPoliza = normalizarFecha(p.fin_vigencia_poliza);
-            if (fvPoliza && !isNaN(fvPoliza.getTime())) {
-                const diasRen = Math.round((fvPoliza - hoyDate) / (1000 * 60 * 60 * 24));
-                if (diasRen >= 0 && diasRen <= 7) {
-                    tipo = 'renovacion_7_dias';
-                    plantilla = 'aviso_renovacion_7_dias';
+        // ── 2. Evaluar Renovaciones (Aviso 7 días exactos sin mora grave) ────
+        if (!tipo) {
+            const fvRen = p.fin_vigencia_poliza || p.fecha_vencimiento;
+            if (fvRen) {
+                const fvDate = normalizarFecha(fvRen);
+                if (fvDate && !isNaN(fvDate.getTime())) {
+                    const calDiffRen = Math.round((fvDate - hoyDate) / (1000 * 60 * 60 * 24));
+                    
+                    let cuotaMoraGrave = false;
+                    if (p.fecha_vencimiento && saldo > 2500) {
+                        const fvCuotaDate = normalizarFecha(p.fecha_vencimiento);
+                        if (fvCuotaDate && !isNaN(fvCuotaDate.getTime())) {
+                            cuotaMoraGrave = Math.round((fvCuotaDate - hoyDate) / (1000 * 60 * 60 * 24)) < -5;
+                        }
+                    }
+
+                    if (calDiffRen === 7 && !cuotaMoraGrave) {
+                        tipo = 'renovacion_7_dias';
+                        plantilla = 'aviso_renovacion_7_dias';
+                    }
                 }
             }
         }
@@ -435,8 +463,8 @@ function iniciarScheduler8AM({ db, waService }) {
     setInterval(async () => {
         const info = getInfoHoraArgentina();
 
-        // Chequear ventana de ejecución: 8:00 AM a 8:05 AM
-        if (info.hora === 8 && info.minuto >= 0 && info.minuto <= 5) {
+        // Chequear ventana de ejecución: 8:00 AM a 8:30 AM
+        if (info.hora === 8 && info.minuto >= 0 && info.minuto <= 30) {
             if (ultimoDespachoFecha === info.fechaStr) {
                 // Ya se ejecutó hoy
                 return;
