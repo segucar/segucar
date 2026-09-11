@@ -283,13 +283,14 @@ const SeguroStateManager = (function () {
     // Regla de Negocio: Póliza vigente = al día O con atraso de pago de hasta 5 días corridos.
     // Mora vencida real que suspende vigencia: saldo > $2.500 Y atraso mayor a 5 días corridos (diasCuota < -5).
     const tieneMoraVencida = (saldo > 2500 || saldoExigible > 2500) && diasCuota < -5;
+    const tieneSaldoPendiente = saldo > 2500 || saldoExigible > 2500;
 
     if (diasRen < 0) {
       return ESTADOS.POLIZA_VENCIDA;
     }
 
-    // Clientes CON mora vencida (>5 días) en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
-    if (tieneMoraVencida && diasRen <= 7 && diasRen >= 0) {
+    // Clientes CON saldo o mora pendiente en ventana de renovación (0-7 días) -> RENOVACION_DEUDA (urgente)
+    if (tieneSaldoPendiente && diasRen <= 7 && diasRen >= 0) {
       return ESTADOS.RENOVACION_DEUDA;
     }
 
@@ -298,8 +299,8 @@ const SeguroStateManager = (function () {
       return ESTADOS.VIGENTE_CON_DEUDA;
     }
 
-    // Clientes en término o gracia — vence en EXACTAMENTE 7 días -> Aviso puntual de renovación
-    if (!tieneMoraVencida && diasRen === 7) {
+    // Clientes estrictamente AL DÍA (sin deuda) — vence en EXACTAMENTE 7 días -> Aviso puntual de renovación
+    if (!tieneSaldoPendiente && diasRen === 7) {
       return ESTADOS.RENOVACION_7_DIAS;
     }
 
