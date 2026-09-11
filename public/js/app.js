@@ -1714,15 +1714,18 @@ function getAccionPorVista(polizaInput, viewName) {
   if (!polizaInput) return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: 'recordatorio_48hs' };
   
   const currentView = viewName || state.activeView;
+  const saldo = parseFloat(polizaInput ? (polizaInput.saldo_pendiente || 0) : 0);
+  const cuotas = parseInt(polizaInput ? (polizaInput.cuotas_debe || 0) : 0);
+  const tieneDeuda = saldo > 2500 || cuotas > 0;
 
   if (currentView === 'renovaciones') {
     if (typeof SeguroStateManager !== 'undefined') {
       const resRen = SeguroStateManager.evaluarRenovacion(polizaInput);
       const templateMap = {
-        'RENOVACION_DEUDA': 'renovacion_deuda',
-        'RENOVACION_7_DIAS': 'renovacion_7_dias',
-        'VENCE_PRONTO': 'renovacion_7_dias',
-        'POLIZA_VENCIDA': 'poliza_vencida'
+        'RENOVACION_DEUDA': 'primer_aviso',
+        'RENOVACION_7_DIAS': tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias',
+        'VENCE_PRONTO': tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias',
+        'POLIZA_VENCIDA': 'primer_aviso'
       };
       return {
         codigo: resRen.code,
@@ -1730,13 +1733,11 @@ function getAccionPorVista(polizaInput, viewName) {
         prioridad: resRen.prioridadLevel,
         rank: resRen.prioridadRank,
         badgeColor: resRen.badgeColor,
-        plantilla: resRen.plantilla || templateMap[resRen.code] || 'renovacion_7_dias'
+        plantilla: tieneDeuda ? 'primer_aviso' : (resRen.plantilla || templateMap[resRen.code] || 'renovacion_7_dias')
       };
     }
-    const saldo = parseFloat(polizaInput ? (polizaInput.saldo_pendiente || 0) : 0);
-    const cuotas = parseInt(polizaInput ? (polizaInput.cuotas_debe || 0) : 0);
-    const plantillaType = (saldo > 0 || cuotas > 0) ? 'renovacion_deuda' : 'renovacion_7_dias';
-    return { accion: 'Renovación Póliza', prioridad: 'alta', tagClass: 'tag-blue', plantilla: plantillaType };
+    const plantillaType = tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias';
+    return { accion: tieneDeuda ? '⚠️ Deuda en Renovación' : 'Renovación Póliza', prioridad: 'alta', tagClass: tieneDeuda ? 'tag-red' : 'tag-blue', plantilla: plantillaType };
   } else if (currentView === 'cobranza') {
     // ⚡ Opción B: usar estado_habil precalculado del backend cuando está disponible
     if (polizaInput.estado_habil) {
@@ -1744,7 +1745,7 @@ function getAccionPorVista(polizaInput, viewName) {
         'recordatorio_48hs':      { code: 'RECORDATORIO_48HS',     accion: '🟡 Recordatorio 48 hs',      prioridad: 'media',  rank: 1, badgeColor: '#f39c12', plantilla: 'recordatorio_48hs' },
         'cuota_vencida_0_48hs':   { code: 'CUOTA_VENCIDA_0_48HS',  accion: '🟠 Primer Aviso (48 hs)',     prioridad: 'alta',   rank: 2, badgeColor: '#e67e22', plantilla: 'primer_aviso' },
         'cuota_vencida_48_96hs':  { code: 'CUOTA_VENCIDA_48_96HS', accion: '🔴 Segundo Aviso (96 hs)',    prioridad: 'alta',   rank: 3, badgeColor: '#e74c3c', plantilla: 'segundo_aviso' },
-        'mora_critica':           { code: 'MORA_CRITICA_96HS',      accion: '🚨 Mora Crítica (+96 hs)',   prioridad: 'critica', rank: 4, badgeColor: '#c0392b', plantilla: 'mora_critica' },
+        'mora_critica':           { code: 'MORA_CRITICA_96HS',      accion: '🚨 Mora Crítica (+96 hs)',   prioridad: 'critica', rank: 4, badgeColor: '#c0392b', plantilla: 'primer_aviso' },
         'al_dia':                 { code: 'AL_DIA',                  accion: '✅ Al día',                  prioridad: 'baja',   rank: 5, badgeColor: '#2ed573', plantilla: 'recordatorio_48hs' },
       };
       const mapped = estadoHabilMap[polizaInput.estado_habil] || estadoHabilMap['al_dia'];
@@ -1756,7 +1757,7 @@ function getAccionPorVista(polizaInput, viewName) {
         'RECORDATORIO_48HS': 'recordatorio_48hs',
         'CUOTA_VENCIDA_0_48HS': 'primer_aviso',
         'CUOTA_VENCIDA_48_96HS': 'segundo_aviso',
-        'MORA_CRITICA_96HS': 'mora_critica'
+        'MORA_CRITICA_96HS': 'primer_aviso'
       };
       return {
         codigo: resCob.code,
@@ -1791,18 +1792,25 @@ function calcularProximaAccion(polizaInput) {
 
 // ─── WHATSAPP ──────────────────────────────────────────────────────────────
 
-function getTemplateMatchScore(t, recTarget, activeView) {
+function getTemplateMatchScore(t, recTarget, activeView, polizaInput = null) {
   if (!t) return 0;
   const tType = String(t.tipo || '').toLowerCase();
   const tName = String(t.nombre || t.name || '').toLowerCase();
   const target = String(recTarget || '').toLowerCase();
+
+  // 🛡️ PROTECCIÓN COMERCIAL: Si la póliza tiene deuda, la plantilla renovacion_7_dias ("al día") NUNCA se recomienda
+  const saldo = parseFloat(polizaInput ? (polizaInput.saldo_pendiente || 0) : 0);
+  const cuotas = parseInt(polizaInput ? (polizaInput.cuotas_debe || 0) : 0);
+  if ((saldo > 2500 || cuotas > 0) && (tType === 'renovacion_7_dias' || tName.includes('al día') || tName.includes('aviso renovación'))) {
+    return 0;
+  }
 
   // Exact match gets highest score
   if (tType === target) return 100;
 
   // Specific target matching
   if (target === 'renovacion_deuda') {
-    if (tType === 'renovacion_deuda' || (tName.includes('deuda') && tName.includes('renovación')) || tName.includes('renovación + deuda') || tName.includes('renovacion + deuda')) return 90;
+    if (tType === 'primer_aviso' || tType === 'segundo_aviso') return 80;
   } else if (target === 'renovacion_7_dias') {
     if (tType === 'renovacion_7_dias' || (tName.includes('aviso renovación') && !tName.includes('deuda'))) return 90;
   } else if (target === 'poliza_vencida') {
@@ -1814,18 +1822,18 @@ function getTemplateMatchScore(t, recTarget, activeView) {
   } else if (target === 'segundo_aviso') {
     if (tType === 'segundo_aviso' || tName.includes('segundo aviso')) return 90;
   } else if (target === 'mora_critica') {
-    if (tType === 'mora_critica' || tName.includes('mora crítica') || tName.includes('mora critica')) return 90;
+    if (tType === 'segundo_aviso' || tType === 'primer_aviso') return 90;
   }
 
-  // Same module fallback matching
-  if (activeView === 'renovaciones' && (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('póliza'))) return 40;
+  // Same module fallback matching (solo si no tiene deuda para renovaciones)
+  if (activeView === 'renovaciones' && !(saldo > 2500 || cuotas > 0) && (tType.includes('renovacion') || tName.includes('renovación') || tName.includes('póliza'))) return 40;
   if (activeView === 'cobranza' && (tType.includes('cuota') || tType.includes('aviso') || tType.includes('mora') || tName.includes('cuota'))) return 40;
 
   return 0;
 }
 
-function isTemplateMatch(t, recTarget, activeView) {
-  return getTemplateMatchScore(t, recTarget, activeView) > 0;
+function isTemplateMatch(t, recTarget, activeView, polizaInput = null) {
+  return getTemplateMatchScore(t, recTarget, activeView, polizaInput) > 0;
 }
 
 function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
@@ -1862,8 +1870,8 @@ function showWaPopover(e, clientId, operacion, vehiculo, fechaVenc, patente) {
   if (recAccion && recAccion.plantilla) {
     const recTarget = recAccion.plantilla.toLowerCase();
     sortedTemplates.sort((a, b) => {
-      const scoreA = getTemplateMatchScore(a, recTarget, state.activeView);
-      const scoreB = getTemplateMatchScore(b, recTarget, state.activeView);
+      const scoreA = getTemplateMatchScore(a, recTarget, state.activeView, poliza);
+      const scoreB = getTemplateMatchScore(b, recTarget, state.activeView, poliza);
       return scoreB - scoreA;
     });
   }
@@ -2042,15 +2050,20 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
+  const recAccion = getAccionPorVista(poliza, state.activeView);
+  const templateType = (recAccion && recAccion.plantilla) 
+    ? recAccion.plantilla 
+    : (state.activeView === 'renovaciones' ? ((parseFloat(poliza.saldo_pendiente || 0) > 2500 || parseInt(poliza.cuotas_debe || 0) > 0) ? 'primer_aviso' : 'renovacion_7_dias') : 'primer_aviso');
+
   // ═══════════════════════════════════════════════════════════════════
   // 🛡️ PRE-FLIGHT: Verificar estado real de la póliza antes de enviar
-  // Bloquea el envío si: póliza anulada, saldo=$0 (ya pagó), o renovada
+  // Bloquea el envío si: póliza anulada, deuda en aviso al día, o renovada
   // ═══════════════════════════════════════════════════════════════════
   try {
     const preflightRes = await fetch('/api/whatsapp/preflight', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cliente_id: clientId, poliza_operacion: poliza.operacion })
+      body: JSON.stringify({ cliente_id: clientId, poliza_operacion: poliza.operacion, tipo_plantilla: templateType })
     });
     const preflight = await preflightRes.json();
     if (!preflight.ok) {
@@ -2066,23 +2079,17 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     }
   } catch (preflightErr) {
     console.warn('[preflight] Error al verificar:', preflightErr);
-    // Si el preflight falla por red, igual advertimos pero no bloqueamos
     showToast('⚠️ No se pudo verificar el estado de la póliza. Verificá manualmente antes de enviar.', 'warning');
   }
   // ═══════════════════════════════════════════════════════════════════
-
-  const recAccion = getAccionPorVista(poliza, state.activeView);
-  const templateType = (recAccion && recAccion.plantilla) 
-    ? recAccion.plantilla 
-    : (state.activeView === 'renovaciones' ? 'renovacion_7_dias' : 'primer_aviso');
   
   const sortedTemplates = (state.templates || []).slice().sort((a, b) => {
-    const scoreA = getTemplateMatchScore(a, templateType, state.activeView);
-    const scoreB = getTemplateMatchScore(b, templateType, state.activeView);
+    const scoreA = getTemplateMatchScore(a, templateType, state.activeView, poliza);
+    const scoreB = getTemplateMatchScore(b, templateType, state.activeView, poliza);
     return scoreB - scoreA;
   });
 
-  let template = sortedTemplates.length > 0 && getTemplateMatchScore(sortedTemplates[0], templateType, state.activeView) > 0
+  let template = sortedTemplates.length > 0 && getTemplateMatchScore(sortedTemplates[0], templateType, state.activeView, poliza) > 0
     ? sortedTemplates[0]
     : null;
 

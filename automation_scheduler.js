@@ -174,7 +174,7 @@ function obtenerPendientesHoy(db, fechaRef = null) {
             plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
         }
 
-        // ── 2. Evaluar Renovaciones (Aviso 7 días exactos sin mora grave) ────
+        // ── 2. Evaluar Renovaciones (Aviso 7 días exactos para clientes AL DÍA) ────
         if (!tipo) {
             const fvRen = p.fin_vigencia_poliza || p.fecha_vencimiento;
             if (fvRen) {
@@ -182,15 +182,12 @@ function obtenerPendientesHoy(db, fechaRef = null) {
                 if (fvDate && !isNaN(fvDate.getTime())) {
                     const calDiffRen = Math.round((fvDate - hoyDate) / (1000 * 60 * 60 * 24));
                     
-                    let cuotaMoraGrave = false;
-                    if (p.fecha_vencimiento && saldo > 2500) {
-                        const fvCuotaDate = normalizarFecha(p.fecha_vencimiento);
-                        if (fvCuotaDate && !isNaN(fvCuotaDate.getTime())) {
-                            cuotaMoraGrave = Math.round((fvCuotaDate - hoyDate) / (1000 * 60 * 60 * 24)) < -5;
-                        }
-                    }
+                    // REGLA DE ORO ESTRICTA: El aviso de renovación "al día con los pagos"
+                    // SOLO se debe enviar a clientes que estén estrictamente AL DÍA (saldo <= 2500 y cuotas_debe <= 0).
+                    // Si el cliente tiene deuda pendiente, NUNCA se le debe enviar que está al día.
+                    const estaAlDia = saldo <= 2500 && cuotasDebe <= 0;
 
-                    if (calDiffRen === 7 && !cuotaMoraGrave) {
+                    if (calDiffRen === 7 && estaAlDia) {
                         tipo = 'renovacion_7_dias';
                         plantilla = 'aviso_renovacion_7_dias';
                     }

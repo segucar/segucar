@@ -2787,7 +2787,7 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
 // o cuya póliza fue renovada por una más nueva.
 app.post('/api/whatsapp/preflight', (req, res) => {
     try {
-        const { cliente_id, poliza_operacion } = req.body;
+        const { cliente_id, poliza_operacion, tipo_plantilla } = req.body;
 
         if (!cliente_id) return res.json({ ok: false, razon: 'Falta cliente_id' });
 
@@ -2814,14 +2814,28 @@ app.post('/api/whatsapp/preflight', (req, res) => {
                 });
             }
 
-            // ✅ CHECK 4: Tiene saldo pendiente real > 0 y saldo exigible > $2.500
             const saldo = parseFloat(poliza.saldo_pendiente || 0);
+            const cuotasDebe = parseInt(poliza.cuotas_debe || 0, 10);
             const saldoExigible = getSaldoExigible(poliza);
-            if (saldo <= 0 || (saldoExigible > 0 && saldoExigible <= 2500)) {
-                return res.json({
-                    ok: false,
-                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura con saldo exigible de solo $${saldoExigible || 0} (la prima principal de seguro ya fue abonada). No corresponde enviar aviso de mora ni suspensión de cobertura.`
-                });
+            const tipoNorm = String(tipo_plantilla || '').toLowerCase();
+
+            // ✅ CHECK 4: Si la plantilla es de Renovación "Al Día" (renovacion_7_dias), BLOQUEAR si tiene deuda
+            const isAvisoRenovacionAlDia = tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion');
+            if (isAvisoRenovacionAlDia) {
+                if (saldo > 2500 || cuotasDebe > 0) {
+                    return res.json({
+                        ok: false,
+                        razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: La póliza ${poliza_operacion} (${poliza.patente}) tiene una deuda pendiente de $${saldo.toLocaleString('es-AR')} (${cuotasDebe} cuota/s impaga/s). No se puede enviar una plantilla que afirma que "se encuentra al día con los pagos".`
+                    });
+                }
+            } else if (tipoNorm && (tipoNorm.includes('aviso') || tipoNorm.includes('recordatorio') || tipoNorm.includes('cobranza') || tipoNorm.includes('mora'))) {
+                // Si es plantilla de Cobranzas, verificar que realmente tenga deuda exigible
+                if (saldo <= 0 || (saldoExigible > 0 && saldoExigible <= 2500)) {
+                    return res.json({
+                        ok: false,
+                        razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura con saldo exigible de solo $${saldoExigible || 0} (la prima principal de seguro ya fue abonada). No corresponde enviar aviso de mora ni reclamo de cobranza.`
+                    });
+                }
             }
 
             // ✅ CHECK 5: Es la póliza más nueva para esa patente (no fue renovada)
@@ -2865,6 +2879,30 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         const isBot = explicitOrigen === 'bot' || (!explicitOrigen && hasBotKey === 'segucar_bot_8am_n8n_sec_2026');
         const origen = explicitOrigen || (isBot ? 'bot' : 'humano_crm');
         const autor = isBot ? 'bot' : 'humano';
+
+        // 🛡️ PROTECCIÓN COMERCIAL ESTRICTA:
+        // Si se intenta enviar la plantilla "al día con los pagos" (aviso_renovacion_7_dias),
+        // verificar en tiempo real que la póliza NO tenga deuda pendiente.
+        const tipoNorm = String(tipo_plantilla || '').toLowerCase();
+        if (tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion')) {
+            let polCheck = null;
+            if (poliza_operacion) {
+                polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente FROM polizas WHERE operacion = ?').get(poliza_operacion);
+            } else if (cliente_id) {
+                polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente FROM polizas WHERE cliente_id = ? ORDER BY id DESC LIMIT 1').get(cliente_id);
+            }
+            if (polCheck) {
+                const s = parseFloat(polCheck.saldo_pendiente || 0);
+                const cd = parseInt(polCheck.cuotas_debe || 0, 10);
+                if (s > 2500 || cd > 0) {
+                    console.warn(`[WA Enviar] 🛑 Bloqueado envío de aviso_renovacion_7_dias a cliente con deuda (Saldo: $${s}, Cuotas: ${cd})`);
+                    return res.status(400).json({
+                        ok: false,
+                        error: `Protección Comercial: La póliza (${polCheck.patente || poliza_operacion}) registra una deuda pendiente de $${s.toLocaleString('es-AR')} (${cd} cuotas impagas). No se puede enviar una plantilla que afirma que "se encuentra al día con los pagos".`
+                    });
+                }
+            }
+        }
 
         // Si es intervención humana desde el CRM, auto-silenciar el bot para este teléfono (24h)
         if (!isBot && telefono) {
