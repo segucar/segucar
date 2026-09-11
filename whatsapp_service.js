@@ -97,9 +97,9 @@ async function forwardToN8n(eventData) {
   try {
     const cfg = getConfig();
     const n8nUrl = (process.env.N8N_WEBHOOK_URL || cfg.n8n_webhook_url || '').trim();
-    if (!n8nUrl) {
-      console.warn('[n8n Forward] Sin URL de webhook de n8n configurada.');
-      return { ok: false, error: 'sin_url_configurada' };
+    if (!n8nUrl || n8nUrl === 'disabled' || n8nUrl === 'off' || n8nUrl === 'pausado') {
+      console.warn('[n8n Forward] Sin URL de webhook o bot de WhatsApp apagado/deshabilitado.');
+      return { ok: false, error: 'bot_deshabilitado' };
     }
 
     console.log(`[n8n Forward] Reenviando mensaje entrante a n8n: ${n8nUrl}`);
