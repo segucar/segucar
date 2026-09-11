@@ -219,6 +219,25 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_conversaciones_estado_bot_estado ON conversaciones_estado_bot(estado_bot, silenciado_hasta);
     CREATE INDEX IF NOT EXISTS idx_conversaciones_estado_bot_cliente ON conversaciones_estado_bot(cliente_id);
 
+    -- 🚨 TABLA: Siniestros y Denuncias Administrativas (Agrosalta / NRE)
+    CREATE TABLE IF NOT EXISTS siniestros (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patente TEXT NOT NULL,
+        poliza_id TEXT,
+        titular TEXT,
+        numero_denuncia TEXT NOT NULL,
+        compania TEXT DEFAULT 'AGS',
+        tercero TEXT,
+        origen_email TEXT,
+        asunto_email TEXT,
+        fecha_ingreso DATETIME DEFAULT CURRENT_TIMESTAMP,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_siniestros_patente ON siniestros(patente);
+    CREATE INDEX IF NOT EXISTS idx_siniestros_numero_denuncia ON siniestros(numero_denuncia);
+
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_key ON cotizaciones_cache(cache_key);
     CREATE INDEX IF NOT EXISTS idx_cotizaciones_cache_created ON cotizaciones_cache(created_at);
 
@@ -835,6 +854,40 @@ db.anularPolizasSuperadas = () => {
     }
 };
 
+db.inicializarSiniestros = () => {
+    try {
+        db.exec(`
+            CREATE TABLE IF NOT EXISTS siniestros (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patente TEXT NOT NULL,
+                poliza_id TEXT,
+                titular TEXT,
+                numero_denuncia TEXT NOT NULL,
+                compania TEXT DEFAULT 'AGS',
+                tercero TEXT,
+                origen_email TEXT,
+                asunto_email TEXT,
+                fecha_ingreso DATETIME DEFAULT CURRENT_TIMESTAMP,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE INDEX IF NOT EXISTS idx_siniestros_patente ON siniestros(patente);
+            CREATE INDEX IF NOT EXISTS idx_siniestros_numero_denuncia ON siniestros(numero_denuncia);
+        `);
+        // Asegurar que siniestro SUE176 (Eguren Jorge Alberto / 73635) esté presente
+        const row = db.prepare('SELECT id FROM siniestros WHERE patente = ? AND numero_denuncia = ?').get('SUE176', '73635');
+        if (!row) {
+            db.prepare(`
+                INSERT INTO siniestros (patente, poliza_id, titular, numero_denuncia, compania, origen_email, asunto_email, fecha_ingreso)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            `).run('SUE176', '8491611', 'EGUREN JORGE ALBERTO', '73635', 'AGS', 'info@agsseguros.online', 'ACCIDENTE DE TRANSITO | 8491611 | SUE176 | EGUREN JORGE ALBERTO', '2026-09-04 11:47:00');
+            console.log('✅ Siniestro histórico SUE176 (Denuncia 73635) inicializado en CRM.');
+        }
+    } catch (e) {
+        console.error('Error inicializando siniestros:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.purgarRegistrosDePrueba();
 db.sincronizarSaldosCuotasHistorial();
@@ -842,5 +895,7 @@ db.recalcularCuotasAGSYVencimientos();
 db.sincronizarPolizasSaldadasNRE();
 db.anularPolizasSuperadas();
 db.inicializarCuotasAdmin();
+db.inicializarSiniestros();
 
 module.exports = db;
+

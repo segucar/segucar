@@ -3115,6 +3115,61 @@ app.get('/api/webhooks/whatsapp', (req, res) => {
     }
 });
 // ─────────────────────────────────────────────────────────────────────────────
+// 🚨 ENDPOINTS DE SINIESTROS (Recepción AGS y Búsqueda Terceros)
+// ─────────────────────────────────────────────────────────────────────────────
+
+app.post('/api/siniestros/ags-ingreso', (req, res) => {
+    try {
+        const { patente, poliza_id, titular, numero_denuncia, compania = 'AGS', origen_email, asunto_email } = req.body || {};
+        if (!patente || !numero_denuncia) {
+            return res.status(400).json({ success: false, error: 'Faltan campos requeridos (patente, numero_denuncia)' });
+        }
+        const cleanPatente = String(patente).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        const numDen = String(numero_denuncia).trim();
+
+        const existing = db.prepare('SELECT id FROM siniestros WHERE patente = ? AND numero_denuncia = ?').get(cleanPatente, numDen);
+        if (existing) {
+            db.prepare('UPDATE siniestros SET poliza_id = ?, titular = ?, compania = ?, origen_email = ?, asunto_email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+              .run(poliza_id || '', titular || '', compania, origen_email || '', asunto_email || '', existing.id);
+        } else {
+            db.prepare('INSERT INTO siniestros (patente, poliza_id, titular, numero_denuncia, compania, origen_email, asunto_email) VALUES (?, ?, ?, ?, ?, ?, ?)')
+              .run(cleanPatente, poliza_id || '', titular || '', numDen, compania, origen_email || '', asunto_email || '');
+        }
+
+        console.log(`[Siniestros] ✅ Siniestro registrado para ${cleanPatente} - Denuncia N° ${numDen}`);
+        return res.json({ success: true, patente: cleanPatente, numero_denuncia: numDen });
+    } catch (err) {
+        console.error('[Siniestros Error]', err);
+        return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+app.get('/api/siniestros/buscar', (req, res) => {
+    try {
+        const { patente, tercero, compania } = req.query;
+        if (!patente) {
+            return res.json({ registrado: false });
+        }
+        const cleanPatente = String(patente).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+        const row = db.prepare('SELECT * FROM siniestros WHERE patente = ? ORDER BY id DESC LIMIT 1').get(cleanPatente);
+
+        if (row && row.numero_denuncia) {
+            return res.json({
+                registrado: true,
+                numeroDenuncia: row.numero_denuncia,
+                fecha: row.fecha_ingreso || row.created_at,
+                detalle: row.asunto_email || '',
+                tercero: row.tercero || '',
+                coincidenciaTercero: true
+            });
+        }
+        return res.json({ registrado: false });
+    } catch (err) {
+        console.error('[Siniestros Buscar Error]', err);
+        return res.json({ registrado: false, error: err.message });
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 
 // ═══════════════════════════════════════════════════════════════════════════
