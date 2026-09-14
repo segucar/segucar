@@ -3120,24 +3120,38 @@ app.get('/api/webhooks/whatsapp', (req, res) => {
 
 app.post('/api/siniestros/ags-ingreso', (req, res) => {
     try {
-        const { patente, poliza_id, titular, numero_denuncia, compania = 'AGS', origen_email, asunto_email } = req.body || {};
-        if (!patente || !numero_denuncia) {
-            return res.status(400).json({ success: false, error: 'Faltan campos requeridos (patente, numero_denuncia)' });
+        let { patente, poliza_id, titular, numero_denuncia, compania = 'AGS', origen_email, asunto_email } = req.body || {};
+        
+        // Si no vino patente pero vino poliza_id, buscar la patente en la base de datos
+        if (!patente && poliza_id) {
+            const polRow = db.prepare('SELECT patente, titular FROM polizas WHERE operacion = ? OR id = ?').get(String(poliza_id).trim(), String(poliza_id).trim());
+            if (polRow && polRow.patente) {
+                patente = polRow.patente;
+                if (!titular && polRow.titular) titular = polRow.titular;
+            }
         }
-        const cleanPatente = String(patente).replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-        const numDen = String(numero_denuncia).trim();
 
-        const existing = db.prepare('SELECT id FROM siniestros WHERE patente = ? AND numero_denuncia = ?').get(cleanPatente, numDen);
+        const cleanPatente = patente ? String(patente).replace(/[^a-zA-Z0-9]/g, '').toUpperCase() : '';
+        const numDen = numero_denuncia ? String(numero_denuncia).trim() : 'Pendiente';
+
+        if (!cleanPatente && !poliza_id) {
+            return res.status(400).json({ success: false, error: 'Faltan campos requeridos (patente o poliza_id)' });
+        }
+
+        const existing = cleanPatente 
+            ? db.prepare('SELECT id FROM siniestros WHERE patente = ? AND numero_denuncia = ?').get(cleanPatente, numDen)
+            : (poliza_id ? db.prepare('SELECT id FROM siniestros WHERE poliza_id = ?').get(String(poliza_id)) : null);
+
         if (existing) {
-            db.prepare('UPDATE siniestros SET poliza_id = ?, titular = ?, compania = ?, origen_email = ?, asunto_email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
-              .run(poliza_id || '', titular || '', compania, origen_email || '', asunto_email || '', existing.id);
+            db.prepare('UPDATE siniestros SET patente = COALESCE(NULLIF(?, ""), patente), poliza_id = ?, titular = ?, compania = ?, origen_email = ?, asunto_email = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+              .run(cleanPatente, poliza_id || '', titular || '', compania, origen_email || '', asunto_email || '', existing.id);
         } else {
             db.prepare('INSERT INTO siniestros (patente, poliza_id, titular, numero_denuncia, compania, origen_email, asunto_email) VALUES (?, ?, ?, ?, ?, ?, ?)')
-              .run(cleanPatente, poliza_id || '', titular || '', numDen, compania, origen_email || '', asunto_email || '');
+              .run(cleanPatente || 'SIN_PATENTE', poliza_id || '', titular || '', numDen, compania, origen_email || '', asunto_email || '');
         }
 
-        console.log(`[Siniestros] ✅ Siniestro registrado para ${cleanPatente} - Denuncia N° ${numDen}`);
-        return res.json({ success: true, patente: cleanPatente, numero_denuncia: numDen });
+        console.log(`[Siniestros] ✅ Siniestro registrado para ${cleanPatente || poliza_id} - Denuncia N° ${numDen}`);
+        return res.json({ success: true, patente: cleanPatente, poliza_id, numero_denuncia: numDen });
     } catch (err) {
         console.error('[Siniestros Error]', err);
         return res.status(500).json({ success: false, error: err.message });
