@@ -486,6 +486,13 @@ async function processWebhookPayload(payload) {
           continue;
         }
 
+        // Caso especial 3: Mensaje saliente enviado por asesor humano desde la app de WhatsApp
+        if (msg.fromMe || msg.key?.fromMe || msg.sender === 'me' || msg.direction === 'outgoing') {
+          console.log(`[WA Webhook] 👤 Mensaje saliente de asesor humano para ${fromPhone}. Silenciando bot.`);
+          silenciarBot(fromPhone, { horas: 24, motivo: 'intervencion_asesor_movil', autor: 'humano' });
+          continue;
+        }
+
         let textContent = '';
         let mediaId = null;
 

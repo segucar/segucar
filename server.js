@@ -2958,6 +2958,9 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         } else {
             console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono} (Origen: ${origen})`);
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje, { origen, autor });
+            if (origen !== 'bot') {
+                waService.silenciarBot(telefono, { horas: 24, motivo: 'intervencion_humano_crm', clienteId: cliente_id, autor: 'humano' });
+            }
         }
 
         if (result && result.ok) {
