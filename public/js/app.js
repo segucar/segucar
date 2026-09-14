@@ -1711,7 +1711,7 @@ function calcularAccionPoliza(polizaInput) {
 }
 
 function getAccionPorVista(polizaInput, viewName) {
-  if (!polizaInput) return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: 'recordatorio_48hs' };
+  if (!polizaInput) return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: null };
   
   const currentView = viewName || state.activeView;
   const saldo = parseFloat(polizaInput ? (polizaInput.saldo_pendiente || 0) : 0);
@@ -1746,7 +1746,7 @@ function getAccionPorVista(polizaInput, viewName) {
         'cuota_vencida_0_48hs':   { code: 'CUOTA_VENCIDA_0_48HS',  accion: '🟠 Primer Aviso (48 hs)',     prioridad: 'alta',   rank: 2, badgeColor: '#e67e22', plantilla: 'primer_aviso' },
         'cuota_vencida_48_96hs':  { code: 'CUOTA_VENCIDA_48_96HS', accion: '🔴 Segundo Aviso (96 hs)',    prioridad: 'alta',   rank: 3, badgeColor: '#e74c3c', plantilla: 'segundo_aviso' },
         'mora_critica':           { code: 'MORA_CRITICA_96HS',      accion: '🚨 Mora Crítica (+96 hs)',   prioridad: 'critica', rank: 4, badgeColor: '#c0392b', plantilla: 'primer_aviso' },
-        'al_dia':                 { code: 'AL_DIA',                  accion: '✅ Al día',                  prioridad: 'baja',   rank: 5, badgeColor: '#2ed573', plantilla: 'recordatorio_48hs' },
+        'al_dia':                 { code: 'AL_DIA',                  accion: '✅ Al día',                  prioridad: 'baja',   rank: 5, badgeColor: '#2ed573', plantilla: null },
       };
       const mapped = estadoHabilMap[polizaInput.estado_habil] || estadoHabilMap['al_dia'];
       return { codigo: mapped.code, accion: mapped.accion, prioridad: mapped.prioridad, rank: mapped.rank, badgeColor: mapped.badgeColor, plantilla: mapped.plantilla };
@@ -1782,7 +1782,7 @@ function getAccionPorVista(polizaInput, viewName) {
     if (typeof SeguroStateManager !== 'undefined') {
       return SeguroStateManager.evaluarProximaAccion(polizaInput, state.lastSyncDate);
     }
-    return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: 'recordatorio_48hs' };
+    return { accion: 'Sin acción', prioridad: 'baja', tagClass: 'tag-green', plantilla: null };
   }
 }
 
@@ -1803,6 +1803,19 @@ function getTemplateMatchScore(t, recTarget, activeView, polizaInput = null) {
   const cuotas = parseInt(polizaInput ? (polizaInput.cuotas_debe || 0) : 0);
   if ((saldo > 2500 || cuotas > 0) && (tType === 'renovacion_7_dias' || tName.includes('al día') || tName.includes('aviso renovación'))) {
     return 0;
+  }
+
+  // 🛡️ PROTECCIÓN COMERCIAL: Si la cuota ya venció en el pasado, la plantilla recordatorio_48hs ("en 48 hs vence") NUNCA se recomienda
+  if (polizaInput && polizaInput.fecha_vencimiento) {
+    const partsVto = polizaInput.fecha_vencimiento.split('-');
+    if (partsVto.length === 3) {
+      const vtoDate = new Date(parseInt(partsVto[0]), parseInt(partsVto[1]) - 1, parseInt(partsVto[2]));
+      const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
+      const diffDias = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+      if (diffDias < 0 && (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo') || tName.includes('48 hs'))) {
+        return 0;
+      }
+    }
   }
 
   // Exact match gets highest score

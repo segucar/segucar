@@ -2821,12 +2821,26 @@ app.post('/api/whatsapp/preflight', (req, res) => {
 
             // ✅ CHECK 4: Si la plantilla es de Renovación "Al Día" (renovacion_7_dias), BLOQUEAR si tiene deuda
             const isAvisoRenovacionAlDia = tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion');
+            const isRecordatorio48hs = tipoNorm.includes('recordatorio_48hs') || tipoNorm.includes('recordatorio_preventivo');
+
             if (isAvisoRenovacionAlDia) {
                 if (saldo > 2500 || cuotasDebe > 0) {
                     return res.json({
                         ok: false,
                         razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: La póliza ${poliza_operacion} (${poliza.patente}) tiene una deuda pendiente de $${saldo.toLocaleString('es-AR')} (${cuotasDebe} cuota/s impaga/s). No se puede enviar una plantilla que afirma que "se encuentra al día con los pagos".`
                     });
+                }
+            } else if (isRecordatorio48hs) {
+                // Recordatorio preventivo: SOLO es válido para cuotas futuras que vencen en 48hs.
+                // Si la cuota ya venció en el pasado, BLOQUEAR.
+                if (poliza.fecha_vencimiento) {
+                    const todayStr = toLocalISOString(getArgentinaNow());
+                    if (poliza.fecha_vencimiento < todayStr) {
+                        return res.json({
+                            ok: false,
+                            razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: La cuota de la póliza ${poliza_operacion} (${poliza.patente}) ya venció el ${poliza.fecha_vencimiento}. No se puede enviar un recordatorio preventivo de 'vence en 48 hs'. Corresponde enviar aviso de regularización o renovación con deuda.`
+                        });
+                    }
                 }
             } else if (tipoNorm && (tipoNorm.includes('aviso') || tipoNorm.includes('recordatorio') || tipoNorm.includes('cobranza') || tipoNorm.includes('mora'))) {
                 // Si es plantilla de Cobranzas, verificar que realmente tenga deuda exigible
@@ -2881,24 +2895,33 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         const autor = isBot ? 'bot' : 'humano';
 
         // 🛡️ PROTECCIÓN COMERCIAL ESTRICTA:
-        // Si se intenta enviar la plantilla "al día con los pagos" (aviso_renovacion_7_dias),
-        // verificar en tiempo real que la póliza NO tenga deuda pendiente.
         const tipoNorm = String(tipo_plantilla || '').toLowerCase();
-        if (tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion')) {
-            let polCheck = null;
-            if (poliza_operacion) {
-                polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente FROM polizas WHERE operacion = ?').get(poliza_operacion);
-            } else if (cliente_id) {
-                polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente FROM polizas WHERE cliente_id = ? ORDER BY id DESC LIMIT 1').get(cliente_id);
-            }
-            if (polCheck) {
-                const s = parseFloat(polCheck.saldo_pendiente || 0);
-                const cd = parseInt(polCheck.cuotas_debe || 0, 10);
+        let polCheck = null;
+        if (poliza_operacion) {
+            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento FROM polizas WHERE operacion = ?').get(poliza_operacion);
+        } else if (cliente_id) {
+            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento FROM polizas WHERE cliente_id = ? ORDER BY id DESC LIMIT 1').get(cliente_id);
+        }
+
+        if (polCheck) {
+            const s = parseFloat(polCheck.saldo_pendiente || 0);
+            const cd = parseInt(polCheck.cuotas_debe || 0, 10);
+            if (tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion')) {
                 if (s > 2500 || cd > 0) {
                     console.warn(`[WA Enviar] 🛑 Bloqueado envío de aviso_renovacion_7_dias a cliente con deuda (Saldo: $${s}, Cuotas: ${cd})`);
                     return res.status(400).json({
                         ok: false,
                         error: `Protección Comercial: La póliza (${polCheck.patente || poliza_operacion}) registra una deuda pendiente de $${s.toLocaleString('es-AR')} (${cd} cuotas impagas). No se puede enviar una plantilla que afirma que "se encuentra al día con los pagos".`
+                    });
+                }
+            }
+            if (tipoNorm.includes('recordatorio_48hs') || tipoNorm.includes('recordatorio_preventivo')) {
+                const todayStr = toLocalISOString(getArgentinaNow());
+                if (polCheck.fecha_vencimiento && polCheck.fecha_vencimiento < todayStr) {
+                    console.warn(`[WA Enviar] 🛑 Bloqueado envío de recordatorio_48hs a cuota ya vencida (${polCheck.fecha_vencimiento})`);
+                    return res.status(400).json({
+                        ok: false,
+                        error: `Protección Comercial: La cuota de la póliza (${polCheck.patente || poliza_operacion}) ya venció el ${polCheck.fecha_vencimiento}. No se puede enviar un recordatorio de 'vence en 48 hs'.`
                     });
                 }
             }

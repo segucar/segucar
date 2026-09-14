@@ -164,8 +164,11 @@ function obtenerPendientesHoy(db, fechaRef = null) {
         const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldo, hoyDate);
 
         if (estadoHabil === 'recordatorio_48hs') {
-            tipo = 'recordatorio_48hs';
-            plantilla = 'recordatorio_preventivo_48hs';
+            const vtoCuotaDate = normalizarFecha(p.fecha_vencimiento);
+            if (vtoCuotaDate && vtoCuotaDate >= hoyDate) {
+                tipo = 'recordatorio_48hs';
+                plantilla = 'recordatorio_preventivo_48hs';
+            }
         } else if (estadoHabil === 'cuota_vencida_0_48hs') {
             tipo = 'primer_aviso';
             plantilla = 'primer_aviso_vencida_48hs';

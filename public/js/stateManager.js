@@ -331,6 +331,7 @@ const SeguroStateManager = (function () {
     if (estadoRen.code !== 'CONTRATO_VIGENTE') {
       const templateMap = {
         'RENOVACION_7_DIAS': 'renovacion_7_dias',
+        'RENOVACION_DEUDA': 'primer_aviso',
         'POLIZA_VENCIDA': 'poliza_vencida'
       };
       return {
@@ -349,7 +350,7 @@ const SeguroStateManager = (function () {
       prioridad: 'baja',
       rank: 1,
       badgeColor: '#2ed573',
-      plantilla: 'recordatorio_48hs'
+      plantilla: null
     };
   }
 

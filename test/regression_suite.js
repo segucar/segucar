@@ -552,7 +552,49 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 14:", e.message);
     }
 
-    const totalTestsCount = 14;
+    // ─── TEST 15: Protección Comercial — Bloqueo de Recordatorio 48hs con Cuota Vencida (Caso 11898975 / EKR076) ───
+    console.log("📌 TEST 15: Protección Comercial — Bloqueo de Recordatorio 48hs con Cuota Vencida (Caso 11898975 / EKR076)");
+    try {
+        const { obtenerPendientesHoy } = require('../automation_scheduler');
+
+        // 1. Verificar póliza real 11898975 (Benitez Pedro Diego / EKR076)
+        const ekr = db.prepare("SELECT * FROM polizas WHERE operacion = '11898975'").get();
+        let ekrBlocked = true;
+        if (ekr) {
+            // Evaluar en fecha 2026-09-11 (a 48hs del fin de vigencia 2026-09-13, pero con cuota vencida el 2026-08-13)
+            const pendientes11 = obtenerPendientesHoy(db, '2026-09-11');
+            const ekrPendiente = pendientes11.pendientes.find(p => p.operacion === '11898975');
+            // NUNCA debe asignarse a 'recordatorio_48hs'
+            ekrBlocked = !ekrPendiente || ekrPendiente.tipo !== 'recordatorio_48hs';
+        }
+
+        // 2. Verificar simulación sintética: cuota vencida en el pasado con fin de vigencia próximo
+        const testCliId15 = 999996;
+        db.prepare("INSERT OR REPLACE INTO clientes (id, nombre, telefono) VALUES (?, 'Test Cuota Vencida 48h', '5491199999996')").run(testCliId15);
+        db.prepare(`
+            INSERT OR REPLACE INTO polizas (id, cliente_id, operacion, patente, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, saldo_pendiente, estado)
+            VALUES (999996, ?, 'TESTVENCIDA48H', 'TEST48H', '2026-08-10', '2026-09-13', 1, 35000, 'vigente')
+        `).run(testCliId15);
+
+        const pendientesSynth15 = obtenerPendientesHoy(db, '2026-09-11');
+        const synthPendiente15 = pendientesSynth15.pendientes.find(p => p.operacion === 'TESTVENCIDA48H');
+        const synthBlocked15 = !synthPendiente15 || synthPendiente15.tipo !== 'recordatorio_48hs';
+
+        // Limpieza
+        db.prepare("DELETE FROM polizas WHERE id = 999996").run();
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(testCliId15);
+
+        if (ekrBlocked && synthBlocked15) {
+            console.log("  ✅ PASSED -> Protección Comercial validada: Cuotas vencidas en el pasado NUNCA reciben recordatorio preventivo 'vence en 48 hs'.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Cuota vencida fue asignada erróneamente a 'recordatorio_48hs':", { ekrBlocked, synthBlocked15 });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 15:", e.message);
+    }
+
+    const totalTestsCount = 15;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
