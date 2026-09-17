@@ -1725,7 +1725,7 @@ function getAccionPorVista(polizaInput, viewName) {
         'RENOVACION_DEUDA': 'primer_aviso',
         'RENOVACION_7_DIAS': tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias',
         'VENCE_PRONTO': tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias',
-        'POLIZA_VENCIDA': 'primer_aviso'
+        'POLIZA_VENCIDA': 'poliza_vencida'
       };
       return {
         codigo: resRen.code,
@@ -1733,10 +1733,10 @@ function getAccionPorVista(polizaInput, viewName) {
         prioridad: resRen.prioridadLevel,
         rank: resRen.prioridadRank,
         badgeColor: resRen.badgeColor,
-        plantilla: tieneDeuda ? 'primer_aviso' : (resRen.plantilla || templateMap[resRen.code] || 'renovacion_7_dias')
+        plantilla: tieneDeuda ? 'primer_aviso' : (resRen.plantilla || templateMap[resRen.code] || 'poliza_vencida')
       };
     }
-    const plantillaType = tieneDeuda ? 'primer_aviso' : 'renovacion_7_dias';
+    const plantillaType = tieneDeuda ? 'primer_aviso' : 'poliza_vencida';
     return { accion: tieneDeuda ? '⚠️ Deuda en Renovación' : 'Renovación Póliza', prioridad: 'alta', tagClass: tieneDeuda ? 'tag-red' : 'tag-blue', plantilla: plantillaType };
   } else if (currentView === 'cobranza') {
     // ⚡ Opción B: usar estado_habil precalculado del backend cuando está disponible
@@ -2066,7 +2066,7 @@ async function triggerSmartWhatsApp(clientId, operacion) {
   const recAccion = getAccionPorVista(poliza, state.activeView);
   const templateType = (recAccion && recAccion.plantilla) 
     ? recAccion.plantilla 
-    : (state.activeView === 'renovaciones' ? ((parseFloat(poliza.saldo_pendiente || 0) > 2500 || parseInt(poliza.cuotas_debe || 0) > 0) ? 'primer_aviso' : 'renovacion_7_dias') : 'primer_aviso');
+    : (state.activeView === 'renovaciones' ? ((parseFloat(poliza.saldo_pendiente || 0) > 2500 || parseInt(poliza.cuotas_debe || 0) > 0) ? 'primer_aviso' : (state.filters.estado === 'poliza_vencida' ? 'poliza_vencida' : 'renovacion_7_dias')) : 'primer_aviso');
 
   // ═══════════════════════════════════════════════════════════════════
   // 🛡️ PRE-FLIGHT: Verificar estado real de la póliza antes de enviar

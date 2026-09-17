@@ -2842,7 +2842,7 @@ app.post('/api/whatsapp/preflight', (req, res) => {
                         });
                     }
                 }
-            } else if (tipoNorm && (tipoNorm.includes('aviso') || tipoNorm.includes('recordatorio') || tipoNorm.includes('cobranza') || tipoNorm.includes('mora'))) {
+            } else if (tipoNorm && !tipoNorm.includes('poliza_vencida') && !tipoNorm.includes('vencida') && !tipoNorm.includes('recuperacion') && !tipoNorm.includes('renovacion') && (tipoNorm.includes('aviso') || tipoNorm.includes('recordatorio') || tipoNorm.includes('cobranza') || tipoNorm.includes('mora'))) {
                 // Si es plantilla de Cobranzas, verificar que realmente tenga deuda exigible
                 if (saldo <= 0 || (saldoExigible > 0 && saldoExigible <= 2500)) {
                     return res.json({

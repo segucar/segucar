@@ -120,7 +120,8 @@ const SeguroStateManager = (function () {
       prioridadRank: 7,
       prioridadLevel: 'alta',
       tagClass: 'tag-red',
-      badgeColor: '#ff4757'
+      badgeColor: '#ff4757',
+      plantilla: 'poliza_vencida'
     },
     CONTRATO_VIGENTE: {
       code: 'CONTRATO_VIGENTE',
