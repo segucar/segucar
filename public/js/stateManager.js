@@ -370,3 +370,7 @@ const SeguroStateManager = (function () {
 
   return instance;
 })();
+
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = SeguroStateManager;
+}

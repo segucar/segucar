@@ -2081,13 +2081,8 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     const preflight = await preflightRes.json();
     if (!preflight.ok) {
       // Bloquear envío y mostrar razón clara
-      showModal({
-        title: '⚠️ No se puede enviar el mensaje',
-        message: preflight.razon,
-        confirmText: 'Entendido',
-        cancelText: null,
-        onConfirm: () => {}
-      });
+      showToast(`⚠️ ${preflight.razon}`, 'warning');
+      alert(`⚠️ No se puede enviar el mensaje:\n\n${preflight.razon}`);
       return; // ← ABORTAR sin enviar
     }
   } catch (preflightErr) {
@@ -2123,13 +2118,13 @@ async function triggerSmartWhatsApp(clientId, operacion) {
     return;
   }
 
-  // Verificar si estamos en Modo Oficial API o Modo Simulación
+  // Verificar si estamos en Modo Oficial API con plantilla Meta aprobada
   try {
     const resCfg = await fetch('/api/whatsapp/config');
     const cfg = await resCfg.json();
 
-    if (cfg.modo === 'oficial' && cfg.api_key) {
-      // 🚀 Modo Oficial API: Enviar directo por 360dialog y abrir Bandeja WA
+    if (cfg.modo === 'oficial' && cfg.api_key && template.nombre_meta) {
+      // 🚀 Modo Oficial API: Enviar directo por 360dialog
       showToast(`Enviando aviso por WhatsApp API a ${client.nombre}...`, 'info');
       const resSend = await fetch('/api/whatsapp/enviar', {
         method: 'POST',
@@ -2138,7 +2133,7 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.nombre_meta || template.tipo,
+          tipo_plantilla: template.nombre_meta,
           poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
           poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
         })
@@ -2164,20 +2159,16 @@ async function triggerSmartWhatsApp(clientId, operacion) {
 
         // Abrir WhatsApp Web en el chat del cliente para ver la conversación
         window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
-
+        return;
       } else {
-        showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
+        showToast(`⚠️ API: ${dataSend.error || 'No enviada'}. Abriendo WhatsApp Web...`, 'warning');
       }
-
-      return;
     }
   } catch (err) {
     console.error('Error verificando modo WA config:', err);
-    showToast(`❌ Error al conectar con la API de WhatsApp: ${err.message}`, 'error');
-    return;
   }
 
-  // 🟢 Modo Manual: Abrir WhatsApp Web tradicional
+  // 🟢 Modo Manual / Fallback: Abrir WhatsApp Web tradicional
   const url = `https://web.whatsapp.com/send?phone=${phone}&text=${encodeURIComponent(msg)}`;
   window.open(url, '_blank');
   markWhatsAppAsSent(clientId, operacion);
@@ -2268,7 +2259,7 @@ async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc
     const resCfg = await fetch('/api/whatsapp/config');
     const cfg = await resCfg.json();
 
-    if (cfg.modo === 'oficial' && cfg.api_key) {
+    if (cfg.modo === 'oficial' && cfg.api_key && template.nombre_meta) {
       showToast(`Enviando aviso por WhatsApp API a ${client.nombre}...`, 'info');
       const resSend = await fetch('/api/whatsapp/enviar', {
         method: 'POST',
@@ -2277,7 +2268,7 @@ async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.nombre_meta || template.tipo,
+          tipo_plantilla: template.nombre_meta,
           poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
           poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
         })
@@ -2301,10 +2292,10 @@ async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc
         }).catch(err => console.error('Error logging contact:', err));
 
         window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
+        return;
       } else {
-        showToast(`❌ Error al enviar por WhatsApp API: ${dataSend.error}`, 'error');
+        showToast(`⚠️ API: ${dataSend.error || 'No enviada'}. Abriendo WhatsApp Web...`, 'warning');
       }
-      return;
     }
   } catch (err) {
     console.error('Error verificando modo WA config:', err);
