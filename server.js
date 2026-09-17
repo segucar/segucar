@@ -41,6 +41,11 @@ const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = re
                 tipo: 'renovacion_7_dias',
                 nombre_meta: 'aviso_renovacion_7_dias',
                 mensaje: 'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
+            },
+            {
+                tipo: 'poliza_vencida',
+                nombre_meta: 'aviso_renovacion_poliza_vencida',
+                mensaje: 'Hola, ¿cómo va? Te escribimos de SEGUCar.\n\nTu póliza Nº {operacion} (patente {patente}) venció el {fecha_vencimiento} y el vehículo quedó sin cobertura. Avisanos si querés que avancemos con la renovación y la dejamos al día.\n\nSi preferís revisar antes la cobertura o el valor, respondé este mensaje y lo repasamos juntos.'
             }
         ];
 
@@ -2934,27 +2939,46 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
 
         let result;
         if (tipo_plantilla) {
-            // Auto-extraer parámetros de plantilla ({{1}} = N° póliza/operación, {{2}} = patente)
+            // Resolver nombre oficial en Meta si se pasó tipo interno
+            const templateMetaName = (tipo_plantilla === 'poliza_vencida') 
+                ? 'aviso_renovacion_poliza_vencida' 
+                : ((tipo_plantilla === 'renovacion_7_dias') ? 'aviso_renovacion_7_dias' : tipo_plantilla);
+
+            // Auto-extraer parámetros de plantilla
             let templateParams = parametros || [];
             if (templateParams.length === 0) {
-                // Si el frontend envió operación y patente, usar esos
-                if (poliza_operacion && poliza_patente) {
-                    templateParams = [poliza_operacion, poliza_patente];
-                } else {
-                    // Intentar extraer de la DB
-                    const poliza = db.prepare(`
-                        SELECT operacion, patente FROM polizas 
-                        WHERE cliente_id = ? AND LOWER(estado) != 'anulada'
-                        ORDER BY id DESC LIMIT 1
+                let poliza = null;
+                if (poliza_operacion) {
+                    poliza = db.prepare('SELECT operacion, patente, fecha_vencimiento, fin_vigencia_poliza FROM polizas WHERE operacion = ?').get(poliza_operacion);
+                }
+                if (!poliza && cliente_id) {
+                    poliza = db.prepare(`
+                        SELECT operacion, patente, fecha_vencimiento, fin_vigencia_poliza FROM polizas 
+                        WHERE cliente_id = ? AND LOWER(COALESCE(estado,'')) != 'anulada'
+                        ORDER BY CAST(operacion AS INTEGER) DESC, id DESC LIMIT 1
                     `).get(cliente_id);
-                    if (poliza) {
-                        templateParams = [poliza.operacion || '', poliza.patente || ''];
+                }
+
+                const op = poliza ? (poliza.operacion || '') : (poliza_operacion || '');
+                const pat = poliza ? (poliza.patente || '') : (poliza_patente || '');
+
+                if (templateMetaName === 'aviso_renovacion_poliza_vencida' || templateMetaName.includes('poliza_vencida')) {
+                    const fvRaw = poliza ? (poliza.fin_vigencia_poliza || poliza.fecha_vencimiento) : '';
+                    let fvFormatted = '';
+                    if (fvRaw) {
+                        const parts = String(fvRaw).split('T')[0].split(' ')[0].split('-');
+                        if (parts.length === 3) {
+                            fvFormatted = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                        }
                     }
+                    templateParams = [String(op), String(pat), fvFormatted || 'recientemente'];
+                } else {
+                    templateParams = [String(op), String(pat)];
                 }
             }
 
-            console.log(`[/api/whatsapp/enviar] Sending HSM template: "${tipo_plantilla}" to ${telefono} with params:`, templateParams);
-            result = await waService.sendTemplateMessage(cliente_id, telefono, tipo_plantilla, 'es_AR', templateParams, { origen, autor });
+            console.log(`[/api/whatsapp/enviar] Sending HSM template: "${templateMetaName}" to ${telefono} with params:`, templateParams);
+            result = await waService.sendTemplateMessage(cliente_id, telefono, templateMetaName, 'es_AR', templateParams, { origen, autor });
         } else {
             console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono} (Origen: ${origen})`);
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje, { origen, autor });

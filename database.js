@@ -354,8 +354,8 @@ try {
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_7_dias'").run(
         'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
     );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'poliza_vencida'").run(
-        'Hola, te escribimos de SEGUCar para avisarte que tu póliza N° {operacion} (Patente {patente}) venció el {fecha_vencimiento}. ¿Querés que la renovemos así seguís circulando con tranquilidad y cobertura? Quedamos a tu disposición. ¡Un saludo!'
+    db.prepare("UPDATE plantillas SET nombre_meta = 'aviso_renovacion_poliza_vencida', mensaje = ? WHERE tipo = 'poliza_vencida'").run(
+        'Hola, ¿cómo va? Te escribimos de SEGUCar.\n\nTu póliza Nº {operacion} (patente {patente}) venció el {fecha_vencimiento} y el vehículo quedó sin cobertura. Avisanos si querés que avancemos con la renovación y la dejamos al día.\n\nSi preferís revisar antes la cobertura o el valor, respondé este mensaje y lo repasamos juntos.'
     );
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'recuperacion_historica'").run(
         'Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu póliza N° {operacion} (Patente {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu seguro. ¡Consultanos sin compromiso!'

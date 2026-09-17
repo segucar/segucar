@@ -355,12 +355,21 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
   const formattedPhone = formatPhone(phone);
   const validClienteId = resolveValidClienteId(clienteId);
 
+  const templateNameMap = {
+    'poliza_vencida': 'aviso_renovacion_poliza_vencida',
+    'renovacion_7_dias': 'aviso_renovacion_7_dias',
+    'primer_aviso': 'primer_aviso_vencida_48hs',
+    'segundo_aviso': 'cuota_segundo_aviso_vencida_hace_96_hs',
+    'recordatorio_48hs': 'recordatorio_preventivo_48hs'
+  };
+  const resolvedTemplateName = templateNameMap[templateName] || templateName;
+
   if (cfg.modo === 'simulacion' || !cfg.api_key) {
-    console.log(`[WA Simulación Plantilla] ${templateName} a ${formattedPhone} (Origen: ${origen})`);
+    console.log(`[WA Simulación Plantilla] ${resolvedTemplateName} a ${formattedPhone} (Origen: ${origen})`);
     const res = db.prepare(`
       INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, origen, autor)
       VALUES (?, 'saliente', ?, ?, 'plantilla', 'enviado', ?, ?)
-    `).run(validClienteId, formattedPhone, `[Plantilla: ${templateName}]`, origen, autor);
+    `).run(validClienteId, formattedPhone, `[Plantilla: ${resolvedTemplateName}]`, origen, autor);
     return { ok: true, simulado: true, id: res.lastInsertRowid };
   }
 
@@ -377,7 +386,7 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
       to: formattedPhone,
       type: 'template',
       template: {
-        name: templateName,
+        name: resolvedTemplateName,
         language: { code: languageCode },
         components
       }
