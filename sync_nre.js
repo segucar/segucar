@@ -468,6 +468,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
           AND fecha_vencimiento >= date('now', 'localtime', '-30 days')
           AND fecha_vencimiento <= date('now', 'localtime', '+15 days')
         ORDER BY fecha_vencimiento DESC
+        LIMIT 100
     `).all();
 
     // Pólizas activas en la ventana actual sin historial de cuotas cargado
@@ -478,7 +479,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
           AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
           AND COALESCE(fin_vigencia_poliza, fecha_vencimiento) >= date('now', 'localtime', '-30 days')
         ORDER BY fecha_vencimiento DESC
-        LIMIT 100
+        LIMIT 50
     `).all();
 
     // Otras pólizas con saldo
@@ -488,7 +489,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
         WHERE saldo_pendiente > 0 
           AND (fecha_vencimiento < date('now', 'localtime', '-30 days') OR fecha_vencimiento > date('now', 'localtime', '+15 days') OR fecha_vencimiento IS NULL)
         ORDER BY fecha_vencimiento DESC
-        LIMIT 100
+        LIMIT 50
     `).all();
 
     const mapaCandidatos = new Map();
@@ -520,62 +521,51 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     for (const chunk of chunks) {
         await Promise.all(chunk.map(async (pol) => {
             try {
-                const res = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?prop=${pol.operacion}`, {
-                    headers: { 'Cookie': getCookieString() },
-                    signal: AbortSignal.timeout(5000)
+                const infoRes = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?poli=${pol.operacion}&endo=0`, {
+                    headers: { 'Cookie': getCookieString() }
                 });
-                if (!res.ok) return;
-                const html = await res.text();
+                const html = await infoRes.text();
                 const $ = cheerio.load(html);
 
-                let cuotasHistorial = [];
-                let totalSaldoCli = 0;
-                let todasSaldadas = true;
-                let hayCuotas = false;
-
-                $('table').each((i, t) => {
-                    const headers = $(t).find('th').map((j, h) => $(h).text().trim()).get();
-                    if (headers.includes('Saldo Cli') && headers.includes('Cuota')) {
-                        $(t).find('tbody tr').each((j, tr) => {
-                            const cols = $(tr).find('td').map((k, td) => $(td).text().trim()).get();
-                            if (cols.length >= 4) {
-                                const nro = parseInt(cols[0]);
-                                const vto = parseFechaArg(cols[1]) || '';
-                                const saldoCliText = cols[3] || '$ 0,00';
-                                const saldoCli = parseFloat(saldoCliText.replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-
-                                if (!isNaN(nro) && nro > 0) {
-                                    hayCuotas = true;
-                                    totalSaldoCli += saldoCli;
-                                    if (saldoCli > 0) todasSaldadas = false;
-                                    cuotasHistorial.push({
-                                        nro_cuota: nro,
-                                        vto_cuota: vto,
-                                        saldo_cli: saldoCli,
-                                        estado: saldoCli === 0 ? 'PAGADA' : 'PENDIENTE',
-                                        fecha_pago: saldoCli === 0 ? 'Registrado en NRE' : null,
-                                        lote: ''
-                                    });
-                                }
-                            }
-                        });
-                    }
+                const cuotasRows = $('table tr').filter((i, el) => {
+                    const txt = $(el).text();
+                    return /cuota/i.test(txt) && /\d{2}\/\d{2}\/\d{4}/.test(txt);
                 });
 
-                if (hayCuotas) {
-                    if (todasSaldadas || totalSaldoCli === 0) {
-                        actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
-                        saldadas++;
-                    } else {
-                        // Pago parcial → actualizar saldo_pendiente al saldo real de cliente
-                        const cuotasPendientes = cuotasHistorial.filter(c => c.saldo_cli > 0);
-                        const cuotasPendientesPrincipales = cuotasHistorial.filter(c => c.saldo_cli > 2500);
-                        const nuevoSaldo = totalSaldoCli;
-                        const dbSaldo = pol.saldo_pendiente;
+                if (cuotasRows.length > 0) {
+                    const cuotasHistorial = [];
+                    cuotasRows.each((idx, row) => {
+                        const cols = $(row).find('td').map((k, td) => $(td).text().trim()).get();
+                        if (cols.length >= 6) {
+                            const nroCuota = parseInt(cols[0], 10) || (idx + 1);
+                            const vtoRaw = cols[1];
+                            const vtoIso = vtoRaw && vtoRaw.includes('/') ? vtoRaw.split('/').reverse().join('-') : vtoRaw;
+                            const saldoCli = parseFloat((cols[4] || '0').replace(/\./g, '').replace(',', '.')) || 0;
+                            const fechaPago = cols[5] || null;
+                            const lote = cols[6] || '';
 
-                        if (Math.abs(nuevoSaldo - dbSaldo) > 1 || cuotasPendientesPrincipales.length > 0) {
-                            const primerVtoPendiente = cuotasPendientesPrincipales.length > 0
-                                ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota < b.vto_cuota ? -1 : 1)[0].vto_cuota
+                            cuotasHistorial.push({
+                                nro_cuota: nroCuota,
+                                vto_cuota: vtoIso,
+                                saldo_cli: saldoCli,
+                                estado: saldoCli <= 0 ? 'PAGADA' : 'PENDIENTE',
+                                fecha_pago: fechaPago,
+                                lote: lote
+                            });
+                        }
+                    });
+
+                    if (cuotasHistorial.length > 0) {
+                        const cuotasPendientes = cuotasHistorial.filter(c => c.estado === 'PENDIENTE');
+                        if (cuotasPendientes.length === 0) {
+                            actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
+                            saldadas++;
+                        } else {
+                            // Tiene cuotas pendientes pero quizás menos que antes
+                            const cuotasPendientesPrincipales = cuotasPendientes.filter(c => c.saldo_cli > 2500);
+                            const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
+                            const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
+                                ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota 
                                 : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
                             const primerNroPendiente = cuotasPendientesPrincipales.length > 0
                                 ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
@@ -625,6 +615,12 @@ async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
             FROM polizas 
             WHERE patente IS NOT NULL AND patente != '' 
               AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+              AND (
+                  patente IN (SELECT patente FROM polizas GROUP BY patente HAVING COUNT(*) > 1)
+                  OR fecha_vencimiento >= date('now', 'localtime', '-45 days')
+              )
+            ORDER BY id DESC
+            LIMIT 60
         `).all();
 
         const markAnulada = db.prepare(`

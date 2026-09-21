@@ -282,15 +282,28 @@ async function runRegressionSuite() {
         };
         const resGracia = global.SeguroStateManager.evaluarRenovacion(polizaGracia);
 
-        // 3. Validación con cuota con mora vencida (> 5 días atraso, ej. Acuña con vto 2026-08-26)
-        const acuna = db.prepare("SELECT * FROM polizas WHERE operacion = '11920065'").get();
-        const resAcuna = acuna ? global.SeguroStateManager.evaluarRenovacion(acuna) : null;
+        // 3. Validación con cuota con mora vencida (> 5 días atraso, saldo > 2500)
+        const d10 = new Date();
+        d10.setDate(d10.getDate() - 10);
+        const yyyy10 = d10.getFullYear();
+        const mm10 = String(d10.getMonth() + 1).padStart(2, '0');
+        const dd10 = String(d10.getDate()).padStart(2, '0');
+        const fvMora10 = `${yyyy10}-${mm10}-${dd10}`;
 
-        if (resFutura.code === 'CONTRATO_VIGENTE' && resGracia.code === 'CONTRATO_VIGENTE' && resAcuna && resAcuna.code !== 'CONTRATO_VIGENTE') {
-            console.log(`  ✅ PASSED -> Regla de 5 días de gracia validada: cuota futura=${resFutura.code}, cuota atraso 3d=${resGracia.code}, mora >5d (Acuña)=${resAcuna.code}.\n`);
+        const polizaMora = {
+            operacion: '77777777',
+            fecha_vencimiento: fvMora10,
+            fin_vigencia_poliza: '2026-12-15',
+            saldo_pendiente: 45000,
+            cuotas_debe: 1
+        };
+        const resMora = global.SeguroStateManager.evaluarRenovacion(polizaMora);
+
+        if (resFutura.code === 'CONTRATO_VIGENTE' && resGracia.code === 'CONTRATO_VIGENTE' && resMora.code === 'VIGENTE_CON_DEUDA') {
+            console.log(`  ✅ PASSED -> Regla de 5 días de gracia validada: cuota futura=${resFutura.code}, cuota atraso 3d=${resGracia.code}, mora >5d=${resMora.code}.\n`);
             totalPassed++;
         } else {
-            console.error("  ❌ FAILED -> Inconsistencia en evaluación de 5 días de gracia:", { resFutura, resGracia, resAcuna });
+            console.error("  ❌ FAILED -> Inconsistencia en evaluación de 5 días de gracia:", { resFutura, resGracia, resMora });
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 9:", e.message);

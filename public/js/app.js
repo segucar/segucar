@@ -2676,7 +2676,7 @@ async function triggerSyncNRE() {
   showToast('Conectando en vivo con portal NRE para sincronizar emisiones y pagos...', 'info');
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 45000);
+  const timeoutId = setTimeout(() => controller.abort(), 120000);
 
   try {
     const res = await fetch('/api/sync-nre', { 
