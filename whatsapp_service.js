@@ -350,13 +350,14 @@ async function sendTextMessage(clienteId, phone, text, { origen = 'bot', autor =
 /**
  * Envía una plantilla pre-aprobada de WhatsApp
  */
-async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = [], { origen = 'bot', autor = null } = {}) {
+async function sendTemplateMessage(clienteId, phone, templateName, languageCode = 'es_AR', parameters = [], { origen = 'bot', autor = null, fallbackText = null } = {}) {
   const cfg = getConfig();
   const formattedPhone = formatPhone(phone);
   const validClienteId = resolveValidClienteId(clienteId);
 
   const templateNameMap = {
-    'poliza_vencida': 'aviso_renovacion_poliza_vencida',
+    'poliza_vencida': 'aviso_renovacion_poliza_vencida_v2',
+    'aviso_renovacion_poliza_vencida': 'aviso_renovacion_poliza_vencida_v2',
     'renovacion_7_dias': 'aviso_renovacion_7_dias',
     'primer_aviso': 'primer_aviso_vencida_48hs',
     'segundo_aviso': 'cuota_segundo_aviso_vencida_hace_96_hs',
@@ -409,6 +410,17 @@ async function sendTemplateMessage(clienteId, phone, templateName, languageCode 
 
     if (!response.ok) {
       console.error('[WA API Template Error]', data);
+
+      // Fallback: Si el envío por plantilla falla (ej. plantilla en revisión) y se pasó fallbackText, intentar texto directo si la ventana 24h está abierta
+      if (fallbackText && typeof fallbackText === 'string') {
+        console.log(`[WA Template Fallback] Intentando envío como texto directo a ${formattedPhone}...`);
+        const textRes = await sendTextMessage(validClienteId, formattedPhone, fallbackText, { origen, autor });
+        if (textRes && textRes.ok) {
+          console.log(`[WA Template Fallback] ✅ Mensaje entregado exitosamente como texto directo a ${formattedPhone}`);
+          return { ok: true, wa_message_id: textRes.wa_message_id, id: textRes.id, fallback: true };
+        }
+      }
+
       db.prepare(`
         INSERT INTO mensajes_whatsapp (cliente_id, direccion, telefono, mensaje, tipo, estado, meta_data, origen, autor)
         VALUES (?, 'saliente', ?, ?, 'plantilla', 'fallido', ?, ?, ?)

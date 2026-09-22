@@ -44,7 +44,7 @@ const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = re
             },
             {
                 tipo: 'poliza_vencida',
-                nombre_meta: 'aviso_renovacion_poliza_vencida',
+                nombre_meta: 'aviso_renovacion_poliza_vencida_v2',
                 mensaje: 'Hola, ¿cómo va? Te escribimos de SEGUCar.\n\nTu póliza Nº {operacion} (patente {patente}) venció el {fecha_vencimiento} y el vehículo quedó sin cobertura. Avisanos si querés que avancemos con la renovación y la dejamos al día.\n\nSi preferís revisar antes la cobertura o el valor, respondé este mensaje y lo repasamos juntos.'
             }
         ];
@@ -2943,8 +2943,8 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         let result;
         if (tipo_plantilla) {
             // Resolver nombre oficial en Meta si se pasó tipo interno
-            const templateMetaName = (tipo_plantilla === 'poliza_vencida') 
-                ? 'aviso_renovacion_poliza_vencida' 
+            const templateMetaName = (tipo_plantilla === 'poliza_vencida' || tipo_plantilla === 'aviso_renovacion_poliza_vencida') 
+                ? 'aviso_renovacion_poliza_vencida_v2' 
                 : ((tipo_plantilla === 'renovacion_7_dias') ? 'aviso_renovacion_7_dias' : tipo_plantilla);
 
             // Auto-extraer parámetros de plantilla
@@ -2981,7 +2981,7 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
             }
 
             console.log(`[/api/whatsapp/enviar] Sending HSM template: "${templateMetaName}" to ${telefono} with params:`, templateParams);
-            result = await waService.sendTemplateMessage(cliente_id, telefono, templateMetaName, 'es_AR', templateParams, { origen, autor });
+            result = await waService.sendTemplateMessage(cliente_id, telefono, templateMetaName, 'es_AR', templateParams, { origen, autor, fallbackText: mensaje });
         } else {
             console.log(`[/api/whatsapp/enviar] Sending text message to ${telefono} (Origen: ${origen})`);
             result = await waService.sendTextMessage(cliente_id, telefono, mensaje, { origen, autor });
