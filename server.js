@@ -2825,7 +2825,7 @@ app.post('/api/whatsapp/preflight', (req, res) => {
             const tipoNorm = String(tipo_plantilla || '').toLowerCase();
 
             // ✅ CHECK 4: Si la plantilla es de Renovación "Al Día" (renovacion_7_dias), BLOQUEAR si tiene deuda
-            const isAvisoRenovacionAlDia = tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion');
+            const isAvisoRenovacionAlDia = (tipoNorm.includes('renovacion_7_dias') || tipoNorm === 'aviso_renovacion_7_dias' || tipoNorm === 'renovacion_al_dia') && !tipoNorm.includes('poliza_vencida') && !tipoNorm.includes('vencida');
             const isRecordatorio48hs = tipoNorm.includes('recordatorio_48hs') || tipoNorm.includes('recordatorio_preventivo');
 
             if (isAvisoRenovacionAlDia) {

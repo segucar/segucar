@@ -111,8 +111,10 @@ db.exec(`
         nombre TEXT NOT NULL,
         tipo TEXT NOT NULL,
         mensaje TEXT NOT NULL,
-        activa INTEGER DEFAULT 1
+        activa INTEGER DEFAULT 1,
+        nombre_meta TEXT
     );
+    try { db.prepare("ALTER TABLE plantillas ADD COLUMN nombre_meta TEXT").run(); } catch(e) {}
 
     CREATE TABLE IF NOT EXISTS contactos_telefono (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -342,16 +344,16 @@ db.prepare("DELETE FROM plantillas WHERE tipo LIKE 'combinado%' OR nombre LIKE '
 // Clean up {nombre} variable from all existing templates in DB
 // Update default templates in DB to use poliza N° {operacion} (Patente {patente}) without marca/modelo
 try {
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'recordatorio_48hs'").run(
+    db.prepare("UPDATE plantillas SET nombre_meta = 'recordatorio_preventivo_48hs', mensaje = ? WHERE tipo = 'recordatorio_48hs'").run(
         'Hola, ¿cómo estás? Te aviso que en 48 hs vence la cuota de tu póliza N° {operacion} (Patente {patente}). Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
     );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'primer_aviso'").run(
+    db.prepare("UPDATE plantillas SET nombre_meta = 'primer_aviso_vencida_48hs', mensaje = ? WHERE tipo = 'primer_aviso'").run(
         'Hola, te recuerdo que la cuota de tu póliza N° {operacion} (Patente {patente}) venció hace 48 hs. Avisame si necesitás los datos de pago así te mantenemos la cobertura al día. ¡Gracias!'
     );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'segundo_aviso'").run(
+    db.prepare("UPDATE plantillas SET nombre_meta = 'cuota_segundo_aviso_vencida_hace_96_hs', mensaje = ? WHERE tipo = 'segundo_aviso'").run(
         'Hola {nombre}, te informamos que la cuota de tu seguro ({vehiculo} - Patente {patente}) venció hace 96 hs y si no se regulariza antes de las 12hs de mañana se suspende la cobertura por falta de pago. Escribinos si querés abonarla de manera virtual o te esperamos en cualquiera de nuestras oficinas. ¡Saludos!'
     );
-    db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'renovacion_7_dias'").run(
+    db.prepare("UPDATE plantillas SET nombre_meta = 'aviso_renovacion_7_dias', mensaje = ? WHERE tipo = 'renovacion_7_dias'").run(
         'Hola, ¿cómo estás? Te informamos que tu póliza N° {operacion} (Patente {patente}) se encuentra al día con los pagos y vence en 7 días. Avisame si querés renovarla así te preparamos la nueva cobertura con anticipación. ¡Un saludo!'
     );
     db.prepare("UPDATE plantillas SET nombre_meta = 'aviso_renovacion_poliza_vencida', mensaje = ? WHERE tipo = 'poliza_vencida'").run(
