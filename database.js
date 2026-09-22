@@ -114,7 +114,6 @@ db.exec(`
         activa INTEGER DEFAULT 1,
         nombre_meta TEXT
     );
-    try { db.prepare("ALTER TABLE plantillas ADD COLUMN nombre_meta TEXT").run(); } catch(e) {}
 
     CREATE TABLE IF NOT EXISTS contactos_telefono (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +278,7 @@ db.exec(`
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────
+try { db.prepare("ALTER TABLE plantillas ADD COLUMN nombre_meta TEXT").run(); } catch(e) {}
 const addColumn = (colName, colDef) => {
     try {
         db.exec(`ALTER TABLE polizas ADD COLUMN ${colName} ${colDef}`);
