@@ -1987,7 +1987,7 @@ function getWaMessageData(client, polizaInput, template) {
     patente = p.patente || '';
     operacion = p.operacion || '';
     const fechaParaMensaje = isRenovaciones ? (p.fin_vigencia_poliza || p.fecha_vencimiento) : p.fecha_vencimiento;
-    fechaVenc = fechaParaMensaje ? formatDate(fechaParaMensaje) : '';
+    fechaVenc = fechaParaMensaje ? formatDatePlain(fechaParaMensaje) : '';
     cuotasDebe = String(p.cuotas_debe || 1);
     totalSaldo = parseFloat(p.saldo_pendiente || 0);
   } else if (targetPolizas.length > 1) {
@@ -1997,7 +1997,7 @@ function getWaMessageData(client, polizaInput, template) {
     operacion = targetPolizas.map(p => p.operacion || '').filter(Boolean).join(', ');
     fechaVenc = targetPolizas.map(p => {
       const f = isRenovaciones ? (p.fin_vigencia_poliza || p.fecha_vencimiento) : p.fecha_vencimiento;
-      return f ? formatDate(f) : '';
+      return f ? formatDatePlain(f) : '';
     }).filter(Boolean).join(', ');
     cuotasDebe = String(targetPolizas.reduce((sum, p) => sum + (parseInt(p.cuotas_debe) || 0), 0));
     totalSaldo = targetPolizas.reduce((sum, p) => sum + (parseFloat(p.saldo_pendiente) || 0), 0);
@@ -2040,7 +2040,8 @@ function getWaMessageData(client, polizaInput, template) {
     .replace(/\{monto\}/g, saldoStr)
     .replace(/\{saldo_pendiente\}/g, saldoStr);
 
-  return { msg, poliza: targetPolizas[0] };
+  const cleanMsg = msg.replace(/<[^>]*>/g, '');
+  return { msg: cleanMsg, poliza: targetPolizas[0] };
 }
 
 async function triggerSmartWhatsApp(clientId, operacion) {
@@ -2380,6 +2381,17 @@ function calculateEstado(dateStr) {
   if (diffDays === 7) return { text: '📄 Aviso Renovación (7 Días)',  class: 'por-vencer'  };
   
   return { text: '🟢 Contrato Vigente', class: 'vigente' };
+}
+
+function formatDatePlain(dateStr) {
+  if (!dateStr) return '';
+  let clean = String(dateStr).replace(/<[^>]*>/g, '').trim();
+  clean = clean.split('T')[0].split(' ')[0];
+  const parts = clean.split('-');
+  if (parts.length === 3 && parts[0].length === 4) {
+    return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+  }
+  return clean;
 }
 
 function formatDate(dateStr) {

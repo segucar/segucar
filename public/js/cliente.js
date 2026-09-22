@@ -128,12 +128,15 @@ function getWaMessageData(client, polizaInput, template) {
     let cuotasDebe = '1';
     let totalSaldo = 0;
     
+    const isRenovaciones = template && (template.tipo === 'poliza_vencida' || template.tipo === 'renovacion_7_dias' || (template.nombre_meta && template.nombre_meta.includes('renovacion')));
+
     if (targetPolizas.length === 1) {
         const p = targetPolizas[0];
         vehiculo = p.vehiculo || p.tipo_vehiculo || '';
         patente = p.patente || '';
         operacion = p.operacion || '';
-        fechaVenc = p.fecha_vencimiento ? formatDate(p.fecha_vencimiento) : '';
+        const fechaParaMensaje = isRenovaciones ? (p.fin_vigencia_poliza || p.fecha_vencimiento) : p.fecha_vencimiento;
+        fechaVenc = fechaParaMensaje ? formatDatePlain(fechaParaMensaje) : '';
         cuotasDebe = String(p.cuotas_debe || 1);
         totalSaldo = parseFloat(p.saldo_pendiente || 0);
     } else if (targetPolizas.length > 1) {
@@ -141,7 +144,10 @@ function getWaMessageData(client, polizaInput, template) {
         vehiculo = '\n' + listLines;
         patente = targetPolizas.map(p => p.patente || '').filter(Boolean).join(', ');
         operacion = targetPolizas.map(p => p.operacion || '').filter(Boolean).join(', ');
-        fechaVenc = targetPolizas.map(p => p.fecha_vencimiento ? formatDate(p.fecha_vencimiento) : '').filter(Boolean).join(', ');
+        fechaVenc = targetPolizas.map(p => {
+            const f = isRenovaciones ? (p.fin_vigencia_poliza || p.fecha_vencimiento) : p.fecha_vencimiento;
+            return f ? formatDatePlain(f) : '';
+        }).filter(Boolean).join(', ');
         cuotasDebe = String(targetPolizas.reduce((sum, p) => sum + (parseInt(p.cuotas_debe) || 0), 0));
         totalSaldo = targetPolizas.reduce((sum, p) => sum + (parseFloat(p.saldo_pendiente) || 0), 0);
     }
@@ -177,7 +183,8 @@ function getWaMessageData(client, polizaInput, template) {
         .replace(/\{monto\}/g, saldoStr)
         .replace(/\{saldo_pendiente\}/g, saldoStr);
         
-    return { msg, poliza: targetPolizas[0] };
+    const cleanMsg = msg.replace(/<[^>]*>/g, '');
+    return { msg: cleanMsg, poliza: targetPolizas[0] };
 }
 
 function showPreview(client, poliza, template) {
@@ -453,6 +460,17 @@ function showToast(message, type = 'info') {
     toast.innerText = message;
     container.appendChild(toast);
     setTimeout(() => toast.remove(), 3000);
+}
+
+function formatDatePlain(dateString) {
+    if (!dateString) return '';
+    let clean = String(dateString).replace(/<[^>]*>/g, '').trim();
+    clean = clean.split('T')[0].split(' ')[0];
+    const parts = clean.split('-');
+    if (parts.length === 3 && parts[0].length === 4) {
+        return `${parts[2].padStart(2, '0')}/${parts[1].padStart(2, '0')}/${parts[0]}`;
+    }
+    return clean;
 }
 
 function formatDate(dateString) {

@@ -2888,7 +2888,10 @@ app.post('/api/whatsapp/preflight', (req, res) => {
 
 app.post('/api/whatsapp/enviar', async (req, res) => {
     try {
-        const { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente, origen: explicitOrigen } = req.body;
+        let { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente, origen: explicitOrigen = 'usuario_manual' } = req.body;
+        if (mensaje && typeof mensaje === 'string') {
+            mensaje = mensaje.replace(/<[^>]*>/g, '');
+        }
         console.log('[/api/whatsapp/enviar] Request received:', { cliente_id, telefono, tipo_plantilla, poliza_operacion, poliza_patente, explicitOrigen });
         
         if (!telefono) return res.status(400).json({ ok: false, error: 'Teléfono requerido' });
