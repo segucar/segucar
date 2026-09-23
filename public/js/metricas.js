@@ -1075,25 +1075,25 @@ function renderDonutsCoberturaVehiculos(coberturaData) {
     const circ = 2 * Math.PI * R; // ~238.76
 
     const segments = [
-      { name: 'RC (Plan A)', val: rc, color: '#48cae4' },
-      { name: 'Plan B', val: planB, color: '#2ed573' },
-      { name: 'Plan C', val: planC, color: '#f1c40f' },
-      { name: 'Otros / TR', val: otros, color: '#a29bfe' },
-      { name: 'Pendiente', val: pendiente, color: '#f39c12' }
+      { id: 'rc', name: 'RC (Plan A)', val: rc, color: '#48cae4' },
+      { id: 'plan_b', name: 'Plan B', val: planB, color: '#2ed573' },
+      { id: 'plan_c', name: 'Plan C', val: planC, color: '#f1c40f' },
+      { id: 'otros', name: 'Otros / TR', val: otros, color: '#a29bfe' },
+      { id: 'pendiente', name: 'Pendiente', val: pendiente, color: '#f39c12' }
     ];
 
     let accumOffset = 0;
     const circleSvgs = segments.map(seg => {
-      if (seg.val <= 0) return '';
       const sliceLen = (seg.val / total) * circ;
-      const isPendiente = seg.name === 'Pendiente';
-      const dash = `${sliceLen.toFixed(2)} ${(circ - sliceLen).toFixed(2)}`;
+      const isPendiente = seg.id === 'pendiente';
+      const isCero = seg.val <= 0;
+      const dash = isCero ? `0.00 ${circ.toFixed(2)}` : `${sliceLen.toFixed(2)} ${(circ - sliceLen).toFixed(2)}`;
       const offset = (-accumOffset).toFixed(2);
-      accumOffset += sliceLen;
+      if (!isCero) accumOffset += sliceLen;
 
-      return `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${seg.color}" stroke-width="12"
+      return `<circle class="donut-segment segment-${seg.id}" data-coverage="${seg.id}" cx="60" cy="60" r="${R}" fill="none" stroke="${seg.color}" stroke-width="12"
         stroke-dasharray="${dash}" stroke-dashoffset="${offset}"
-        stroke-linecap="butt" ${isPendiente ? 'opacity="0.45"' : ''}>
+        stroke-linecap="butt" ${isPendiente ? 'opacity="0.45"' : (isCero ? 'opacity="0"' : '')}>
         <title>${seg.name}: ${seg.val.toLocaleString('es-AR')} pólizas (${((seg.val / total) * 100).toFixed(1)}%)</title>
       </circle>`;
     }).join('');
@@ -1152,25 +1152,24 @@ function renderDonutsCoberturaVehiculos(coberturaData) {
               </div>
             </div>
 
-            <!-- Legend with 5 items -->
+            <!-- Legend with 5 items ALWAYS rendered (RC, Plan B, Plan C, Otros/TR, Pendiente) -->
             <div style="font-size: 0.72rem; display: flex; flex-direction: column; gap: 4px; min-width: 110px;">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="display:flex; align-items:center; gap:5px; color:#48cae4;"><span style="width:8px; height:8px; border-radius:50%; background:#48cae4; display:inline-block;"></span> RC:</span>
-                <strong style="color:#fff;">${rc.toLocaleString('es-AR')}</strong>
+                <strong style="color:${rc > 0 ? '#fff' : 'rgba(255,255,255,0.35)'};">${rc.toLocaleString('es-AR')}</strong>
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="display:flex; align-items:center; gap:5px; color:#2ed573;"><span style="width:8px; height:8px; border-radius:50%; background:#2ed573; display:inline-block;"></span> Plan B:</span>
-                <strong style="color:#fff;">${planB.toLocaleString('es-AR')}</strong>
+                <strong style="color:${planB > 0 ? '#fff' : 'rgba(255,255,255,0.35)'};">${planB.toLocaleString('es-AR')}</strong>
               </div>
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="display:flex; align-items:center; gap:5px; color:#f1c40f;"><span style="width:8px; height:8px; border-radius:50%; background:#f1c40f; display:inline-block;"></span> Plan C:</span>
-                <strong style="color:#fff;">${planC.toLocaleString('es-AR')}</strong>
+                <strong style="color:${planC > 0 ? '#fff' : 'rgba(255,255,255,0.35)'};">${planC.toLocaleString('es-AR')}</strong>
               </div>
-              ${otros > 0 ? `
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
                 <span style="display:flex; align-items:center; gap:5px; color:#a29bfe;"><span style="width:8px; height:8px; border-radius:50%; background:#a29bfe; display:inline-block;"></span> Otros / TR:</span>
-                <strong style="color:#fff;">${otros.toLocaleString('es-AR')}</strong>
-              </div>` : ''}
+                <strong style="color:${otros > 0 ? '#a29bfe' : 'rgba(255,255,255,0.35)'};">${otros.toLocaleString('es-AR')}</strong>
+              </div>
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.08);">
                 <span style="display:flex; align-items:center; gap:5px; color:#f39c12;"><span style="width:8px; height:8px; border-radius:50%; background:#f39c12; display:inline-block;"></span> ⏳ Sync:</span>
                 <strong style="color:#f39c12;">${pendiente.toLocaleString('es-AR')}</strong>
@@ -1196,7 +1195,7 @@ function renderDonutsCoberturaVehiculos(coberturaData) {
           </div>
         </div>
         <span style="font-size: 0.72rem; color: var(--accent-cyan-light); background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 700;">
-          4 Segmentos de Cartera
+          5 Coberturas Monitoreadas (RC • Plan B • Plan C • Otros/TR • Sync)
         </span>
       </div>
 
