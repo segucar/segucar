@@ -2877,6 +2877,25 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
     }
 });
 
+// ─── CLASIFICADOR CANÓNICO DE VEHÍCULOS (SECCIÓN 36 + MARCAS/MODELOS) ─────
+const MOTO_KEYWORDS_REGEX = /\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|SUZUKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110)\b/i;
+const CAMION_PESADO_REGEX = /\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i;
+const PICKUP_REGEX = /\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i;
+
+function clasificarVehiculoReal(p) {
+    if (!p) return 'Auto';
+    if (String(p.seccion || '').trim() === '36') return 'Moto';
+    const v = String(p.vehiculo || '').toUpperCase();
+    if (MOTO_KEYWORDS_REGEX.test(v)) return 'Moto';
+    if (CAMION_PESADO_REGEX.test(v)) return 'Camión';
+    if (PICKUP_REGEX.test(v)) return 'Pick Up';
+    const t = String(p.tipo_vehiculo || '').trim().toLowerCase();
+    if (t === 'moto') return 'Moto';
+    if (t === 'camión' || t === 'camion') return 'Camión';
+    if (t.includes('pick') || t === 'utilitario') return 'Pick Up';
+    return 'Auto';
+}
+
 // POST Enviar mensaje via API (Texto o Plantilla)
 // ─── PRE-FLIGHT CHECK ANTES DE ENVIAR WHATSAPP ────────────────────────────
 // Valida en tiempo real contra la DB antes de permitir el envío.
@@ -2958,12 +2977,11 @@ app.post('/api/whatsapp/preflight', (req, res) => {
                         razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: La póliza ${poliza_operacion} tiene saldo pendiente de $${saldo.toLocaleString('es-AR')}. Las propuestas de mejora de plan son exclusivas para clientes 100% al día.`
                     });
                 }
-                const tVeh = (poliza.tipo_vehiculo || '').trim();
-                const esAutoOPickup = tVeh === 'Auto' || tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario';
-                if (!esAutoOPickup) {
+                const vCat = clasificarVehiculoReal(poliza);
+                if (vCat !== 'Auto' && vCat !== 'Pick Up') {
                     return res.json({
                         ok: false,
-                        razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: El vehículo (${tVeh}) no admite campañas de upsell (exclusivas para Autos y Pick Ups).`
+                        razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: El vehículo (${poliza.vehiculo || vCat}) está clasificado como ${vCat} y no admite campañas de upsell (exclusivas para Autos y Pick Ups).`
                     });
                 }
             }
@@ -3881,7 +3899,7 @@ app.get('/api/metricas/audiencia-upsell', (req, res) => {
         const esDiaNoHabil = esNoHabil(hoy);
 
         const allPolizas = db.prepare(`
-            SELECT p.id, p.operacion, p.patente, p.vehiculo, p.fecha_vencimiento, p.fin_vigencia_poliza,
+            SELECT p.id, p.operacion, p.patente, p.vehiculo, p.seccion, p.fecha_vencimiento, p.fin_vigencia_poliza,
                    p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora,
                    c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono
             FROM polizas p
@@ -3968,15 +3986,10 @@ app.get('/api/metricas/audiencia-upsell', (req, res) => {
             }
             if (calDiffRen < -30) continue;
 
-            // B. Filtro estricto por tipo de vehículo: SOLO Autos y Pick Ups (Motos y Camiones 100% excluidos)
-            const tVeh = (p.tipo_vehiculo || '').trim();
-            let vCategoria = null;
-            if (tVeh === 'Auto') {
-                vCategoria = 'Auto';
-            } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
-                vCategoria = 'Pick Up';
-            } else {
-                continue; // Motos, Camiones y Sin clasificar excluidos
+            // B. Filtro estricto por tipo de vehículo: SOLO Autos y Pick Ups (Motos, Camiones y Semirremolques 100% excluidos)
+            const vCategoria = clasificarVehiculoReal(p);
+            if (vCategoria !== 'Auto' && vCategoria !== 'Pick Up') {
+                continue; // Motos (sección 36 o marcas de moto) y Camiones/Acoplados/Semirremolques 100% excluidos
             }
 
             // C. Cobertura básica clasificada como RC únicamente
@@ -4107,7 +4120,7 @@ app.post('/api/metricas/despacho-upsell', async (req, res) => {
             const simulados = [];
             for (const item of polizas) {
                 const phone = String(item.telefono || item.cliente_telefono || '').replace(/\D/g, '');
-                const poliza = db.prepare('SELECT id, operacion, patente, tipo_vehiculo, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ?').get(item.id);
+                const poliza = db.prepare('SELECT id, operacion, patente, vehiculo, seccion, tipo_vehiculo, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ?').get(item.id);
                 
                 let preflightOk = true;
                 let razon = 'OK';
@@ -4122,10 +4135,16 @@ app.post('/api/metricas/despacho-upsell', async (req, res) => {
                     preflightOk = false;
                     razon = 'Cliente con saldo pendiente (no al día)';
                 } else {
-                    const botState = waService.getEstadoBot(phone);
-                    if (botState && botState.estado_bot === 'silenciado') {
+                    const vCat = clasificarVehiculoReal(poliza);
+                    if (vCat !== 'Auto' && vCat !== 'Pick Up') {
                         preflightOk = false;
-                        razon = 'Bot silenciado por atención humana';
+                        razon = `Vehículo no elegible (${vCat})`;
+                    } else {
+                        const botState = waService.getEstadoBot(phone);
+                        if (botState && botState.estado_bot === 'silenciado') {
+                            preflightOk = false;
+                            razon = 'Bot silenciado por atención humana';
+                        }
                     }
                 }
 

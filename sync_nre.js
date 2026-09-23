@@ -234,10 +234,18 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             // Detect vehicle type
             let tipoVehiculo = 'Auto';
-            const v = (item.vehiculo || '').toUpperCase();
-            if (/\b(MOTO|MOTOS|MOTOCICLETA|CUATRICICLO|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|YBR|HONDA CG)\b/.test(v)) tipoVehiculo = 'Moto';
-            else if (/\b(PICK|PICKUP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO)\b/.test(v)) tipoVehiculo = 'Pick Up';
-            else if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|TRAILER|CARGO|1114|1215|608|7000)\b/.test(v)) tipoVehiculo = 'Camión';
+            if (String(item.seccion || '').trim() === '36') {
+                tipoVehiculo = 'Moto';
+            } else {
+                const v = (item.vehiculo || '').toUpperCase();
+                if (/\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|SUZUKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110)\b/i.test(v)) {
+                    tipoVehiculo = 'Moto';
+                } else if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i.test(v)) {
+                    tipoVehiculo = 'Camión';
+                } else if (/\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i.test(v)) {
+                    tipoVehiculo = 'Pick Up';
+                }
+            }
 
             let cliente_id;
             const existing = findClienteByName.get(item.nombre);
