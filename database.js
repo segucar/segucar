@@ -983,8 +983,36 @@ db.unificarPlantillasMetricas = () => {
     }
 };
 
+db.normalizarTipoVehiculos = () => {
+    try {
+        db.transaction(() => {
+            // 1. Motovehículos oficiales de NRE (sección 36)
+            db.exec(`UPDATE polizas SET tipo_vehiculo = 'Moto' WHERE (seccion = 36 OR seccion = '36') AND tipo_vehiculo != 'Moto'`);
+            db.exec(`UPDATE polizas_historicas SET tipo_vehiculo = 'Moto' WHERE (seccion = 36 OR seccion = '36') AND tipo_vehiculo != 'Moto'`);
+
+            // 2. Semirremolques, acoplados y transporte pesado
+            db.exec(`
+                UPDATE polizas 
+                SET tipo_vehiculo = 'Camión' 
+                WHERE tipo_vehiculo != 'Camión' 
+                  AND (vehiculo LIKE '%SEMIRREMOLQUE%' OR vehiculo LIKE '%ACOPLADO%' OR vehiculo LIKE '%TRAILER%' OR vehiculo LIKE '%AST-PRA%')
+            `);
+            db.exec(`
+                UPDATE polizas_historicas 
+                SET tipo_vehiculo = 'Camión' 
+                WHERE tipo_vehiculo != 'Camión' 
+                  AND (vehiculo LIKE '%SEMIRREMOLQUE%' OR vehiculo LIKE '%ACOPLADO%' OR vehiculo LIKE '%TRAILER%' OR vehiculo LIKE '%AST-PRA%')
+            `);
+        })();
+        console.log('✅ Normalización de tipo_vehiculo (Motos secc 36 y Semirremolques) completada en DB.');
+    } catch (e) {
+        console.error('Error normalizando tipo_vehiculo en DB:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.purgarRegistrosDePrueba();
+db.normalizarTipoVehiculos();
 db.sincronizarSaldosCuotasHistorial();
 db.recalcularCuotasAGSYVencimientos();
 db.sincronizarPolizasSaldadasNRE();

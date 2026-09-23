@@ -965,9 +965,9 @@
       </div>
 
       <!-- TABLA DE CANDIDATOS -->
-      <div style="max-height: 240px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+      <div id="containerTablaUpsell" style="height: 260px; min-height: 220px; max-height: 320px; flex: 1 0 240px; flex-shrink: 0; overflow-y: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; background: rgba(0,0,0,0.25);">
         <table style="width: 100%; border-collapse: collapse; text-align: left;">
-          <thead style="background: rgba(15, 23, 42, 0.95); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid rgba(255,255,255,0.1);">
+          <thead style="background: rgba(15, 23, 42, 0.98); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid rgba(255,255,255,0.1);">
             <tr style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">
               <th style="padding: 10px 12px; width: 36px; text-align: center;">
                 <input type="checkbox" id="chkUpsellMaster" checked onchange="toggleSelectAllUpsell()" style="cursor: pointer;">
@@ -988,7 +988,7 @@
       </div>
 
       <!-- PREVIEW DE MENSAJE DE WHATSAPP -->
-      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px;">
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px; flex-shrink: 0;">
         <div style="font-size: 0.76rem; font-weight: 800; text-transform: uppercase; color: #25d366; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
           <span>💬</span> Vista Previa del Mensaje WhatsApp (Plantilla Oficial Comercial de Upsell)
         </div>
@@ -998,10 +998,10 @@
       </div>
 
       <!-- FEEDBACK DE PROGRESO DE SIMULACIÓN -->
-      <div id="progresoDespachoUpsell" style="display: none;"></div>
+      <div id="progresoDespachoUpsell" style="display: none; flex-shrink: 0;"></div>
 
       <!-- FOOTER -->
-      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px; margin-top: 4px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px; margin-top: 4px; flex-shrink: 0;">
         <button class="btn btn-ghost" onclick="closeModalCampanaUpsell()" style="padding: 8px 16px;">Cerrar</button>
 
         <div style="display: flex; align-items: center; gap: 10px;">
@@ -1014,9 +1014,9 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=9.4"></script>
-  <script src="js/stateManager.js?v=9.4"></script>
-  <script src="js/metricas.js?v=9.4"></script>
-  <script src="js/app.js?v=9.4"></script>
+  <script src="js/config.js?v=9.5"></script>
+  <script src="js/stateManager.js?v=9.5"></script>
+  <script src="js/metricas.js?v=9.5"></script>
+  <script src="js/app.js?v=9.5"></script>
 </body>
 </html>
