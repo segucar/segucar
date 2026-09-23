@@ -1002,6 +1002,14 @@ async function fetchStats() {
       bannerNoHabil.style.display = state.esDiaNoHabil ? 'flex' : 'none';
     }
 
+    // Unified Executive Banner Counters
+    setStatValue('dashUniCartera', (stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniAlDia', (stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniAvisos', (stats.cobranza_avisos_total || ((stats.vence_48h || 0) + (stats.vencio_48h || 0) + (stats.vencio_96h || 0)) || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniVigentes', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniVencidas', (stats.polizas_vencidas || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniHistoricas', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
+
     // Dashboard Executive Counters - Cobranza
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
@@ -1013,7 +1021,7 @@ async function fetchStats() {
     setStatValue('dashContratoVigente', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
 
     // Modular View Counters - Cobranza
-    setStatValue('statAlDiaCob', (stats.al_dia || stats.total_polizas || 0).toLocaleString('es-AR'));
+    setStatValue('statAlDiaCob', (stats.al_dia_estricto || stats.al_dia || stats.total_polizas || 0).toLocaleString('es-AR'));
     setStatValue('statVence48hCob', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio48hCob', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio96hCob', (stats.vencio_96h || 0).toLocaleString('es-AR'));

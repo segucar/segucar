@@ -664,6 +664,8 @@ app.get('/api/dashboard/stats', (req, res) => {
         let vencio_48h = 0;
         let vencio_96h = 0;
         let al_dia = 0;
+        let al_dia_estricto = 0;
+        let mora_cuotas_atrasadas = 0;
 
         let polizas_vencen_semana = 0;
         let polizas_vencen_mes = 0;
@@ -729,19 +731,29 @@ app.get('/api/dashboard/stats', (req, res) => {
                 } else if (estadoHabil === 'cuota_vencida_48_96hs') {
                     vencio_96h++;
                     if (!hasPhone) cobranzas_sin_telefono++;
+                } else if (estadoHabil === 'mora_critica') {
+                    mora_cuotas_atrasadas++;
+                    al_dia++;
                 } else {
+                    al_dia_estricto++;
                     al_dia++;
                 }
             } else {
+                al_dia_estricto++;
                 al_dia++;
             }
         }
+
+        const polizas_historicas_total = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
+        const polizas_anuladas_total = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").get().count;
+        const cobranza_avisos_total = vence_48h + vencio_48h + vencio_96h;
 
         const syncInfo = getLastSyncInfo();
 
         res.json({ 
             total_clientes, 
             total_polizas, 
+            cartera_activa_total: total_polizas,
             clientes_con_telefono,
             clientes_sin_telefono,
             cobertura_porcentaje,
@@ -750,15 +762,20 @@ app.get('/api/dashboard/stats', (req, res) => {
             polizas_vencidas,
             polizas_vigentes,
             al_dia,
+            al_dia_estricto,
+            mora_cuotas_atrasadas,
+            cobranza_avisos_total,
             cuotas_deuda: 0, 
             total_deudores: 0, 
             vence_48h,
             vencio_48h,
             vencio_96h,
-            mora_critica: 0,
+            mora_critica: mora_cuotas_atrasadas,
             renovaciones_sin_telefono,
             cobranzas_sin_telefono,
             total_recuperar,
+            polizas_historicas_total,
+            polizas_anuladas_total,
             last_sync_date: lastSync,
             last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
             last_sync_ags: syncInfo.last_sync_ags || null,

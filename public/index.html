@@ -80,6 +80,62 @@
           </button>
         </div>
 
+        <!-- 📊 CUADRO DE MANDO UNIFICADO DE CARTERA -->
+        <div class="card mb-3" style="padding: 20px 22px; background: linear-gradient(135deg, rgba(13, 37, 63, 0.95), rgba(10, 25, 47, 0.95)); border: 1px solid rgba(0, 180, 216, 0.4); border-radius: 16px; margin-bottom: 20px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);">
+          <div style="font-size: 0.86rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <span style="display: flex; align-items: center; gap: 8px;">
+              <span>📊</span> CUADRO DE MANDO UNIFICADO — ESTADO REAL DE CARTERA
+            </span>
+            <span style="font-size: 0.72rem; color: #a0aec0; text-transform: none; background: rgba(0, 180, 216, 0.15); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.3); font-weight: 600;">
+              Sincronizado con DB en vivo
+            </span>
+          </div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;">
+            <!-- 1. Cartera Activa Total -->
+            <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); padding: 14px 16px; border-radius: 12px;">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">🚗 Cartera Activa</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #ffffff; margin-top: 4px;" id="dashUniCartera">0</div>
+              <div style="font-size: 0.72rem; color: #48cae4; margin-top: 2px;">100% pólizas vivas</div>
+            </div>
+
+            <!-- 2. Al Día -->
+            <div style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); padding: 14px 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('cobranza', 'al_dia')">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #2ed573; text-transform: uppercase; letter-spacing: 0.5px;">🟢 Al Día (Cobranza)</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #2ed573; margin-top: 4px;" id="dashUniAlDia">0</div>
+              <div style="font-size: 0.72rem; color: rgba(46, 213, 115, 0.9); margin-top: 2px;">Sin atraso de cuota →</div>
+            </div>
+
+            <!-- 3. Avisos Cobranza Hoy -->
+            <div style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.35); padding: 14px 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('cobranza', 'vencio_48h')">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #f39c12; text-transform: uppercase; letter-spacing: 0.5px;">🟡 Avisos Cobro Hoy</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #f39c12; margin-top: 4px;" id="dashUniAvisos">0</div>
+              <div style="font-size: 0.72rem; color: rgba(241, 196, 15, 0.9); margin-top: 2px;">48 hs & 96 hs (16+7+5) →</div>
+            </div>
+
+            <!-- 4. Contratos Vigentes -->
+            <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); padding: 14px 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'vigente')">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #00b4d8; text-transform: uppercase; letter-spacing: 0.5px;">🛡️ Contrato Vigente</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #00b4d8; margin-top: 4px;" id="dashUniVigentes">0</div>
+              <div style="font-size: 0.72rem; color: rgba(0, 180, 216, 0.9); margin-top: 2px;">Vigencia activa →</div>
+            </div>
+
+            <!-- 5. Ventana Re-Emisión (Vencidas 1-30d) -->
+            <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.35); padding: 14px 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #ff4757; text-transform: uppercase; letter-spacing: 0.5px;">⏳ Vencidas (1-30d)</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #ff4757; margin-top: 4px;" id="dashUniVencidas">0</div>
+              <div style="font-size: 0.72rem; color: rgba(255, 71, 87, 0.9); margin-top: 2px;">Re-emisión activa →</div>
+            </div>
+
+            <!-- 6. Archivo Histórico -->
+            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 14px 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="window.location.href='recuperacion.html'">
+              <div style="font-size: 0.73rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">📂 Base Histórica</div>
+              <div style="font-size: 1.55rem; font-weight: 900; color: #e2e8f0; margin-top: 4px;" id="dashUniHistoricas">0</div>
+              <div style="font-size: 0.72rem; color: #a0aec0; margin-top: 2px;">Recuperación →</div>
+            </div>
+          </div>
+        </div>
+
         <!-- RISK ALERT BANNER (RENOVACIONES & COBRANZAS EN RIESGO POR FALTA DE TELÉFONO) -->
         <div id="riskAlertBanner" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 20px;">
           <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer;" onclick="openViewWithFilter('renovaciones', 'por_vencer')" title="Ver Renovaciones próximas">
