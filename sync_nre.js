@@ -537,6 +537,15 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                 const html = await infoRes.text();
                 const $ = cheerio.load(html);
 
+                // Extraer Cobertura si está presente en la ficha (ej. "Cobertura: A" o celda con "Cobertura:")
+                let coberturaFicha = null;
+                const bodyText = $.text();
+                const cobMatch = bodyText.match(/Cobertura:\s*([A-Za-z0-9_\-\+]+)/i);
+                if (cobMatch && cobMatch[1]) {
+                    coberturaFicha = cobMatch[1].trim();
+                    db.prepare("UPDATE polizas SET cobertura = ? WHERE operacion = ? AND (cobertura IS NULL OR cobertura = '')").run(coberturaFicha, pol.operacion);
+                }
+
                 const pagosHistorial = [];
                 // 1. Extraer tabla de Pagos (si existe)
                 $('table').each((tIdx, table) => {
@@ -819,4 +828,70 @@ function calcularDeudaRealConReglas(tipoVehiculo, totalPagado, cuotasArray, hoyS
     return cuotasImpagasReales;
 }
 
-module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, calcularDeudaRealConReglas };
+/**
+ * Sincroniza progresivamente la cobertura de pólizas que aún no la tienen.
+ * Lotes chicos (5 en 5), con pausa entre requests y priorizando autos y pick ups activas.
+ */
+async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', password = 'sua') {
+    const cheerio = require('cheerio');
+    try {
+        // Priorizar autos y pick ups con saldo o vigentes que tengan cobertura NULL
+        const candidatos = db.prepare(`
+            SELECT operacion, tipo_vehiculo, suma_asegurada
+            FROM polizas 
+            WHERE (cobertura IS NULL OR cobertura = '')
+              AND (aseguradora IS NULL OR aseguradora != 'AGS')
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+            ORDER BY (CASE WHEN tipo_vehiculo IN ('Auto', 'Pick Up') THEN 0 ELSE 1 END),
+                     (CASE WHEN suma_asegurada != '$ 0,00' AND suma_asegurada != '0' AND suma_asegurada IS NOT NULL THEN 0 ELSE 1 END),
+                     id DESC
+            LIMIT ?
+        `).all(maxPolizas);
+
+        if (candidatos.length === 0) {
+            return { total: 0, actualizadas: 0, mensaje: 'Todas las pólizas activas ya tienen cobertura sincronizada.' };
+        }
+
+        console.log(`[syncCoberturasNREProgresivo] Sincronizando coberturas de ${candidatos.length} pólizas (micro-lotes controlados)...`);
+        const { baseUrl, getCookieString } = await loginNRE(usuario, password);
+        const updateCob = db.prepare("UPDATE polizas SET cobertura = ? WHERE operacion = ?");
+
+        let actualizadas = 0;
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < candidatos.length; i += BATCH_SIZE) {
+            const batch = candidatos.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (pol) => {
+                try {
+                    const infoRes = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?prop=${pol.operacion}`, {
+                        headers: { 'Cookie': getCookieString() }
+                    });
+                    const html = await infoRes.text();
+                    const $ = cheerio.load(html);
+                    const bodyText = $.text();
+                    const cobMatch = bodyText.match(/Cobertura:\s*([A-Za-z0-9_\-\+]+)/i);
+                    if (cobMatch && cobMatch[1]) {
+                        const cobVal = cobMatch[1].trim();
+                        updateCob.run(cobVal, pol.operacion);
+                        actualizadas++;
+                    }
+                } catch (e) {
+                    // Ignorar errores individuales para no frenar el lote
+                }
+            }));
+
+            // Pausa preventiva de 400ms entre lotes para no saturar NRE
+            if (i + BATCH_SIZE < candidatos.length) {
+                await new Promise(r => setTimeout(r, 400));
+            }
+        }
+
+        console.log(`[syncCoberturasNREProgresivo] Completado: ${actualizadas} coberturas actualizadas.`);
+        return { total: candidatos.length, actualizadas };
+    } catch (e) {
+        console.error('Error en syncCoberturasNREProgresivo:', e.message);
+        return { total: 0, actualizadas: 0, error: e.message };
+    }
+}
+
+module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas };
+

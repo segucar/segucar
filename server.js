@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
-const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE } = require('./sync_nre');
+const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncCoberturasNREProgresivo } = require('./sync_nre');
 const { syncAGS } = require('./sync_ags');
 const { cotizarVehiculo } = require('./cotizador_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
@@ -3823,6 +3823,18 @@ app.post('/api/sync-nre/deudores', async (req, res) => {
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
         const result = await syncDeudasNRE(usuario, password);
         evaluarAtribucionMetricas();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sync-nre/coberturas-progresivo', async (req, res) => {
+    try {
+        const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
+        const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
+        const max = parseInt(req.body.max, 10) || 20;
+        const result = await syncCoberturasNREProgresivo(max, usuario, password);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

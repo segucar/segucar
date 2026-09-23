@@ -351,6 +351,69 @@ function renderMetricasUI(data, stats = {}) {
       </div>
     </div>
 
+    <!-- 📊 CARTERA ACTUAL POR TIPO DE VEHÍCULO (5 TARJETAS) -->
+    <div class="card mb-3" style="padding: 18px 20px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+      <div style="font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span>📊</span> CARTERA ACTUAL POR TIPO DE VEHÍCULO
+        </span>
+        <span style="font-size: 0.72rem; color: #a0aec0; text-transform: none; background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 600;">
+          Total Cartera Activa: <strong id="dashVehTotal" style="color: #fff;">${(stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR')}</strong>
+        </span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px;">
+        <!-- 1. Autos -->
+        <button class="action-card-btn" onclick="openViewWithVehicleFilter('Auto')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.5rem;">🚗</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #48cae4;" id="dashVehAutos">${(stats.vehiculos_desglose?.autos || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); margin-top: 5px;">Autos</div>
+          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); margin-top: 2px; font-weight: 600;" id="dashVehAutosPct">${stats.vehiculos_porcentajes?.autos || '0'}% de cartera →</div>
+        </button>
+
+        <!-- 2. Pick Ups / Utilitarios -->
+        <button class="action-card-btn" onclick="openViewWithVehicleFilter('Pick Up')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.5rem;">🛻</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #2ed573;" id="dashVehPickups">${(stats.vehiculos_desglose?.pickups || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); margin-top: 5px;">Pick Ups / Utilitarios</div>
+          <div style="font-size: 0.72rem; color: #2ed573; margin-top: 2px; font-weight: 600;" id="dashVehPickupsPct">${stats.vehiculos_porcentajes?.pickups || '0'}% de cartera →</div>
+        </button>
+
+        <!-- 3. Motos -->
+        <button class="action-card-btn" onclick="openViewWithVehicleFilter('Moto')" style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.35); text-align: left; padding: 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.5rem;">🏍️</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #f39c12;" id="dashVehMotos">${(stats.vehiculos_desglose?.motos || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); margin-top: 5px;">Motos</div>
+          <div style="font-size: 0.72rem; color: #f39c12; margin-top: 2px; font-weight: 600;" id="dashVehMotosPct">${stats.vehiculos_porcentajes?.motos || '0'}% de cartera →</div>
+        </button>
+
+        <!-- 4. Camiones -->
+        <button class="action-card-btn" onclick="openViewWithVehicleFilter('Camión')" style="background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.35); text-align: left; padding: 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.5rem;">🚛</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #a29bfe;" id="dashVehCamiones">${(stats.vehiculos_desglose?.camiones || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); margin-top: 5px;">Camiones</div>
+          <div style="font-size: 0.72rem; color: #a29bfe; margin-top: 2px; font-weight: 600;" id="dashVehCamionesPct">${stats.vehiculos_porcentajes?.camiones || '0'}% de cartera →</div>
+        </button>
+
+        <!-- 5. Sin clasificar -->
+        <button class="action-card-btn" onclick="openViewWithVehicleFilter('sin_clasificar')" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.15); text-align: left; padding: 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.5rem;">❓</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #a0aec0;" id="dashVehSinClasificar">${(stats.vehiculos_desglose?.sin_clasificar || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); margin-top: 5px;">Sin clasificar</div>
+          <div style="font-size: 0.72rem; color: #a0aec0; margin-top: 2px; font-weight: 600;" id="dashVehSinClasificarPct">${stats.vehiculos_porcentajes?.sin_clasificar || '0'}% de cartera →</div>
+        </button>
+      </div>
+    </div>
+
     <!-- KPI CARDS GRID -->
     <div class="stats-grid mb-3" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
       

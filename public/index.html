@@ -80,69 +80,6 @@
           </button>
         </div>
 
-        <!-- 📊 CARTERA ACTUAL POR TIPO DE VEHÍCULO -->
-        <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 16px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
-          <div style="font-size: 0.85rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-            <span style="display: flex; align-items: center; gap: 8px;">
-              <span>📊</span> CARTERA ACTUAL POR TIPO DE VEHÍCULO
-            </span>
-            <span style="font-size: 0.72rem; color: #a0aec0; text-transform: none; background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 600;">
-              Total Cartera Activa: <strong id="dashVehTotal" style="color: #fff;">0</strong>
-            </span>
-          </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;">
-            <!-- 1. Autos -->
-            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Auto')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.6rem;">🚗</span>
-                <span style="font-size: 1.45rem; font-weight: 800; color: #48cae4;" id="dashVehAutos">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Autos</div>
-              <div style="font-size: 0.75rem; color: var(--accent-cyan-light); margin-top: 2px; font-weight: 600;" id="dashVehAutosPct">0% de cartera →</div>
-            </button>
-
-            <!-- 2. Pick Ups / Utilitarios -->
-            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Pick Up')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.6rem;">🛻</span>
-                <span style="font-size: 1.45rem; font-weight: 800; color: #2ed573;" id="dashVehPickups">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Pick Ups / Utilitarios</div>
-              <div style="font-size: 0.75rem; color: #2ed573; margin-top: 2px; font-weight: 600;" id="dashVehPickupsPct">0% de cartera →</div>
-            </button>
-
-            <!-- 3. Motos -->
-            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Moto')" style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.6rem;">🏍️</span>
-                <span style="font-size: 1.45rem; font-weight: 800; color: #f39c12;" id="dashVehMotos">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Motos</div>
-              <div style="font-size: 0.75rem; color: #f39c12; margin-top: 2px; font-weight: 600;" id="dashVehMotosPct">0% de cartera →</div>
-            </button>
-
-            <!-- 4. Camiones -->
-            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Camión')" style="background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.6rem;">🚛</span>
-                <span style="font-size: 1.45rem; font-weight: 800; color: #a29bfe;" id="dashVehCamiones">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Camiones</div>
-              <div style="font-size: 0.75rem; color: #a29bfe; margin-top: 2px; font-weight: 600;" id="dashVehCamionesPct">0% de cartera →</div>
-            </button>
-
-            <!-- 5. Sin clasificar -->
-            <button class="action-card-btn" onclick="openViewWithVehicleFilter('sin_clasificar')" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.15); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.6rem;">❓</span>
-                <span style="font-size: 1.45rem; font-weight: 800; color: #a0aec0;" id="dashVehSinClasificar">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Sin clasificar</div>
-              <div style="font-size: 0.75rem; color: #a0aec0; margin-top: 2px; font-weight: 600;" id="dashVehSinClasificarPct">0% de cartera →</div>
-            </button>
-          </div>
-        </div>
-
         <!-- RISK ALERT BANNER (RENOVACIONES & COBRANZAS EN RIESGO POR FALTA DE TELÉFONO) -->
         <div id="riskAlertBanner" style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 20px;">
           <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.3); border-radius: 12px; padding: 14px 18px; display: flex; align-items: center; justify-content: space-between; cursor: pointer;" onclick="openViewWithFilter('renovaciones', 'por_vencer')" title="Ver Renovaciones próximas">
@@ -953,9 +890,9 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=8.6"></script>
-  <script src="js/stateManager.js?v=8.6"></script>
-  <script src="js/metricas.js?v=8.9"></script>
-  <script src="js/app.js?v=8.6"></script>
+  <script src="js/config.js?v=9.0"></script>
+  <script src="js/stateManager.js?v=9.0"></script>
+  <script src="js/metricas.js?v=9.0"></script>
+  <script src="js/app.js?v=9.0"></script>
 </body>
 </html>
