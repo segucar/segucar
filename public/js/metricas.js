@@ -7,6 +7,7 @@ let currentCustomDesde = '';
 let currentCustomHasta = '';
 let currentFetchSeq = 0;
 let metricasAbortController = null;
+let _metricasDebounceTimer = null;
 
 async function fetchMetricas(rango, desde, hasta) {
   const thisSeq = ++currentFetchSeq;
@@ -64,13 +65,16 @@ function changeRangoMetricas(rangoVal) {
   if (!rangoVal) return;
   currentRangoMetricas = rangoVal;
 
+  // Toggle UI de rango personalizado: inmediato, sin debounce
+  const customBox = document.getElementById('customDateRangeBox');
   if (rangoVal === 'custom') {
-    const customBox = document.getElementById('customDateRangeBox');
     if (customBox) customBox.style.display = 'inline-flex';
+    // No fetch hasta que el usuario confirme el rango custom
   } else {
-    const customBox = document.getElementById('customDateRangeBox');
     if (customBox) customBox.style.display = 'none';
-    fetchMetricas(rangoVal);
+    // Debounce 150ms antes del fetch: evita 503 en Render por ráfagas de cambios
+    clearTimeout(_metricasDebounceTimer);
+    _metricasDebounceTimer = setTimeout(() => fetchMetricas(rangoVal), 150);
   }
 }
 
