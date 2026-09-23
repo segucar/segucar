@@ -3651,6 +3651,9 @@ app.get('/api/metricas/resumen', (req, res) => {
         const agsUnicos = Math.max(0, agsTotal - agsReemp);
         const nreValidos = Math.max(1, nreUnicos);
         const agsValidos = Math.max(1, agsUnicos);
+        const nreTicket = nreUnicos > 0 ? Math.round(nreDinero / nreUnicos) : 0;
+        const agsTicket = agsUnicos > 0 ? Math.round(agsDinero / agsUnicos) : 0;
+
         const desglose_aseguradora = {
             nre: {
                 total_envios: nreTotal,
@@ -3658,6 +3661,7 @@ app.get('/api/metricas/resumen', (req, res) => {
                 reemplazadas: nreReemp,
                 exitosos: nreExitosos,
                 dinero_recuperado: nreDinero,
+                ticket_promedio_envio: nreTicket,
                 tasa_conversion: nreTotal > 0 ? parseFloat(((nreExitosos / nreValidos) * 100).toFixed(1)) : 0
             },
             ags: {
@@ -3666,8 +3670,52 @@ app.get('/api/metricas/resumen', (req, res) => {
                 reemplazadas: agsReemp,
                 exitosos: agsExitosos,
                 dinero_recuperado: agsDinero,
+                ticket_promedio_envio: agsTicket,
                 tasa_conversion: agsTotal > 0 ? parseFloat(((agsExitosos / agsValidos) * 100).toFixed(1)) : 0
             }
+        };
+
+        // ── CONVERSIÓN POR ETAPA DE COBRANZA ──
+        const pRec48 = plantillasMap['recordatorio_48hs'] || {};
+        const pAviso1 = plantillasMap['primer_aviso'] || {};
+        const pAviso2 = plantillasMap['segundo_aviso'] || {};
+
+        const rec48Unicos = Math.max(0, (pRec48.total_envios || 0) - (pRec48.reemplazadas || 0));
+        const aviso1Unicos = Math.max(0, (pAviso1.total_envios || 0) - (pAviso1.reemplazadas || 0));
+        const aviso2Unicos = Math.max(0, (pAviso2.total_envios || 0) - (pAviso2.reemplazadas || 0));
+
+        const etapas_cobranza = {
+            recordatorio_48hs: {
+                total_envios: pRec48.total_envios || 0,
+                envios_unicos: rec48Unicos,
+                exitosos: pRec48.exitosos || 0,
+                dinero_recuperado: pRec48.dinero_recuperado || 0,
+                tasa_conversion: rec48Unicos > 0 ? parseFloat(((pRec48.exitosos / rec48Unicos) * 100).toFixed(1)) : 0
+            },
+            primer_aviso: {
+                total_envios: pAviso1.total_envios || 0,
+                envios_unicos: aviso1Unicos,
+                exitosos: pAviso1.exitosos || 0,
+                dinero_recuperado: pAviso1.dinero_recuperado || 0,
+                tasa_conversion: aviso1Unicos > 0 ? parseFloat(((pAviso1.exitosos / aviso1Unicos) * 100).toFixed(1)) : 0
+            },
+            segundo_aviso: {
+                total_envios: pAviso2.total_envios || 0,
+                envios_unicos: aviso2Unicos,
+                exitosos: pAviso2.exitosos || 0,
+                dinero_recuperado: pAviso2.dinero_recuperado || 0,
+                tasa_conversion: aviso2Unicos > 0 ? parseFloat(((pAviso2.exitosos / aviso2Unicos) * 100).toFixed(1)) : 0,
+                fuga_a_baja: Math.max(0, aviso2Unicos - (pAviso2.exitosos || 0))
+            }
+        };
+
+        // ── EMBUDO DE CONVERSIÓN (FUNNEL) ──
+        const funnel_conversion = {
+            total_envios: total_envios,
+            envios_unicos: total_validos,
+            exitosos: total_exitosos,
+            dinero_recuperado: dinero_recuperado_total,
+            tasa_conversion: parseFloat(tasa_conversion_global || 0)
         };
 
         // ── HISTÓRICO SEMANAL (ÚLTIMAS 8 SEMANAS) ──
@@ -3698,12 +3746,15 @@ app.get('/api/metricas/resumen', (req, res) => {
             }
             const wValidos = Math.max(1, wGestiones.length - wReemplazadas);
             const wTasa = wGestiones.length > 0 ? ((wExitosos / wValidos) * 100).toFixed(1) : '0';
+            const wRatio = wValidos > 0 ? (wGestiones.length / wValidos).toFixed(2) : '1.00';
             const label = `${String(wStart.getDate()).padStart(2, '0')}/${String(wStart.getMonth() + 1).padStart(2, '0')}`;
             
             historico_semanal.push({
                 semana: `Sem ${8 - w}`,
                 label,
                 envios: wGestiones.length,
+                envios_unicos: wValidos,
+                reenvios_ratio: parseFloat(wRatio),
                 exitosos: wExitosos,
                 dinero_recuperado: wDinero,
                 tasa_conversion: parseFloat(wTasa)
@@ -3735,6 +3786,8 @@ app.get('/api/metricas/resumen', (req, res) => {
             comparativa,
             plantillas_performance,
             desglose_aseguradora,
+            etapas_cobranza,
+            funnel_conversion,
             historico_semanal,
             cobertura_contacto
         });
