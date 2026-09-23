@@ -414,6 +414,9 @@ function renderMetricasUI(data, stats = {}) {
       </div>
     </div>
 
+    <!-- 🛡️ DESGLOSE DE COBERTURAS POR TIPO DE VEHÍCULO (TABLA CRUZADA AUDITADA) -->
+    ${renderTablaCoberturasPorVehiculo(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
+
     <!-- KPI CARDS GRID -->
     <div class="stats-grid mb-3" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
       
@@ -814,3 +817,117 @@ function renderDesgloseAseguradoras(desglose, cobertura) {
     </div>
   `;
 }
+
+function renderTablaCoberturasPorVehiculo(coberturaData) {
+  if (!coberturaData) return '';
+  const c = coberturaData;
+  const autos = c.autos || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+  const pickups = c.pickups || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+  const motos = c.motos || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+  const camiones = c.camiones || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+  const sinClasificar = c.sin_clasificar || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+  const totales = c.totales || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, pendiente: 0, total: 0 };
+
+  const totalConfirmadas = (totales.total || 0) - (totales.pendiente || 0);
+  const pctConfirmadas = totales.total > 0 ? ((totalConfirmadas / totales.total) * 100).toFixed(1) : '0';
+  const pctPendiente = totales.total > 0 ? ((totales.pendiente / totales.total) * 100).toFixed(1) : '0';
+
+  const rows = [
+    { key: 'Auto', icon: '🚗', name: 'Autos', data: autos, color: '#48cae4', filter: 'Auto' },
+    { key: 'Pick Up', icon: '🛻', name: 'Pick Ups / Utilitarios', data: pickups, color: '#2ed573', filter: 'Pick Up' },
+    { key: 'Moto', icon: '🏍️', name: 'Motos', data: motos, color: '#f39c12', filter: 'Moto' },
+    { key: 'Camión', icon: '🚛', name: 'Camiones', data: camiones, color: '#a29bfe', filter: 'Camión' }
+  ];
+
+  if (sinClasificar.total > 0) {
+    rows.push({ key: 'sin_clasificar', icon: '❓', name: 'Sin clasificar', data: sinClasificar, color: '#a0aec0', filter: 'sin_clasificar' });
+  }
+
+  const trs = rows.map(r => {
+    const d = r.data;
+    return `
+      <tr style="transition: background 0.15s ease;">
+        <td style="font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.15rem;">${r.icon}</span>
+          <span style="color: ${r.color}; font-weight: 800;">${r.name}</span>
+        </td>
+        <td class="text-center" style="font-weight: 700; color: ${d.rc > 0 ? '#48cae4' : 'var(--text-secondary)'};">
+          ${d.rc > 0 ? `<span class="badge" style="background: rgba(0, 180, 216, 0.18); color: #48cae4; font-weight: 800; font-size: 0.85rem;">${d.rc.toLocaleString('es-AR')}</span>` : '<span style="color: rgba(255,255,255,0.25);">0</span>'}
+        </td>
+        <td class="text-center" style="font-weight: 700; color: ${d.plan_b > 0 ? '#2ed573' : 'var(--text-secondary)'};">
+          ${d.plan_b > 0 ? `<span class="badge" style="background: rgba(46, 213, 115, 0.18); color: #2ed573; font-weight: 800; font-size: 0.85rem;">${d.plan_b.toLocaleString('es-AR')}</span>` : '<span style="color: rgba(255,255,255,0.25);">0</span>'}
+        </td>
+        <td class="text-center" style="font-weight: 700; color: ${d.plan_c > 0 ? '#f1c40f' : 'var(--text-secondary)'};">
+          ${d.plan_c > 0 ? `<span class="badge" style="background: rgba(241, 196, 15, 0.18); color: #f1c40f; font-weight: 800; font-size: 0.85rem;">${d.plan_c.toLocaleString('es-AR')}</span>` : '<span style="color: rgba(255,255,255,0.25);">0</span>'}
+        </td>
+        <td class="text-center" style="background: rgba(243, 156, 18, 0.04);">
+          <span class="badge" style="background: rgba(243, 156, 18, 0.15); color: #f39c12; font-weight: 800; font-size: 0.85rem; border: 1px solid rgba(243, 156, 18, 0.3);" title="Pendiente de extracción progresiva desde el portal NRE">
+            ⏳ ${d.pendiente.toLocaleString('es-AR')}
+          </span>
+        </td>
+        <td class="text-right" style="font-weight: 800;">
+          <button class="btn btn-sm btn-ghost" onclick="openViewWithVehicleFilter('${r.filter}')" style="padding: 3px 10px; font-weight: 800; color: ${r.color}; border: 1px solid ${r.color}50; background: rgba(255,255,255,0.04); border-radius: 6px; cursor: pointer;" title="Filtrar cartera por ${r.name}">
+            ${d.total.toLocaleString('es-AR')} →
+          </button>
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  return `
+    <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>🛡️</span> COBERTURA CONTRATADA POR TIPO DE VEHÍCULO (CARTERA ACTIVA)
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 3px;">
+            Distribución real auditada según cobertura (RC, Terceros B/B1, Terceros Completo C/C1) vs. pendientes de extracción.
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 0.75rem; flex-wrap: wrap;">
+          <span style="background: rgba(46, 213, 115, 0.12); color: #2ed573; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(46, 213, 115, 0.25); font-weight: 700;">
+            ✓ Confirmadas: <strong>${totalConfirmadas.toLocaleString('es-AR')}</strong> (${pctConfirmadas}%)
+          </span>
+          <span style="background: rgba(243, 156, 18, 0.12); color: #f39c12; padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(243, 156, 18, 0.25); font-weight: 700;">
+            ⏳ En Backfill: <strong>${totales.pendiente.toLocaleString('es-AR')}</strong> (${pctPendiente}%)
+          </span>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table>
+          <thead>
+            <tr style="border-bottom: 1px solid rgba(255, 255, 255, 0.12);">
+              <th style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px;">Tipo de Vehículo</th>
+              <th class="text-center" style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #48cae4;">RC (Plan A)</th>
+              <th class="text-center" style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #2ed573;">Planes B (Robo/Inc.)</th>
+              <th class="text-center" style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #f1c40f;">Planes C (Terceros Compl.)</th>
+              <th class="text-center" style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px; color: #f39c12; background: rgba(243, 156, 18, 0.08);">⏳ Pendiente / En Sync</th>
+              <th class="text-right" style="font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.5px;">Total Activas</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${trs}
+          </tbody>
+          <tfoot>
+            <tr style="border-top: 2px solid rgba(0, 180, 216, 0.35); background: rgba(0, 180, 216, 0.06); font-weight: 800;">
+              <td style="color: #48cae4; font-size: 0.88rem; font-weight: 800;">TOTAL CARTERA ACTIVA</td>
+              <td class="text-center" style="color: #48cae4; font-size: 0.95rem;">${totales.rc.toLocaleString('es-AR')}</td>
+              <td class="text-center" style="color: #2ed573; font-size: 0.95rem;">${totales.plan_b.toLocaleString('es-AR')}</td>
+              <td class="text-center" style="color: #f1c40f; font-size: 0.95rem;">${totales.plan_c.toLocaleString('es-AR')}</td>
+              <td class="text-center" style="color: #f39c12; font-size: 0.95rem; background: rgba(243, 156, 18, 0.08);">⏳ ${totales.pendiente.toLocaleString('es-AR')}</td>
+              <td class="text-right" style="color: #fff; font-size: 1.05rem;">${totales.total.toLocaleString('es-AR')}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <div style="margin-top: 12px; display: flex; align-items: center; justify-content: space-between; font-size: 0.74rem; color: var(--text-secondary); flex-wrap: wrap; gap: 8px;">
+        <span>ℹ️ <strong>Auditoría comercial:</strong> Motos y camiones se auditan individualmente sin asumir coberturas prefijadas. Los datos pasan a confirmados automáticamente en cada sincronización.</span>
+        <span style="color: var(--accent-cyan-light);">🔄 Sincronización automática de 50 pólizas cada 2hs en horario hábil</span>
+      </div>
+    </div>
+  `;
+}
+

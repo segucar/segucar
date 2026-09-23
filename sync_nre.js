@@ -750,6 +750,15 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     // 4. 🚫 Sincronizar Pólizas Anuladas / dadas de Baja en NRE
     const anuladasRes = await syncAnuladasNRE(usuario, password);
 
+    // 5. 🛡️ Sincronizar micro-lote progresivo de coberturas NRE (50 pólizas por ciclo, sin saturar NRE)
+    let coberturasRes = { total: 0, actualizadas: 0 };
+    try {
+        coberturasRes = await syncCoberturasNREProgresivo(50, usuario, password);
+        console.log(`🛡️ [syncGeneralNRE] Coberturas NRE progresivo: ${coberturasRes.actualizadas || 0} actualizadas de ${coberturasRes.total || 0} pendientes.`);
+    } catch (cobErr) {
+        console.warn('⚠️ [syncGeneralNRE] Error no bloqueante en syncCoberturasNREProgresivo:', cobErr.message);
+    }
+
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
@@ -764,7 +773,7 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
     const countCliAfter = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
     const durationSec = ((Date.now() - startMs) / 1000).toFixed(1);
 
-    console.log(`✅ [syncGeneralNRE] Sync NRE completado en ${durationSec}s. DB actual: ${countPolAfter} pólizas (${countPolAfter - countPolBefore >= 0 ? '+' : ''}${countPolAfter - countPolBefore}), ${countCliAfter} clientes. Saldadas verificadas: ${pagosRes.saldadas || 0}, Anuladas: ${anuladasRes.anuladas_encontradas || 0}`);
+    console.log(`✅ [syncGeneralNRE] Sync NRE completado en ${durationSec}s. DB actual: ${countPolAfter} pólizas (${countPolAfter - countPolBefore >= 0 ? '+' : ''}${countPolAfter - countPolBefore}), ${countCliAfter} clientes. Saldadas verificadas: ${pagosRes.saldadas || 0}, Anuladas: ${anuladasRes.anuladas_encontradas || 0}, Coberturas actualizadas: ${coberturasRes.actualizadas || 0}`);
 
     return {
         vencimientos_sincronizados: vtoRes.total || 0,
@@ -772,6 +781,7 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
         polizas_saldadas_verificadas: pagosRes.saldadas || 0,
         polizas_verificadas_pagos: pagosRes.verificadas || 0,
         polizas_anuladas_detectadas: anuladasRes.anuladas_encontradas || 0,
+        coberturas_actualizadas: coberturasRes.actualizadas || 0,
         polizas_en_db: countPolAfter,
         clientes_en_db: countCliAfter,
         duracion_seg: durationSec

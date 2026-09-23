@@ -623,7 +623,7 @@ app.get('/api/dashboard/stats', (req, res) => {
         const esDiaNoHabil = esNoHabil(hoy);
 
         const allPolizas = db.prepare(`
-            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
             FROM polizas p 
             LEFT JOIN clientes c ON p.cliente_id = c.id
         `).all();
@@ -679,6 +679,15 @@ app.get('/api/dashboard/stats', (req, res) => {
             sin_clasificar: 0
         };
 
+        const cobertura_vehiculos = {
+            autos: { label: 'Autos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            pickups: { label: 'Pick Ups / Utilitarios', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            motos: { label: 'Motos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            camiones: { label: 'Camiones', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            sin_clasificar: { label: 'Sin clasificar', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            totales: { label: 'TOTAL CARTERA ACTIVA', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 }
+        };
+
         for (const p of allPolizas) {
             const est = (p.estado || '').toLowerCase();
             if (est === 'anulada' || est === 'baja') continue;
@@ -721,12 +730,43 @@ app.get('/api/dashboard/stats', (req, res) => {
 
             // ── Cartera Activa Viva ──────────────────────────
             // Desglose por tipo de vehículo
+            let vKey = 'sin_clasificar';
             const tVeh = (p.tipo_vehiculo || '').trim();
-            if (tVeh === 'Auto') vehiculos_desglose.autos++;
-            else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') vehiculos_desglose.pickups++;
-            else if (tVeh === 'Moto') vehiculos_desglose.motos++;
-            else if (tVeh === 'Camión' || tVeh === 'Camion') vehiculos_desglose.camiones++;
-            else vehiculos_desglose.sin_clasificar++;
+            if (tVeh === 'Auto') {
+                vehiculos_desglose.autos++;
+                vKey = 'autos';
+            } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
+                vehiculos_desglose.pickups++;
+                vKey = 'pickups';
+            } else if (tVeh === 'Moto') {
+                vehiculos_desglose.motos++;
+                vKey = 'motos';
+            } else if (tVeh === 'Camión' || tVeh === 'Camion') {
+                vehiculos_desglose.camiones++;
+                vKey = 'camiones';
+            } else {
+                vehiculos_desglose.sin_clasificar++;
+            }
+
+            // Desglose cruzado por tipo de vehículo y cobertura
+            const cobRaw = (p.cobertura || '').trim().toUpperCase();
+            let cKey = 'pendiente';
+            if (cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC') || cobRaw.includes('RESPONSABILIDAD CIVIL')) {
+                cKey = 'rc';
+            } else if (cobRaw === 'B' || cobRaw === 'B0' || cobRaw === 'B1' || cobRaw.startsWith('B-') || cobRaw.startsWith('B1')) {
+                cKey = 'plan_b';
+            } else if (cobRaw.startsWith('C') || cobRaw.includes('TERCEROS')) {
+                cKey = 'plan_c';
+            } else if (cobRaw.startsWith('D') || cobRaw.includes('TODO RIESGO') || cobRaw.includes('TR')) {
+                cKey = 'todo_riesgo';
+            } else if (cobRaw) {
+                cKey = 'otros';
+            }
+
+            cobertura_vehiculos[vKey][cKey]++;
+            cobertura_vehiculos[vKey].total++;
+            cobertura_vehiculos.totales[cKey]++;
+            cobertura_vehiculos.totales.total++;
 
             // Cobranza:
             if (estadoCob === 'recordatorio_48hs') {
@@ -810,6 +850,7 @@ app.get('/api/dashboard/stats', (req, res) => {
             bajas_vencidas_mas_30d,
             vehiculos_desglose,
             vehiculos_porcentajes,
+            cobertura_vehiculos,
             last_sync_date: lastSync,
             last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
             last_sync_ags: syncInfo.last_sync_ags || null,

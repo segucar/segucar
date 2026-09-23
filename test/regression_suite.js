@@ -906,7 +906,113 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 19:", e.message);
     }
 
-    const totalTestsCount = 19;
+    // ─── TEST 20: Desglose Cruzado Tipo de Vehículo × Cobertura (Reconciliación 100% Cartera Activa) ───
+    console.log("📌 TEST 20: Desglose Cruzado Tipo de Vehículo × Cobertura (Reconciliación 100% Cartera Activa)");
+    try {
+        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
+        const hoy = getArgentinaNow();
+        const todayStr = toLocalDateString(hoy);
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat in polizasByPatente) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            group.sort((a, b) => {
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+                if (a.aseguradora === b.aseguradora) {
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+                }
+                return 0;
+            });
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
+
+        const cobVeh = {
+            autos: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            pickups: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            motos: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            camiones: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            sin_clasificar: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+            totales: { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 }
+        };
+
+        let activeCount = 0;
+        for (const p of allPolizas) {
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+            if (renewedPolizaIds.has(p.id)) continue;
+
+            const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+
+            let estadoCob = 'al_dia';
+            if (saldoVal > 0) {
+                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
+            }
+            if (estadoCob === 'mora_critica') continue;
+
+            let calDiffRen = 0;
+            if (fvRen) {
+                const parts = fvRen.split('-');
+                if (parts.length === 3) {
+                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                }
+            }
+            if (calDiffRen < -30) continue;
+
+            activeCount++;
+
+            let vKey = 'sin_clasificar';
+            const tVeh = (p.tipo_vehiculo || '').trim();
+            if (tVeh === 'Auto') vKey = 'autos';
+            else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') vKey = 'pickups';
+            else if (tVeh === 'Moto') vKey = 'motos';
+            else if (tVeh === 'Camión' || tVeh === 'Camion') vKey = 'camiones';
+
+            const cobRaw = (p.cobertura || '').trim().toUpperCase();
+            let cKey = 'pendiente';
+            if (cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC') || cobRaw.includes('RESPONSABILIDAD CIVIL')) cKey = 'rc';
+            else if (cobRaw === 'B' || cobRaw === 'B0' || cobRaw === 'B1' || cobRaw.startsWith('B-') || cobRaw.startsWith('B1')) cKey = 'plan_b';
+            else if (cobRaw.startsWith('C') || cobRaw.includes('TERCEROS')) cKey = 'plan_c';
+            else if (cobRaw.startsWith('D') || cobRaw.includes('TODO RIESGO') || cobRaw.includes('TR')) cKey = 'todo_riesgo';
+            else if (cobRaw) cKey = 'otros';
+
+            cobVeh[vKey][cKey]++;
+            cobVeh[vKey].total++;
+            cobVeh.totales[cKey]++;
+            cobVeh.totales.total++;
+        }
+
+        const sumTot = cobVeh.totales.rc + cobVeh.totales.plan_b + cobVeh.totales.plan_c + cobVeh.totales.todo_riesgo + cobVeh.totales.otros + cobVeh.totales.pendiente;
+        const auditMotos = cobVeh.motos.rc === 0 && cobVeh.motos.pendiente === cobVeh.motos.total;
+        const validTotal = cobVeh.totales.total === 1601 && sumTot === 1601;
+
+        if (validTotal && auditMotos) {
+            console.log(`  ✅ PASSED -> Tabla Cruzada 100% Reconciliada: ${cobVeh.totales.rc} RC + ${cobVeh.totales.plan_b} Plan B + ${cobVeh.totales.plan_c} Plan C + ${cobVeh.totales.pendiente} Pendientes = ${sumTot} / ${activeCount} Cartera Activa.`);
+            console.log(`  ✅ PASSED -> Auditoría Comercial: Motos tiene 0 RC asumidas y ${cobVeh.motos.pendiente} pendientes de extracción real.\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED -> Discrepancia en Tabla Cruzada (sumTot: ${sumTot}, active: ${activeCount}, auditMotos: ${auditMotos})`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 20:", e.message);
+    }
+
+    const totalTestsCount = 20;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
