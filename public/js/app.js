@@ -943,21 +943,24 @@ function filterByState(estadoVal) {
       } else if (estadoVal === 'vencio_96h') {
         label.innerText = '💳 GESTIÓN DE CUOTAS → 🔴 Segundo Aviso (Vencida hace 96 hs)';
         summary.innerText = '— Vencida hace 96 hs (período de gracia).';
-      } else if (estadoVal === 'cuota_deuda') {
+      } else if (estadoVal === 'mora_critica' || estadoVal === 'cuota_deuda') {
         label.innerText = '💳 GESTIÓN DE CUOTAS → 🚨 Mora Crítica (+96 hs / Cobertura Suspendida)';
-        summary.innerText = '— Cobertura suspendida / 2+ cuotas o >96 hs de mora.';
+        summary.innerText = '— Cuotas con atraso superior a 4 días hábiles. Cobertura suspendida.';
+      } else if (estadoVal === 'al_dia') {
+        label.innerText = '💳 GESTIÓN DE CUOTAS → 🟢 Al Día';
+        summary.innerText = '— Clientes sin deuda exigible o saldo remanente ≤ $2.500.';
       } else if (estadoVal === 'por_vencer') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 📄 Aviso Renovación (7 Días)';
         summary.innerText = '— Propuesta de renovación / Vence en 7 días.';
       } else if (estadoVal === 'poliza_vencida') {
-        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚫ Póliza Vencida';
-        summary.innerText = '— Vencimiento en los últimos 30 días.';
+        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚫ Póliza Vencida (1-30 Días)';
+        summary.innerText = '— Vencimiento en los últimos 30 días (máx 1 cuota pendiente).';
       } else if (estadoVal === 'vigente') {
         label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → 🟢 Contrato Vigente';
-        summary.innerText = '— Contratos activos al día o atraso ≤ 5 días.';
+        summary.innerText = '— Contratos activos al día con vigencia > 7 días.';
       } else if (estadoVal === 'vigente_con_deuda' || estadoVal === 'renovacion_deuda') {
-        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚠️ Contrato con Mora (> 5 días)';
-        summary.innerText = '— Contratos vigentes con mora vencida (> 5 días de atraso).';
+        label.innerText = '🛡️ GESTIÓN DE PÓLIZAS → ⚠️ Contrato con Deuda';
+        summary.innerText = '— Contratos vigentes o por renovar con cuota atrasada > 5 días.';
       }
     }
   }
@@ -1006,25 +1009,38 @@ async function fetchStats() {
     setStatValue('dashUniCartera', (stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR'));
     setStatValue('dashUniAlDia', (stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR'));
     setStatValue('dashUniAvisos', (stats.cobranza_avisos_total || ((stats.vence_48h || 0) + (stats.vencio_48h || 0) + (stats.vencio_96h || 0)) || 0).toLocaleString('es-AR'));
-    setStatValue('dashUniVigentes', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
-    setStatValue('dashUniVencidas', (stats.polizas_vencidas || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniMora', (stats.mora_critica || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniVigentes', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniVigDeuda', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
+    setStatValue('dashUniVencidas', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
     setStatValue('dashUniHistoricas', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
     // Dashboard Executive Counters - Cobranza
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio96', (stats.vencio_96h || 0).toLocaleString('es-AR'));
+    setStatValue('dashMoraCritica', (stats.mora_critica || 0).toLocaleString('es-AR'));
 
     // Dashboard Executive Counters - Renovaciones
+    setStatValue('dashContratoVigente', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
     setStatValue('dashPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
-    setStatValue('dashPolizaVencida', (stats.polizas_vencidas || 0).toLocaleString('es-AR'));
-    setStatValue('dashContratoVigente', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
+    setStatValue('dashVigenteConDeuda', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
+    setStatValue('dashPolizaVencida', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
 
     // Modular View Counters - Cobranza
     setStatValue('statAlDiaCob', (stats.al_dia_estricto || stats.al_dia || stats.total_polizas || 0).toLocaleString('es-AR'));
     setStatValue('statVence48hCob', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio48hCob', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio96hCob', (stats.vencio_96h || 0).toLocaleString('es-AR'));
+    setStatValue('statMoraCriticaCob', (stats.mora_critica || 0).toLocaleString('es-AR'));
+
+    // Modular View Counters - Renovaciones
+    setStatValue('statPolizasVigentesRen', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
+    setStatValue('statVencenSemanaRen', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
+    setStatValue('statVigenteConDeudaRen', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
+    setStatValue('statPolizasVencidasRen', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
+    setStatValue('statRecuperarRen', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
 
     // Update live sync badges

@@ -663,14 +663,15 @@ app.get('/api/dashboard/stats', (req, res) => {
         let vence_48h = 0;
         let vencio_48h = 0;
         let vencio_96h = 0;
-        let al_dia = 0;
         let al_dia_estricto = 0;
-        let mora_cuotas_atrasadas = 0;
+        let mora_critica = 0;
 
+        let polizas_vigentes_puras = 0;
         let polizas_vencen_semana = 0;
-        let polizas_vencen_mes = 0;
-        let polizas_vencidas = 0;
-        let polizas_vigentes = 0;
+        let polizas_vigente_con_deuda = 0;
+        let polizas_vencidas_limpias = 0;
+        let polizas_vencidas_con_deuda = 0;
+        let polizas_vencidas_mas_30d = 0;
 
         let renovaciones_sin_telefono = 0;
         let cobranzas_sin_telefono = 0;
@@ -680,11 +681,12 @@ app.get('/api/dashboard/stats', (req, res) => {
             if (est === 'anulada' || est === 'baja') continue;
 
             const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
             const hasPhone = p.cliente_telefono && String(p.cliente_telefono).replace(/\D/g, '').length >= 10;
 
             // ── Renovaciones counters (Calendar days)
             const isRenewed = renewedPolizaIds.has(p.id);
-            const fvRen = p.fin_vigencia_poliza || fv;
             if (fvRen && !isRenewed) {
                 const parts = fvRen.split('-');
                 if (parts.length === 3) {
@@ -692,32 +694,43 @@ app.get('/api/dashboard/stats', (req, res) => {
                     const todayDate = parseLocalDate(todayStr);
                     const calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
 
-                    const saldo = parseFloat(p.saldo_pendiente || 0);
                     let cuotaMoraGrave = false;
-                    if (fv && saldo > 2500) {
+                    if (fv && saldoVal > 2500) {
                         const partsCuota = fv.split('-');
                         if (partsCuota.length === 3) {
                             const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
                             cuotaMoraGrave = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
                         }
                     }
-                    const tieneMoraVencida = cuotaMoraGrave;
 
-                    if (calDiffRen === 7 && !tieneMoraVencida) {
-                        polizas_vencen_semana++;
-                        if (!hasPhone) renovaciones_sin_telefono++;
+                    if (calDiffRen === 7) {
+                        if (cuotaMoraGrave) {
+                            polizas_vigente_con_deuda++;
+                        } else {
+                            polizas_vencen_semana++;
+                            if (!hasPhone) renovaciones_sin_telefono++;
+                        }
+                    } else if (calDiffRen >= 0) {
+                        if (cuotaMoraGrave) {
+                            polizas_vigente_con_deuda++;
+                        } else {
+                            polizas_vigentes_puras++;
+                        }
+                    } else if (calDiffRen >= -30) {
+                        if (parseInt(p.cuotas_debe || 0) <= 1) {
+                            polizas_vencidas_limpias++;
+                        } else {
+                            polizas_vencidas_con_deuda++;
+                        }
+                    } else {
+                        polizas_vencidas_mas_30d++;
                     }
-                    if (calDiffRen > 0 && calDiffRen <= 30) polizas_vencen_mes++;
-                    // Badge debe coincidir con la tabla: 1-30 días vencida Y max 1 cuota pendiente
-                    if (calDiffRen < 0 && calDiffRen >= -30 && parseInt(p.cuotas_debe || 0) <= 1) polizas_vencidas++;
-                    if (calDiffRen >= 0 && !tieneMoraVencida) polizas_vigentes++;
                 }
             }
 
             // ── Cobranzas counters (⚡ Días HÁBILES — holidays_ar)
             if (isRenewed) continue;
 
-            const saldoVal = parseFloat(p.saldo_pendiente || 0);
             if (saldoVal > 0 && !esDiaNoHabil) {
                 // evaluarEstadoCobranzaHabil usa vencimiento efectivo + días hábiles
                 const estadoHabil = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
@@ -732,15 +745,12 @@ app.get('/api/dashboard/stats', (req, res) => {
                     vencio_96h++;
                     if (!hasPhone) cobranzas_sin_telefono++;
                 } else if (estadoHabil === 'mora_critica') {
-                    mora_cuotas_atrasadas++;
-                    al_dia++;
+                    mora_critica++;
                 } else {
                     al_dia_estricto++;
-                    al_dia++;
                 }
             } else {
                 al_dia_estricto++;
-                al_dia++;
             }
         }
 
@@ -758,22 +768,26 @@ app.get('/api/dashboard/stats', (req, res) => {
             clientes_sin_telefono,
             cobertura_porcentaje,
             polizas_vencen_semana, 
-            polizas_vencen_mes, 
-            polizas_vencidas,
-            polizas_vigentes,
-            al_dia,
+            polizas_vencidas: polizas_vencidas_limpias,
+            polizas_vencidas_limpias,
+            polizas_vencidas_con_deuda,
+            polizas_vencidas_mas_30d,
+            polizas_vigentes: polizas_vigentes_puras,
+            polizas_vigentes_puras,
+            polizas_vigente_con_deuda,
+            al_dia: al_dia_estricto,
             al_dia_estricto,
-            mora_cuotas_atrasadas,
+            mora_critica,
+            mora_cuotas_atrasadas: mora_critica,
             cobranza_avisos_total,
             cuotas_deuda: 0, 
             total_deudores: 0, 
             vence_48h,
             vencio_48h,
             vencio_96h,
-            mora_critica: mora_cuotas_atrasadas,
             renovaciones_sin_telefono,
             cobranzas_sin_telefono,
-            total_recuperar,
+            total_recuperar: polizas_historicas_total,
             polizas_historicas_total,
             polizas_anuladas_total,
             last_sync_date: lastSync,
@@ -1500,13 +1514,13 @@ app.get('/api/clientes', (req, res) => {
             }
 
             if (estadoNorm === 'por_vencer' || estadoNorm === 'renovacion_7_dias' || estadoNorm === 'vence_pronto') {
-                // Aviso puntual de renovación a 7 días exactos
+                // Aviso puntual de renovación a 7 días exactos (sin mora)
                 where += ` AND (COALESCE(p.saldo_pendiente, 0) <= 2500 OR p.fecha_vencimiento >= date('now', 'localtime'))`
                        + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7`
                        + notRenewedClause;
                 orderOverride = `COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) ASC`;
             } else if (estadoNorm === 'vencida' || estadoNorm === 'poliza_vencida') {
-                // Vencida = expiró hace entre 1 y 30 días. Más de 30 días → Recuperación.
+                // Vencida = expiró hace entre 1 y 30 días con máximo 1 cuota pendiente (re-emisión limpia)
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1`
                        + ` AND COALESCE(p.cuotas_debe, 0) <= 1`
                        + notRenewedClause;
@@ -1514,10 +1528,18 @@ app.get('/api/clientes', (req, res) => {
             } else if (estadoNorm === 'historico' || estadoNorm === 'historica' || estadoNorm === 'baja' || estadoNorm === 'anulada' || estadoNorm === 'recuperacion_historica') {
                 where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR p.fecha_vencimiento < date('now', 'localtime', '-30 days'))`;
             } else if (estadoNorm === 'vigente' || estadoNorm === 'contrato_vigente') {
-                // Contrato vigente = vigencia activa (>= hoy) y sin cuotas con atraso mayor a 5 días corridos
+                // Contrato vigente puro = vigencia activa (>= hoy), no en 7 días exactos y sin atraso > 5 días
                 where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`
+                       + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) != 7`
                        + ` AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`
                        + notRenewedClause;
+                orderOverride = `COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) ASC`;
+            } else if (estadoNorm === 'vigente_con_deuda' || estadoNorm === 'contrato_con_deuda' || estadoNorm === 'renovacion_deuda') {
+                // Contratos vigentes o por renovar que presentan atraso de cuota > 5 días corridos
+                where += ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0`
+                       + ` AND (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`
+                       + notRenewedClause;
+                orderOverride = `p.fecha_vencimiento ASC`;
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio')) {
@@ -1559,26 +1581,14 @@ app.get('/api/clientes', (req, res) => {
                         where += ` AND 1=0`;
                     }
                 }
-            } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica' || estadoNorm.includes('mora')) {
-                // Mora Crítica (+96 hs) eliminada del flujo de cobranzas (Opción A).
-                // Estos contratos ya no generan acción ni aparecen en listados.
-                where += ` AND 1=0`;
+            } else if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica' || estadoNorm === 'mora' || estadoNorm.includes('mora')) {
+                // Mora Crítica (+96 hs): cuotas atrasadas > 4 días con saldo exigible
+                where += ` AND p.saldo_pendiente > 2500 AND CAST(julianday(date('now', 'localtime')) - julianday(p.fecha_vencimiento) AS INTEGER) > 4` + notRenewedClause;
+                orderOverride = `p.fecha_vencimiento ASC, p.saldo_pendiente DESC`;
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
-                if (esDiaNoHabilClientes) {
-                    where += notRenewedClause;
-                } else {
-                    const vtos48 = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
-                    const vtos0_48 = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
-                    const vtos48_96 = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
-                    const allMoraVtos = [...vtos48, ...vtos0_48, ...vtos48_96];
-                    if (allMoraVtos.length > 0) {
-                        const placeholders = allMoraVtos.map(() => '?').join(',');
-                        where += ` AND (p.saldo_pendiente <= 0 OR p.fecha_vencimiento NOT IN (${placeholders}))` + notRenewedClause;
-                        params.push(...allMoraVtos);
-                    } else {
-                        where += notRenewedClause;
-                    }
-                }
+                // Al día estricto = saldo <= 2500 o sin cuotas vencidas en mora
+                where += ` AND (p.saldo_pendiente <= 2500 OR CAST(julianday(date('now', 'localtime')) - julianday(p.fecha_vencimiento) AS INTEGER) < 0)` + notRenewedClause;
+                orderOverride = `p.fecha_vencimiento ASC`;
             } else if (estadoNorm && estadoNorm !== 'todos' && estadoNorm !== 'all' && estadoNorm !== 'todas') {
                 where += ` AND p.estado = ?`;
                 params.push(estado);
