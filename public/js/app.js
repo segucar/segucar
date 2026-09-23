@@ -1008,46 +1008,37 @@ async function fetchStats() {
       bannerNoHabil.style.display = state.esDiaNoHabil ? 'flex' : 'none';
     }
 
-    const polizasFueraTermino = stats.polizas_fuera_termino || ((stats.polizas_vencidas_mas_30d || 0) + (stats.polizas_vencidas_con_deuda || 0)) || 0;
-
-    // Unified Executive Banner Counters
+    // Unified Executive Banner Counters (7 cards)
     setStatValue('dashUniCartera', (stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR'));
     setStatValue('dashUniAlDia', (stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR'));
     setStatValue('dashUniAvisos', (stats.cobranza_avisos_total || ((stats.vence_48h || 0) + (stats.vencio_48h || 0) + (stats.vencio_96h || 0)) || 0).toLocaleString('es-AR'));
-    setStatValue('dashUniMora', (stats.bajas_sin_cobertura || stats.mora_critica || 0).toLocaleString('es-AR'));
     setStatValue('dashUniVigentes', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
     setStatValue('dashUniPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
-    setStatValue('dashUniVigDeuda', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
     setStatValue('dashUniVencidas', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
-    setStatValue('dashUniFueraTermino', polizasFueraTermino.toLocaleString('es-AR'));
     setStatValue('dashUniHistoricas', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
-    // Dashboard Executive Counters - Cobranza
+    // Dashboard Executive Counters - Cobranza (4 cards)
+    setStatValue('dashAlDia', (stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR'));
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio48', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('dashVencio96', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-    setStatValue('dashMoraCritica', (stats.bajas_sin_cobertura || stats.mora_critica || 0).toLocaleString('es-AR'));
 
-    // Dashboard Executive Counters - Renovaciones
+    // Dashboard Executive Counters - Renovaciones (4 cards)
     setStatValue('dashContratoVigente', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
     setStatValue('dashPorVencer', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
-    setStatValue('dashVigenteConDeuda', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
     setStatValue('dashPolizaVencida', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
-    setStatValue('dashFueraTermino', polizasFueraTermino.toLocaleString('es-AR'));
+    setStatValue('dashHistoricas', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
-    // Modular View Counters - Cobranza
+    // Modular View Counters - Cobranza (4 buttons)
     setStatValue('statAlDiaCob', (stats.al_dia_estricto || stats.al_dia || stats.total_polizas || 0).toLocaleString('es-AR'));
     setStatValue('statVence48hCob', (stats.vence_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio48hCob', (stats.vencio_48h || 0).toLocaleString('es-AR'));
     setStatValue('statVencio96hCob', (stats.vencio_96h || 0).toLocaleString('es-AR'));
-    setStatValue('statMoraCriticaCob', (stats.bajas_sin_cobertura || stats.mora_critica || 0).toLocaleString('es-AR'));
 
-    // Modular View Counters - Renovaciones
+    // Modular View Counters - Renovaciones (4 buttons)
     setStatValue('statPolizasVigentesRen', (stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR'));
     setStatValue('statVencenSemanaRen', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
-    setStatValue('statVigenteConDeudaRen', (stats.polizas_vigente_con_deuda || 0).toLocaleString('es-AR'));
     setStatValue('statPolizasVencidasRen', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
-    setStatValue('statFueraTerminoRen', polizasFueraTermino.toLocaleString('es-AR'));
     setStatValue('statRecuperarRen', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
 

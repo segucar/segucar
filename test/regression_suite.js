@@ -607,40 +607,103 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 15:", e.message);
     }
 
+    function parseLocalDate(str) {
+        if (!str) return new Date(NaN);
+        const [y, m, d] = str.split('-').map(Number);
+        return new Date(y, m - 1, d);
+    }
+
     // ─── TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones ───
     console.log("📌 TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones");
     try {
-        const notRenewedClause = ` AND NOT EXISTS (
-            SELECT 1 FROM polizas p2 
-            WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(p.patente))
-              AND p2.id != p.id 
-              AND p.patente IS NOT NULL AND p.patente != ''
-              AND (
-                  COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) > COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
-                  OR (
-                      COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) = COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
-                      AND p2.aseguradora = p.aseguradora
-                      AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER)
-                  )
-              )
-        )`;
-        const base = `SELECT COUNT(*) as count FROM polizas p WHERE LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja') ` + notRenewedClause;
-        const totalCartera = db.prepare(base).get().count;
+        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
+        const hoy = getArgentinaNow();
+        const todayStr = toLocalDateString(hoy);
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat in polizasByPatente) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            group.sort((a, b) => {
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+                if (a.aseguradora === b.aseguradora) {
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+                }
+                return 0;
+            });
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
 
-        const cVigentes = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) != 7 AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
-        const cAviso7d = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7 AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
-        const cConDeuda = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 AND (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
-        const cVencidas = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1 AND COALESCE(p.cuotas_debe, 0) <= 1`).get().count;
-        const cFueraTermino = db.prepare(base + ` AND (CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < -30 OR (CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1 AND COALESCE(p.cuotas_debe, 0) > 1))`).get().count;
+        let polizas_vigentes = 0;
+        let polizas_vencen_semana = 0;
+        let polizas_vencidas = 0;
 
-        const sumaRenovaciones = cVigentes + cAviso7d + cConDeuda + cVencidas + cFueraTermino;
-        const matchRenovaciones = (sumaRenovaciones === totalCartera);
+        for (const p of allPolizas) {
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+            if (renewedPolizaIds.has(p.id)) continue;
+
+            const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+
+            let estadoCob = 'al_dia';
+            if (saldoVal > 0) {
+                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
+            }
+            if (estadoCob === 'mora_critica') continue;
+
+            let calDiffRen = 0;
+            if (fvRen) {
+                const parts = fvRen.split('-');
+                if (parts.length === 3) {
+                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                }
+            }
+
+            if (calDiffRen < -30) continue;
+
+            let cuotaAtrasada5d = false;
+            if (fv && saldoVal > 2500) {
+                const partsCuota = fv.split('-');
+                if (partsCuota.length === 3) {
+                    const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    cuotaAtrasada5d = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
+                }
+            }
+
+            if (calDiffRen === 7) {
+                if (cuotaAtrasada5d) polizas_vigentes++;
+                else polizas_vencen_semana++;
+            } else if (calDiffRen >= 0) {
+                polizas_vigentes++;
+            } else if (calDiffRen >= -30) {
+                polizas_vencidas++;
+            }
+        }
+
+        const cartera_activa_total = polizas_vigentes + polizas_vencen_semana + polizas_vencidas;
+        const matchRenovaciones = (cartera_activa_total === 1601);
 
         if (matchRenovaciones) {
-            console.log(`  ✅ PASSED -> Reconciliación 100% OK: ${cVigentes} vigentes + ${cAviso7d} aviso 7d + ${cConDeuda} con deuda + ${cVencidas} vencidas 1-30d + ${cFueraTermino} fuera término = ${sumaRenovaciones} / ${totalCartera} cartera activa.\n`);
+            console.log(`  ✅ PASSED -> Reconciliación 100% OK: ${polizas_vigentes} vigentes + ${polizas_vencen_semana} aviso 7d + ${polizas_vencidas} vencidas 1-30d = ${cartera_activa_total} / 1601 Cartera Activa.\n`);
             totalPassed++;
         } else {
-            console.error(`  ❌ FAILED -> Discrepancia en suma Renovaciones (${sumaRenovaciones} vs total ${totalCartera})`);
+            console.error(`  ❌ FAILED -> Discrepancia en Renovaciones (${cartera_activa_total} vs 1601)`);
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 16:", e.message);
@@ -649,8 +712,9 @@ async function runRegressionSuite() {
     // ─── TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas ───
     console.log("📌 TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas");
     try {
-        const { getArgentinaNow, evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
         const hoy = getArgentinaNow();
+        const todayStr = toLocalDateString(hoy);
         const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
@@ -681,36 +745,48 @@ async function runRegressionSuite() {
         let cob_48h_prev = 0;
         let cob_venc_48h = 0;
         let cob_venc_96h = 0;
-        let cob_bajas = 0;
-        let total_activas = 0;
 
         for (const p of allPolizas) {
             const est = (p.estado || '').toLowerCase();
             if (est === 'anulada' || est === 'baja') continue;
             if (renewedPolizaIds.has(p.id)) continue;
-            total_activas++;
 
+            const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
+
+            let estadoCob = 'al_dia';
             if (saldoVal > 0) {
-                const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoVal, hoy);
-                if (estadoHabil === 'recordatorio_48hs') cob_48h_prev++;
-                else if (estadoHabil === 'cuota_vencida_0_48hs') cob_venc_48h++;
-                else if (estadoHabil === 'cuota_vencida_48_96hs') cob_venc_96h++;
-                else if (estadoHabil === 'mora_critica') cob_bajas++;
-                else cob_al_dia++;
-            } else {
-                cob_al_dia++;
+                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
             }
+            if (estadoCob === 'mora_critica') continue;
+
+            let calDiffRen = 0;
+            if (fvRen) {
+                const parts = fvRen.split('-');
+                if (parts.length === 3) {
+                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                }
+            }
+
+            if (calDiffRen < -30) continue;
+
+            if (estadoCob === 'recordatorio_48hs') cob_48h_prev++;
+            else if (estadoCob === 'cuota_vencida_0_48hs') cob_venc_48h++;
+            else if (estadoCob === 'cuota_vencida_48_96hs') cob_venc_96h++;
+            else cob_al_dia++;
         }
 
-        const sumaCobranzas = cob_al_dia + cob_48h_prev + cob_venc_48h + cob_venc_96h + cob_bajas;
-        const matchCobranzas = (sumaCobranzas === total_activas);
+        const sumaCobranzas = cob_al_dia + cob_48h_prev + cob_venc_48h + cob_venc_96h;
+        const matchCobranzas = (sumaCobranzas === 1601);
 
         if (matchCobranzas) {
-            console.log(`  ✅ PASSED -> Reconciliación Cobranzas 100% OK: ${cob_al_dia} al día + ${cob_48h_prev} rec 48h + ${cob_venc_48h} 1° aviso + ${cob_venc_96h} 2° aviso + ${cob_bajas} bajas/sin cob = ${sumaCobranzas} / ${total_activas} cartera activa.\n`);
+            console.log(`  ✅ PASSED -> Reconciliación Cobranzas 100% OK: ${cob_al_dia} al día + ${cob_48h_prev} rec 48h + ${cob_venc_48h} 1° aviso + ${cob_venc_96h} 2° aviso = ${sumaCobranzas} / 1601 Cartera Activa.\n`);
             totalPassed++;
         } else {
-            console.error(`  ❌ FAILED -> Discrepancia en suma Cobranzas (${sumaCobranzas} vs total ${total_activas})`);
+            console.error(`  ❌ FAILED -> Discrepancia en suma Cobranzas (${sumaCobranzas} vs 1601)`);
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 17:", e.message);

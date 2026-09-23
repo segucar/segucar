@@ -113,51 +113,30 @@
               <div style="font-size: 0.7rem; color: rgba(241, 196, 15, 0.9); margin-top: 2px;">48 hs & 96 hs (16+7+5) →</div>
             </div>
 
-            <!-- 4. Bajas / Sin Cobertura (+96 hs) -->
-            <div style="background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('cobranza', 'mora_critica')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #e74c3c; text-transform: uppercase; letter-spacing: 0.5px;">🚪 Bajas / Sin Cob.</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #e74c3c; margin-top: 4px;" id="dashUniMora">0</div>
-              <div style="font-size: 0.7rem; color: rgba(231, 76, 60, 0.9); margin-top: 2px;">Atraso > 4d (Sin WhatsApp) →</div>
-            </div>
-
-            <!-- 5. Contratos Vigentes -->
+            <!-- 4. Contratos Vigentes -->
             <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'vigente')">
               <div style="font-size: 0.72rem; font-weight: 700; color: #00b4d8; text-transform: uppercase; letter-spacing: 0.5px;">🛡️ Vigentes</div>
               <div style="font-size: 1.45rem; font-weight: 900; color: #00b4d8; margin-top: 4px;" id="dashUniVigentes">0</div>
               <div style="font-size: 0.7rem; color: rgba(0, 180, 216, 0.9); margin-top: 2px;">Vigencia activa >7d →</div>
             </div>
 
-            <!-- 6. Aviso Renovación 7d -->
+            <!-- 5. Aviso Renovación 7d -->
             <div style="background: rgba(0, 180, 216, 0.12); border: 1px solid rgba(0, 180, 216, 0.45); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'por_vencer')">
               <div style="font-size: 0.72rem; font-weight: 700; color: #48cae4; text-transform: uppercase; letter-spacing: 0.5px;">📄 Aviso 7 Días</div>
               <div style="font-size: 1.45rem; font-weight: 900; color: #48cae4; margin-top: 4px;" id="dashUniPorVencer">0</div>
               <div style="font-size: 0.7rem; color: rgba(72, 202, 228, 0.9); margin-top: 2px;">Vence en 7 días →</div>
             </div>
 
-            <!-- 7. Contratos con Deuda -->
-            <div style="background: rgba(230, 126, 34, 0.08); border: 1px solid rgba(230, 126, 34, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'vigente_con_deuda')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #e67e22; text-transform: uppercase; letter-spacing: 0.5px;">⚠️ Con Deuda</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #e67e22; margin-top: 4px;" id="dashUniVigDeuda">0</div>
-              <div style="font-size: 0.7rem; color: rgba(230, 126, 34, 0.9); margin-top: 2px;">Mora cuota > 5 días →</div>
-            </div>
-
-            <!-- 8. Ventana Re-Emisión (Vencidas 1-30d) -->
+            <!-- 6. Pólizas Vencidas (1-30d) -->
             <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')">
               <div style="font-size: 0.72rem; font-weight: 700; color: #ff4757; text-transform: uppercase; letter-spacing: 0.5px;">⏳ Vencidas (1-30d)</div>
               <div style="font-size: 1.45rem; font-weight: 900; color: #ff4757; margin-top: 4px;" id="dashUniVencidas">0</div>
-              <div style="font-size: 0.7rem; color: rgba(255, 71, 87, 0.9); margin-top: 2px;">Máx 1 cuota impaga →</div>
+              <div style="font-size: 0.7rem; color: rgba(255, 71, 87, 0.9); margin-top: 2px;">Re-emisión comercial →</div>
             </div>
 
-            <!-- 9. Fuera de Término (+30d) -->
-            <div style="background: rgba(142, 68, 173, 0.08); border: 1px solid rgba(142, 68, 173, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'fuera_termino')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #a29bfe; text-transform: uppercase; letter-spacing: 0.5px;">📁 Fuera Término (+30d)</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #a29bfe; margin-top: 4px;" id="dashUniFueraTermino">0</div>
-              <div style="font-size: 0.7rem; color: rgba(162, 155, 254, 0.9); margin-top: 2px;">Vencidas >30d / Multideuda →</div>
-            </div>
-
-            <!-- 10. Archivo Histórico -->
+            <!-- 7. Históricas / Bajas -->
             <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="window.location.href='recuperacion.html'">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">📂 Base Histórica</div>
+              <div style="font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">📂 Históricas / Bajas</div>
               <div style="font-size: 1.45rem; font-weight: 900; color: #e2e8f0; margin-top: 4px;" id="dashUniHistoricas">0</div>
               <div style="font-size: 0.7rem; color: #a0aec0; margin-top: 2px;">Recuperación →</div>
             </div>
@@ -212,6 +191,14 @@
             <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: none;">Accesos directos al módulo Cobranzas</span>
           </div>
           <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
+            <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="background: rgba(46,213,115,0.08); border: 1px solid rgba(46,213,115,0.35); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.8rem;">🟢</span>
+                <span style="font-size: 1.6rem; font-weight: 800; color: #2ed573;" id="dashAlDia">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Al Día (Sin mora)</div>
+              <div style="font-size: 0.78rem; color: #2ed573; margin-top: 4px; font-weight: 600;">Sin deuda exigible →</div>
+            </button>
             <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'vence_48h')" style="background: rgba(241,196,15,0.08); border: 1px solid rgba(241,196,15,0.35); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size: 1.8rem;">🟡</span>
@@ -236,14 +223,6 @@
               <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Segundo Aviso (Vencida hace 96 hs)</div>
               <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">Vencida hace 96 hs (último aviso WhatsApp) →</div>
             </button>
-            <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'mora_critica')" style="background: rgba(192,57,43,0.14); border: 1px solid rgba(192,57,43,0.5); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.8rem;">🚪</span>
-                <span style="font-size: 1.6rem; font-weight: 800; color: #ff6b6b;" id="dashMoraCritica">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Bajas / Sin Cobertura (+96 hs)</div>
-              <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">Atraso > 4 días hábiles (Sin WhatsApp) →</div>
-            </button>
           </div>
         </div>
 
@@ -253,14 +232,14 @@
             <span>🛡️ GESTIÓN DE RENOVACIONES — Vigencia de Contratos y Renovaciones</span>
             <span style="font-size: 0.75rem; color: var(--text-secondary); text-transform: none;">Accesos directos al módulo Renovaciones</span>
           </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px;">
             <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'vigente')" style="background: rgba(46,213,115,0.08); border: 1px solid rgba(46,213,115,0.35); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size: 1.8rem;">🟢</span>
                 <span style="font-size: 1.6rem; font-weight: 800; color: #2ed573;" id="dashContratoVigente">0</span>
               </div>
-              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Contrato Vigente (Puro)</div>
-              <div style="font-size: 0.78rem; color: #2ed573; margin-top: 4px; font-weight: 600;">Vigencia activa sin mora →</div>
+              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Contrato Vigente</div>
+              <div style="font-size: 0.78rem; color: #2ed573; margin-top: 4px; font-weight: 600;">Vigencia activa > 7 días →</div>
             </button>
             <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'por_vencer')" style="background: rgba(0,180,216,0.08); border: 1px solid rgba(0,180,216,0.35); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
@@ -270,29 +249,21 @@
               <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Aviso Renovación (7 Días)</div>
               <div style="font-size: 0.78rem; color: var(--accent-cyan-light); margin-top: 4px; font-weight: 600;">Vence en 7 días exactos →</div>
             </button>
-            <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'vigente_con_deuda')" style="background: rgba(230,126,34,0.08); border: 1px solid rgba(230,126,34,0.35); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.8rem;">⚠️</span>
-                <span style="font-size: 1.6rem; font-weight: 800; color: #e67e22;" id="dashVigenteConDeuda">0</span>
-              </div>
-              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Contrato con Deuda</div>
-              <div style="font-size: 0.78rem; color: #e67e22; margin-top: 4px; font-weight: 600;">Cuota atrasada > 5 días →</div>
-            </button>
             <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')" style="background: rgba(255,71,87,0.1); border: 1px solid rgba(255,71,87,0.4); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-size: 1.8rem;">⏳</span>
                 <span style="font-size: 1.6rem; font-weight: 800; color: #ff4757;" id="dashPolizaVencida">0</span>
               </div>
               <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Póliza Vencida (1-30 Días)</div>
-              <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">Máx 1 cuota impaga →</div>
+              <div style="font-size: 0.78rem; color: #ff7675; margin-top: 4px; font-weight: 600;">Ventana de re-emisión →</div>
             </button>
-            <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'fuera_termino')" style="background: rgba(142,68,173,0.1); border: 1px solid rgba(142,68,173,0.4); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+            <button class="action-card-btn" onclick="window.location.href='recuperacion.html'" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); text-align: left; padding: 18px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-size: 1.8rem;">📁</span>
-                <span style="font-size: 1.6rem; font-weight: 800; color: #a29bfe;" id="dashFueraTermino">0</span>
+                <span style="font-size: 1.8rem;">📂</span>
+                <span style="font-size: 1.6rem; font-weight: 800; color: var(--text-secondary);" id="dashHistoricas">0</span>
               </div>
-              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Fuera de Término (+30 Días)</div>
-              <div style="font-size: 0.78rem; color: #a29bfe; margin-top: 4px; font-weight: 600;">Vencidas >30d / Multideuda →</div>
+              <div style="font-weight: 700; font-size: 0.92rem; color: var(--text-primary); margin-top: 6px;">Históricas / Bajas</div>
+              <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 4px; font-weight: 600;">Recuperación / Bajas →</div>
             </button>
           </div>
         </div>
@@ -330,12 +301,6 @@
                 <span id="statVencio96hCob" style="background:rgba(231,76,60,0.3); color:#e74c3c; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
               </div>
             </button>
-            <button class="action-card-btn" onclick="filterByState('mora_critica')" style="background: rgba(192,57,43,0.14); border: 1px solid rgba(192,57,43,0.45); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:800; color:#ff6b6b;">🚪 Bajas / Sin Cobertura (+96 hs)</span>
-                <span id="statMoraCriticaCob" style="background:rgba(192,57,43,0.3); color:#ff6b6b; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
-              </div>
-            </button>
           </div>
         </div>
       </div>
@@ -346,7 +311,7 @@
           <div style="font-size: 0.78rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.9px; color: var(--accent-cyan-light); margin-bottom: 10px;">
             🛡️ MÓDULO RENOVACIONES DE PÓLIZA — Contratos y fin de trimestre
           </div>
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px;">
             <button class="action-card-btn active" onclick="filterByState('vigente')" style="background: rgba(46,213,115,0.08); border: 1px solid rgba(46,213,115,0.3); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-weight:700; color:#2ed573;">🟢 Contrato Vigente</span>
@@ -359,22 +324,10 @@
                 <span id="statVencenSemanaRen" style="background:rgba(0,180,216,0.25); color:#00b4d8; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
               </div>
             </button>
-            <button class="action-card-btn" onclick="filterByState('vigente_con_deuda')" style="background: rgba(230,126,34,0.08); border: 1px solid rgba(230,126,34,0.3); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:700; color:#e67e22;">⚠️ Con Deuda</span>
-                <span id="statVigenteConDeudaRen" style="background:rgba(230,126,34,0.25); color:#e67e22; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
-              </div>
-            </button>
             <button class="action-card-btn" onclick="filterByState('poliza_vencida')" style="background: rgba(255,71,87,0.1); border: 1px solid rgba(255,71,87,0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
               <div style="display:flex; justify-content:space-between; align-items:center;">
                 <span style="font-weight:700; color:#ff4757;">⏳ Vencida (1-30d)</span>
                 <span id="statPolizasVencidasRen" style="background:rgba(255,71,87,0.25); color:#ff4757; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
-              </div>
-            </button>
-            <button class="action-card-btn" onclick="filterByState('fuera_termino')" style="background: rgba(142,68,173,0.1); border: 1px solid rgba(142,68,173,0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
-              <div style="display:flex; justify-content:space-between; align-items:center;">
-                <span style="font-weight:700; color:#a29bfe;">📁 Fuera Término (+30d)</span>
-                <span id="statFueraTerminoRen" style="background:rgba(142,68,173,0.25); color:#a29bfe; font-weight:800; padding:2px 8px; border-radius:12px;">0</span>
               </div>
             </button>
             <button class="action-card-btn" onclick="window.location.href='recuperacion.html'" style="background: rgba(255,255,255,0.04); border: 1px solid var(--border-color); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer;">
@@ -449,14 +402,11 @@
               <option value="vence_48h">🟡 Recordatorio 48 hs (Preventivo)</option>
               <option value="vencio_48h">🟠 Primer Aviso (Vencida hace 48 hs)</option>
               <option value="vencio_96h">🔴 Segundo Aviso (Vencida hace 96 hs)</option>
-              <option value="mora_critica">🚪 Bajas / Sin Cobertura (+96 hs)</option>
             </optgroup>
             <optgroup label="🛡️ MÓDULO RENOVACIONES">
-              <option value="vigente">🟢 Contrato Vigente (Puro)</option>
+              <option value="vigente">🟢 Contrato Vigente</option>
               <option value="por_vencer">📄 Aviso Renovación (7 Días)</option>
-              <option value="vigente_con_deuda">⚠️ Contrato con Deuda</option>
               <option value="poliza_vencida">⏳ Póliza Vencida (1-30 Días)</option>
-              <option value="fuera_termino">📁 Fuera de Término (+30 Días)</option>
             </optgroup>
           </select>
           <button class="btn btn-ghost" onclick="resetFilters()" title="Limpiar todos los filtros">🧹 Limpiar</button>
@@ -939,6 +889,10 @@
           </h4>
           <div style="display:flex; flex-direction:column; gap:10px;">
             <div style="display:flex; align-items:flex-start; gap:10px;">
+              <span style="background:rgba(46,213,115,0.2); color:#2ed573; border:1px solid rgba(46,213,115,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🟢 Al Día</span>
+              <div>Cliente sin deuda exigible o con saldo remanente menor o igual a $2.500 (Regla del Remanente).</div>
+            </div>
+            <div style="display:flex; align-items:flex-start; gap:10px;">
               <span style="background:rgba(241,196,15,0.2); color:#f1c40f; border:1px solid rgba(241,196,15,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🟡 Recordatorio 48 hs</span>
               <div>Aviso preventivo. Se envía exactamente <strong>48 hs hábiles antes</strong> de que venza la cuota.</div>
             </div>
@@ -948,15 +902,7 @@
             </div>
             <div style="display:flex; align-items:flex-start; gap:10px;">
               <span style="background:rgba(231,76,60,0.2); color:#e74c3c; border:1px solid rgba(231,76,60,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🔴 Segundo Aviso (96 hs)</span>
-              <div>Cuota vencida hace 96 hs. Último aviso antes de fin del período de gracia (12hs del día siguiente). <strong>Aquí concluye el circuito de WhatsApp automatizado.</strong></div>
-            </div>
-            <div style="display:flex; align-items:flex-start; gap:10px;">
-              <span style="background:rgba(192,57,43,0.25); color:#ff6b6b; border:1px solid rgba(192,57,43,0.5); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🚪 Bajas / Sin Cobertura (+96 hs)</span>
-              <div>Cuota vencida hace más de 4 días hábiles. <strong>Cobertura suspendida y 0 envíos automáticos de WhatsApp</strong>. Pasan a gestión manual de oficina o cobranza prejudicial sin hostigar al cliente.</div>
-            </div>
-            <div style="display:flex; align-items:flex-start; gap:10px;">
-              <span style="background:rgba(46,213,115,0.2); color:#2ed573; border:1px solid rgba(46,213,115,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🟢 Al Día</span>
-              <div>Cliente sin deuda exigible o con saldo remanente menor o igual a $2.500 (Regla del Remanente).</div>
+              <div>Cuota vencida hace 96 hs. Último aviso antes de fin del período de gracia. <strong>Aquí concluye estrictamente el circuito de WhatsApp automatizado.</strong></div>
             </div>
           </div>
         </div>
@@ -969,27 +915,19 @@
           <div style="display:flex; flex-direction:column; gap:10px;">
             <div style="display:flex; align-items:flex-start; gap:10px;">
               <span style="background:rgba(46,213,115,0.2); color:#2ed573; border:1px solid rgba(46,213,115,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">🟢 Contrato Vigente</span>
-              <div>Contratos activos con vigencia mayor a 7 días y cuotas al día (sin mora &gt; 5 días).</div>
+              <div>Contratos activos con vigencia mayor a 7 días.</div>
             </div>
             <div style="display:flex; align-items:flex-start; gap:10px;">
               <span style="background:rgba(0,180,216,0.2); color:#00b4d8; border:1px solid rgba(0,180,216,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">📄 Aviso 7 Días</span>
-              <div>Pólizas con fin de vigencia de contrato en los <strong>próximos 7 días exactos</strong> al día con los pagos.</div>
-            </div>
-            <div style="display:flex; align-items:flex-start; gap:10px;">
-              <span style="background:rgba(230,126,34,0.2); color:#e67e22; border:1px solid rgba(230,126,34,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">⚠️ Contrato con Deuda</span>
-              <div>Pólizas vigentes o por renovar que presentan atraso de cuota mayor a 5 días corridos. Requieren regularizar pago antes de emitir.</div>
+              <div>Pólizas con fin de vigencia de contrato en los <strong>próximos 7 días exactos</strong> al día con los pagos. Si tienen deuda atrasada > 5 días, no reciben aviso automático.</div>
             </div>
             <div style="display:flex; align-items:flex-start; gap:10px;">
               <span style="background:rgba(255,71,87,0.2); color:#ff4757; border:1px solid rgba(255,71,87,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">⏳ Póliza Vencida (1-30d)</span>
-              <div>Contratos finalizados hace 1 a 30 días con <strong>máximo 1 cuota pendiente</strong>. Ventana limpia para re-emisión comercial.</div>
+              <div>Contratos finalizados hace 1 a 30 días. Ventana activa para re-emisión comercial.</div>
             </div>
             <div style="display:flex; align-items:flex-start; gap:10px;">
-              <span style="background:rgba(142,68,173,0.2); color:#a29bfe; border:1px solid rgba(142,68,173,0.4); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">📁 Fuera de Término (+30d)</span>
-              <div>Pólizas vencidas hace más de 30 días aún activas en cartera o vencidas recientemente con <strong>más de 1 cuota impaga</strong> (multideuda).</div>
-            </div>
-            <div style="display:flex; align-items:flex-start; gap:10px;">
-              <span style="background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.15); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">📂 Cartera Histórica</span>
-              <div>Pólizas dadas de baja definitiva archivadas en la base histórica, disponibles para campañas de reactivación comercial.</div>
+              <span style="background:rgba(255,255,255,0.08); color:var(--text-secondary); border:1px solid rgba(255,255,255,0.15); padding:3px 8px; border-radius:6px; font-weight:700; font-size:0.8rem; white-space:nowrap;">📂 Históricas / Bajas</span>
+              <div>Pólizas dadas de baja, archivadas o con mora > 96 hs (4 días hábiles) / contratos vencidos > 30 días. Disponibles para campañas de reactivación. Si el cliente abona su cuota, vuelve automáticamente a Cartera Activa / Al Día.</div>
             </div>
           </div>
         </div>
@@ -998,8 +936,9 @@
         <div style="background:rgba(0,180,216,0.06); border:1px dashed rgba(0,180,216,0.3); border-radius:12px; padding:14px;">
           <div style="font-weight:700; color:var(--accent-cyan-light); margin-bottom:4px;">⚡ Reglas Clave del Sistema:</div>
           <ul style="margin:0; padding-left:20px; font-size:0.82rem; color:var(--text-secondary);">
-            <li><strong>Reconciliación 100%:</strong> La suma de las 5 categorías de Renovaciones (Vigentes + Aviso 7d + Con Deuda + Vencidas 1-30d + Fuera de Término) coincide exactamente con la Cartera Activa viva.</li>
-            <li><strong>Cese tras 96hs:</strong> Los envíos automáticos de WhatsApp cesan estrictamente tras el Segundo Aviso (96 hs hábiles). No se envían mensajes automáticos a clientes con más de 4 días hábiles de mora.</li>
+            <li><strong>Reconciliación 100%:</strong> La suma de Cobranza (Al Día + Recordatorio 48hs + 1° Aviso + 2° Aviso) y la suma de Renovaciones (Contrato Vigente + Aviso 7d + Póliza Vencida 1-30d) coinciden exactamente con la Cartera Activa.</li>
+            <li><strong>Bajas por Mora > 96hs:</strong> Toda póliza con cuota atrasada más de 4 días hábiles pasa a "Baja", sale de Cartera Activa y no recibe ningún mensaje automatizado. Se recalcula en vivo.</li>
+            <li><strong>Cese tras 96hs:</strong> Los envíos automáticos de WhatsApp cesan estrictamente tras el Segundo Aviso (96 hs hábiles).</li>
             <li><strong>Regla del Remanente:</strong> Todo saldo menor o igual a $2.500 se considera cancelado (remanente de acarreo Grucar).</li>
             <li><strong>Fines de semana y feriados:</strong> Los avisos de cuotas no se envían domingos ni feriados. Vencimientos de fin de semana se gestionan los viernes.</li>
           </ul>
