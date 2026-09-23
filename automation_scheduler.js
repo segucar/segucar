@@ -447,32 +447,82 @@ async function ejecutarDespachoDiario({
 }
 
 /**
+/**
+ * Verifica si ya se ejecutó el despacho automático en la fecha provista.
+ */
+function yaSeDespachoHoy(db, fechaStr) {
+    if (!db || !fechaStr) return false;
+    try {
+        const row = db.prepare(`
+            SELECT 1 FROM contactos 
+            WHERE mensaje LIKE '[Despacho Automático 8AM]%' 
+              AND (date(datetime(fecha, '-3 hours')) = ? OR date(fecha) = ?)
+            LIMIT 1
+        `).get(fechaStr, fechaStr);
+        return !!row;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
  * Inicia el temporizador en segundo plano para ejecutar el despacho automático
- * todos los días hábiles a las 8:00 AM (Hora Argentina).
+ * todos los días hábiles a las 8:00 AM (Hora Argentina), con catch-up inteligente
+ * al iniciar el servidor si no se ejecutó aún en el día.
  * 
  * @param {object} params
  * @param {object} params.db - Instancia SQLite
  * @param {object} params.waService - Módulo de WhatsApp
  */
 function iniciarScheduler8AM({ db, waService }) {
-    let ultimoDespachoFecha = null;
     let isRunning = false;
 
     console.log('⏰ [Automation Scheduler] Programado: Lunes a Sábados a las 8:00 AM (Hora Argentina)');
 
+    // Catch-up / Verificación inteligente al arrancar el servidor (delay de 45s para dejar sincronizar portales)
+    setTimeout(async () => {
+        const info = getInfoHoraArgentina();
+        if (info.esDomingo || esNoHabil(info.ahora)) return;
+
+        // Si ya son más de las 8:00 AM y menos de las 19:00 PM y no se ejecutó hoy, correr catch-up
+        if (info.hora >= 8 && info.hora < 19) {
+            if (!yaSeDespachoHoy(db, info.fechaStr) && !isRunning) {
+                try {
+                    isRunning = true;
+                    console.log(`🌅 [Despacho 8AM] Catch-up automático al inicio (${info.fechaStr}, ${info.hora}:${String(info.minuto).padStart(2, '0')}hs)...`);
+                    const result = await ejecutarDespachoDiario({
+                        dryRun: false,
+                        db,
+                        waService,
+                        delayMs: 2500
+                    });
+                    console.log(`✅ [Despacho 8AM] Catch-up finalizado:`, {
+                        enviados: result.enviados_count,
+                        silenciados: result.omitidos_silenciados_count,
+                        ya_contactados: result.omitidos_ya_contactados_count,
+                        errores: result.errores_count
+                    });
+                } catch (err) {
+                    console.error(`❌ [Despacho 8AM] Error en catch-up inicial:`, err);
+                } finally {
+                    isRunning = false;
+                }
+            }
+        }
+    }, 45 * 1000);
+
+    // Revisión periódica cada 60 segundos
     setInterval(async () => {
         const info = getInfoHoraArgentina();
 
         // Chequear ventana de ejecución: 8:00 AM a 8:30 AM
         if (info.hora === 8 && info.minuto >= 0 && info.minuto <= 30) {
-            if (ultimoDespachoFecha === info.fechaStr) {
-                // Ya se ejecutó hoy
+            if (yaSeDespachoHoy(db, info.fechaStr)) {
                 return;
             }
 
-            if (info.esDomingo) {
-                console.log(`⏭️ [Despacho 8AM] Omitido automáticamente: Domingo (${info.fechaStr})`);
-                ultimoDespachoFecha = info.fechaStr;
+            if (info.esDomingo || esNoHabil(info.ahora)) {
+                console.log(`⏭️ [Despacho 8AM] Omitido automáticamente: Domingo o Feriado (${info.fechaStr})`);
                 return;
             }
 
@@ -482,7 +532,6 @@ function iniciarScheduler8AM({ db, waService }) {
 
             try {
                 isRunning = true;
-                ultimoDespachoFecha = info.fechaStr;
                 console.log(`🌅 [Despacho 8AM] Disparando despacho automático de las 8:00 AM (${info.fechaStr})...`);
 
                 const result = await ejecutarDespachoDiario({
@@ -505,13 +554,14 @@ function iniciarScheduler8AM({ db, waService }) {
                 isRunning = false;
             }
         }
-    }, 60 * 1000); // Revisión cada 60 segundos
+    }, 60 * 1000);
 }
 
 module.exports = {
     getInfoHoraArgentina,
     obtenerPendientesHoy,
     verificarClienteYaContactadoHoy,
+    yaSeDespachoHoy,
     ejecutarDespachoDiario,
     iniciarScheduler8AM
 };
