@@ -335,12 +335,12 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     if (headerCols.length > 0) {
         const iOp = headerCols.findIndex(h => h.includes('oper'));
         if (iOp >= 0) colIdxOperacion = iOp;
-        const iNro = headerCols.findIndex(h => h === 'nro' || h === 'nro cuota' || h === 'n°cuota' || h.includes('cuota') && !h.includes('vto'));
+        const iNro = headerCols.findIndex(h => h === 'nro' || h === 'nro cuota' || h === 'n°cuota' || (h.includes('cuota') && !h.includes('vto')));
         if (iNro >= 0) colIdxNroCuota = iNro;
         const iVto = headerCols.findIndex(h => h.includes('vto') || h.includes('vencim'));
         if (iVto >= 0) colIdxVtoCuota = iVto;
-        // 🔑 Buscar "Saldo Cli" explícitamente — ignorar "Saldo Broker"
-        const iSaldoCli = headerCols.findIndex(h => h.includes('saldo') && h.includes('cli'));
+        // 🔑 Buscar "Saldo Cli" o "Saldo" explícitamente — ignorar "Saldo Broker"
+        const iSaldoCli = headerCols.findIndex(h => (h.includes('saldo') && h.includes('cli')) || h === 'saldo' || h.includes('saldo'));
         if (iSaldoCli >= 0) colIdxSaldoCli = iSaldoCli;
     }
     console.log(`[syncDeudasNRE] Headers detectados: op=${colIdxOperacion} nrocuota=${colIdxNroCuota} vto=${colIdxVtoCuota} saldoCli=${colIdxSaldoCli}`);
@@ -460,41 +460,51 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
 async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = null) {
     const { baseUrl, getCookieString } = await loginNRE(usuario, password);
 
-    // Priorizar pólizas con saldo pendiente en la ventana de cobranza activa (últimos 30 días a próximos 15 días)
+    const mapaCandidatos = new Map();
+
+    // 1. Pólizas que antes tenían saldo pero NRE lisdeupmo.php ya NO lista como deudoras (resolución inmediata de pagos)
+    if (opsEnNreDeuda && opsEnNreDeuda instanceof Set) {
+        const candidatosResueltos = db.prepare(`
+            SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
+            FROM polizas 
+            WHERE (saldo_pendiente > 0 OR cuotas_debe > 0)
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).all().filter(p => !opsEnNreDeuda.has(p.operacion));
+        for (const p of candidatosResueltos) mapaCandidatos.set(p.operacion, p);
+    }
+
+    // 2. Toda la ventana de cobranza activa (últimos 45 días a próximos 30 días)
     const candidatosVentana = db.prepare(`
         SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
-          AND fecha_vencimiento >= date('now', 'localtime', '-30 days')
-          AND fecha_vencimiento <= date('now', 'localtime', '+15 days')
-        ORDER BY fecha_vencimiento DESC
-        LIMIT 100
+          AND fecha_vencimiento >= date('now', 'localtime', '-45 days')
+          AND fecha_vencimiento <= date('now', 'localtime', '+30 days')
+        ORDER BY fecha_vencimiento ASC
     `).all();
+    for (const p of candidatosVentana) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
 
-    // Pólizas activas en la ventana actual sin historial de cuotas cargado
+    // 3. Pólizas activas en la ventana actual sin historial de cuotas cargado
     const candidatosSinHistorial = db.prepare(`
         SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza
         FROM polizas
         WHERE (cuotas_historial IS NULL OR cuotas_historial = '' OR cuotas_historial = '[]')
           AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
-          AND COALESCE(fin_vigencia_poliza, fecha_vencimiento) >= date('now', 'localtime', '-30 days')
+          AND COALESCE(fin_vigencia_poliza, fecha_vencimiento) >= date('now', 'localtime', '-45 days')
         ORDER BY fecha_vencimiento DESC
-        LIMIT 50
+        LIMIT 100
     `).all();
+    for (const p of candidatosSinHistorial) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
 
-    // Otras pólizas con saldo
+    // 4. Otras pólizas con saldo restante
     const otrosDeudores = db.prepare(`
         SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
-          AND (fecha_vencimiento < date('now', 'localtime', '-30 days') OR fecha_vencimiento > date('now', 'localtime', '+15 days') OR fecha_vencimiento IS NULL)
+          AND (fecha_vencimiento < date('now', 'localtime', '-45 days') OR fecha_vencimiento > date('now', 'localtime', '+30 days') OR fecha_vencimiento IS NULL)
         ORDER BY fecha_vencimiento DESC
-        LIMIT 50
+        LIMIT 100
     `).all();
-
-    const mapaCandidatos = new Map();
-    for (const p of candidatosVentana) mapaCandidatos.set(p.operacion, p);
-    for (const p of candidatosSinHistorial) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
     for (const p of otrosDeudores) if (!mapaCandidatos.has(p.operacion)) mapaCandidatos.set(p.operacion, p);
 
     const candidatos = Array.from(mapaCandidatos.values());
@@ -521,75 +531,105 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     for (const chunk of chunks) {
         await Promise.all(chunk.map(async (pol) => {
             try {
-                const infoRes = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?poli=${pol.operacion}&endo=0`, {
+                const infoRes = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?prop=${pol.operacion}`, {
                     headers: { 'Cookie': getCookieString() }
                 });
                 const html = await infoRes.text();
                 const $ = cheerio.load(html);
 
-                const cuotasRows = $('table tr').filter((i, el) => {
-                    const txt = $(el).text();
-                    return /cuota/i.test(txt) && /\d{2}\/\d{2}\/\d{4}/.test(txt);
+                const pagosHistorial = [];
+                // 1. Extraer tabla de Pagos (si existe)
+                $('table').each((tIdx, table) => {
+                    const headerText = $(table).find('tr').first().text().toLowerCase();
+                    if (headerText.includes('recibo') && headerText.includes('importe')) {
+                        $(table).find('tr').each((rIdx, row) => {
+                            if (rIdx === 0) return;
+                            const cols = $(row).find('td, th').map((k, td) => $(td).text().trim()).get();
+                            if (cols.length >= 4) {
+                                pagosHistorial.push({
+                                    nro: parseInt(cols[0], 10) || rIdx,
+                                    fecha: cols[1],
+                                    recibo: cols[2],
+                                    importe: parseFloat((cols[3] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0
+                                });
+                            }
+                        });
+                    }
                 });
 
-                if (cuotasRows.length > 0) {
-                    const cuotasHistorial = [];
-                    cuotasRows.each((idx, row) => {
-                        const cols = $(row).find('td').map((k, td) => $(td).text().trim()).get();
-                        if (cols.length >= 6) {
-                            const nroCuota = parseInt(cols[0], 10) || (idx + 1);
-                            const vtoRaw = cols[1];
-                            const vtoIso = vtoRaw && vtoRaw.includes('/') ? vtoRaw.split('/').reverse().join('-') : vtoRaw;
-                            const saldoCli = parseFloat((cols[4] || '0').replace(/\./g, '').replace(',', '.')) || 0;
-                            const fechaPago = cols[5] || null;
-                            const lote = cols[6] || '';
+                // 2. Extraer tabla de Cronograma de Cuotas (con Saldo Cli)
+                const cuotasHistorial = [];
+                $('table').each((tIdx, table) => {
+                    const headerText = $(table).find('tr').first().text().toLowerCase();
+                    if (headerText.includes('saldo cli') || (headerText.includes('cuota') && headerText.includes('vencimiento'))) {
+                        const headerCols = $(table).find('tr').first().find('td, th').map((k, td) => $(td).text().trim().toLowerCase()).get();
+                        let colIdxCuota = 0, colIdxVto = 1, colIdxImporte = 2, colIdxSaldoCli = 3;
+                        const iC = headerCols.findIndex(h => h.includes('cuota')); if (iC >= 0) colIdxCuota = iC;
+                        const iV = headerCols.findIndex(h => h.includes('venc')); if (iV >= 0) colIdxVto = iV;
+                        const iImp = headerCols.findIndex(h => h === 'importe' || h.includes('importe')); if (iImp >= 0) colIdxImporte = iImp;
+                        const iSC = headerCols.findIndex(h => h.includes('saldo') && h.includes('cli')); if (iSC >= 0) colIdxSaldoCli = iSC;
 
-                            cuotasHistorial.push({
-                                nro_cuota: nroCuota,
-                                vto_cuota: vtoIso,
-                                saldo_cli: saldoCli,
-                                estado: saldoCli <= 0 ? 'PAGADA' : 'PENDIENTE',
-                                fecha_pago: fechaPago,
-                                lote: lote
-                            });
-                        }
-                    });
+                        $(table).find('tr').each((rIdx, row) => {
+                            if (rIdx === 0) return; // skip header
+                            const cols = $(row).find('td, th').map((k, td) => $(td).text().trim()).get();
+                            if (cols.length >= 4) {
+                                const nroCuota = parseInt(cols[colIdxCuota], 10) || rIdx;
+                                const vtoRaw = cols[colIdxVto];
+                                const vtoIso = vtoRaw && vtoRaw.includes('/') ? vtoRaw.split('/').reverse().join('-') : vtoRaw;
+                                const importeCuota = parseFloat((cols[colIdxImporte] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+                                const saldoCli = parseFloat((cols[colIdxSaldoCli] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+                                
+                                if (vtoIso && /\d{4}-\d{2}-\d{2}/.test(vtoIso)) {
+                                    const pagoCorresp = pagosHistorial.find(p => p.nro === nroCuota);
+                                    cuotasHistorial.push({
+                                        nro_cuota: nroCuota,
+                                        vto_cuota: vtoIso,
+                                        importe: importeCuota,
+                                        saldo_cli: saldoCli,
+                                        estado: saldoCli <= 0 ? 'PAGADA' : 'PENDIENTE',
+                                        fecha_pago: pagoCorresp ? pagoCorresp.fecha : null,
+                                        lote: pagoCorresp ? `Recibo ${pagoCorresp.recibo}` : ''
+                                    });
+                                }
+                            }
+                        });
+                    }
+                });
 
-                    if (cuotasHistorial.length > 0) {
-                        const cuotasPendientes = cuotasHistorial.filter(c => c.estado === 'PENDIENTE');
-                        if (cuotasPendientes.length === 0) {
-                            actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
-                            saldadas++;
-                        } else {
-                            // Tiene cuotas pendientes pero quizás menos que antes
-                            const cuotasPendientesPrincipales = cuotasPendientes.filter(c => c.saldo_cli > 2500);
-                            const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
-                            const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
-                                ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota 
-                                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
-                            const primerNroPendiente = cuotasPendientesPrincipales.length > 0
-                                ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
-                                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
-                            const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
+                if (cuotasHistorial.length > 0) {
+                    const cuotasPendientes = cuotasHistorial.filter(c => c.estado === 'PENDIENTE');
+                    if (cuotasPendientes.length === 0) {
+                        actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
+                        saldadas++;
+                    } else {
+                        // Tiene cuotas pendientes pero quizás menos que antes
+                        const cuotasPendientesPrincipales = cuotasPendientes.filter(c => c.saldo_cli > 2500);
+                        const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
+                        const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
+                            ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota 
+                            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+                        const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+                            ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+                        const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
 
-                            db.prepare(`
-                                UPDATE polizas
-                                SET saldo_pendiente = ?,
-                                    cuotas_debe = ?,
-                                    nro_cuota = COALESCE(?, nro_cuota),
-                                    fecha_vencimiento = COALESCE(?, fecha_vencimiento),
-                                    cuotas_historial = ?
-                                WHERE operacion = ?
-                            `).run(
-                                nuevoSaldo,
-                                cantDebe,
-                                primerNroPendiente,
-                                primerVtoPendiente,
-                                JSON.stringify(cuotasHistorial),
-                                pol.operacion
-                            );
-                            saldadas++;
-                        }
+                        db.prepare(`
+                            UPDATE polizas
+                            SET saldo_pendiente = ?,
+                                cuotas_debe = ?,
+                                nro_cuota = COALESCE(?, nro_cuota),
+                                fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                                cuotas_historial = ?
+                            WHERE operacion = ?
+                        `).run(
+                            nuevoSaldo,
+                            cantDebe,
+                            primerNroPendiente,
+                            primerVtoPendiente,
+                            JSON.stringify(cuotasHistorial),
+                            pol.operacion
+                        );
+                        saldadas++;
                     }
                 }
             } catch (e) {

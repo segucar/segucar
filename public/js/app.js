@@ -1812,7 +1812,7 @@ function getTemplateMatchScore(t, recTarget, activeView, polizaInput = null) {
       const vtoDate = new Date(parseInt(partsVto[0]), parseInt(partsVto[1]) - 1, parseInt(partsVto[2]));
       const todayDate = new Date(); todayDate.setHours(0, 0, 0, 0);
       const diffDias = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-      if (diffDias < 0 && (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo') || tName.includes('48 hs'))) {
+      if (diffDias < 0 && (tType === 'recordatorio_48hs' || tName.includes('recordatorio preventivo') || (tName.includes('48 hs') && !tName.includes('vencida') && !tName.includes('primer')))) {
         return 0;
       }
     }
