@@ -8,6 +8,8 @@ let currentCustomHasta = '';
 let currentFetchSeq = 0;
 let metricasAbortController = null;
 let _metricasDebounceTimer = null;
+let _cachedDashboardStats = null;
+let _cachedDashboardStatsTimestamp = 0;
 
 // Muestra skeleton en las KPI cards mientras hay un fetch en curso
 function _showMetricasLoadingSkeleton() {
@@ -35,7 +37,7 @@ function _showMetricasLoadingSkeleton() {
   }
 }
 
-async function fetchMetricas(rango, desde, hasta) {
+async function fetchMetricas(rango, desde, hasta, forceRefreshStats = false) {
   const thisSeq = ++currentFetchSeq;
 
   // Cancel any prior in-flight fetch immediately
@@ -65,18 +67,30 @@ async function fetchMetricas(rango, desde, hasta) {
     if (currentRangoMetricas === 'custom' && currentCustomDesde && currentCustomHasta) {
       url += `&desde=${encodeURIComponent(currentCustomDesde)}&hasta=${encodeURIComponent(currentCustomHasta)}`;
     }
-    const [resMetricas, resStats] = await Promise.all([
-      fetch(url, { signal }),
-      fetch('/api/dashboard/stats', { signal })
-    ]);
+
+    // Estrategia de alto rendimiento: Si las stats de cartera global ya están cacheadas
+    // (TTL 60 segundos), solo consultamos el endpoint de métricas. El cambio de período es instantáneo.
+    const now = Date.now();
+    const needsStats = forceRefreshStats || !_cachedDashboardStats || (now - _cachedDashboardStatsTimestamp > 60000);
+
+    const promises = [fetch(url, { signal })];
+    if (needsStats) {
+      promises.push(fetch('/api/dashboard/stats', { signal }));
+    }
+
+    const responses = await Promise.all(promises);
 
     if (thisSeq !== currentFetchSeq) {
       // Stale response: a newer request was dispatched, discard this one!
       return;
     }
 
-    const data = await resMetricas.json();
-    const stats = await resStats.json();
+    const data = await responses[0].json();
+    if (needsStats && responses[1]) {
+      _cachedDashboardStats = await responses[1].json();
+      _cachedDashboardStatsTimestamp = Date.now();
+    }
+    const stats = _cachedDashboardStats || {};
 
     // Validación de rango: descartar respuestas que llegaron tarde para un período distinto al actual
     if (data.rango && data.rango !== currentRangoMetricas) {
@@ -246,7 +260,7 @@ function renderMetricasUI(data, stats = {}) {
           <option value="todo" ${activeRango === 'todo' ? 'selected' : ''}>🌐 Todo el Historial</option>
         </select>
 
-        <button class="btn btn-ghost" onclick="fetchMetricas()" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15); padding: 8px 14px; border-radius: 8px;">
+        <button class="btn btn-ghost" onclick="fetchMetricas(undefined, undefined, undefined, true)" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15); padding: 8px 14px; border-radius: 8px;">
           🔄 Actualizar
         </button>
 

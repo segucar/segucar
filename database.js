@@ -275,6 +275,7 @@ db.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_historial_wa_cliente ON historial_gestiones_whatsapp(cliente_id);
     CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha ON historial_gestiones_whatsapp(fecha_envio);
+    CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha_arg ON historial_gestiones_whatsapp(datetime(fecha_envio, '-3 hours'));
 `);
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────
@@ -977,6 +978,7 @@ db.anularPolizasSuperadas();
 db.inicializarCuotasAdmin();
 db.inicializarSiniestros();
 db.unificarPlantillasMetricas();
+db.restaurarTelefonosMaestros();
 
 module.exports = db;
 

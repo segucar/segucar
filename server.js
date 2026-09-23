@@ -599,10 +599,6 @@ function getSaldoExigible(poliza) {
 
 app.get('/api/dashboard/stats', (req, res) => {
     try {
-        if (typeof db.restaurarTelefonosMaestros === 'function') {
-            db.restaurarTelefonosMaestros();
-        }
-
         const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
         const clientes_con_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().count;
         const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
