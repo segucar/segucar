@@ -6,9 +6,17 @@ let currentRangoMetricas = 'este_mes';
 let currentCustomDesde = '';
 let currentCustomHasta = '';
 let currentFetchSeq = 0;
+let metricasAbortController = null;
 
 async function fetchMetricas(rango, desde, hasta) {
   const thisSeq = ++currentFetchSeq;
+
+  // Cancel any prior in-flight fetch immediately
+  if (metricasAbortController) {
+    try { metricasAbortController.abort(); } catch(e){}
+  }
+  metricasAbortController = new AbortController();
+  const signal = metricasAbortController.signal;
 
   if (rango !== undefined && rango !== null && rango !== '') {
     currentRangoMetricas = rango;
@@ -28,8 +36,8 @@ async function fetchMetricas(rango, desde, hasta) {
       url += `&desde=${encodeURIComponent(currentCustomDesde)}&hasta=${encodeURIComponent(currentCustomHasta)}`;
     }
     const [resMetricas, resStats] = await Promise.all([
-      fetch(url),
-      fetch('/api/dashboard/stats')
+      fetch(url, { signal }),
+      fetch('/api/dashboard/stats', { signal })
     ]);
 
     if (thisSeq !== currentFetchSeq) {
@@ -41,6 +49,7 @@ async function fetchMetricas(rango, desde, hasta) {
     const stats = await resStats.json();
     renderMetricasUI(data, stats);
   } catch (err) {
+    if (err && err.name === 'AbortError') return;
     if (thisSeq !== currentFetchSeq) return;
     console.error('Error fetching metricas:', err);
     container.innerHTML = '<div class="card" style="padding:20px; color:var(--danger);">Error al cargar las métricas comerciales.</div>';
@@ -157,6 +166,9 @@ function renderMetricasUI(data, stats = {}) {
   const exitososSum = (data.exitosos_totales || 0) + (data.exitosos_parciales || 0);
   const validosNum = data.total_validos !== undefined ? data.total_validos : (data.total_envios - (data.reemplazadas || 0));
 
+  const activeRango = data.rango || currentRangoMetricas || 'este_mes';
+  currentRangoMetricas = activeRango;
+
   container.innerHTML = `
     <!-- HEADER TITLE & CONTROLS TOOLBAR -->
     <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 16px;">
@@ -169,7 +181,7 @@ function renderMetricasUI(data, stats = {}) {
       <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 10px; z-index: 100; position: relative;">
         
         <!-- CUSTOM DATE RANGE INPUTS -->
-        <div id="customDateRangeBox" style="display: ${currentRangoMetricas === 'custom' ? 'inline-flex' : 'none'}; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
+        <div id="customDateRangeBox" style="display: ${activeRango === 'custom' ? 'inline-flex' : 'none'}; align-items: center; gap: 6px; background: rgba(255,255,255,0.04); padding: 4px 8px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);">
           <input type="date" id="metricasDesde" value="${currentCustomDesde}" style="background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 5px 8px; border-radius: 6px; font-size: 0.82rem;">
           <span style="color: var(--text-secondary); font-size: 0.8rem;">a</span>
           <input type="date" id="metricasHasta" value="${currentCustomHasta}" style="background: rgba(0,0,0,0.3); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.2); padding: 5px 8px; border-radius: 6px; font-size: 0.82rem;">
@@ -177,14 +189,14 @@ function renderMetricasUI(data, stats = {}) {
         </div>
 
         <select id="selectRangoMetricas" onchange="changeRangoMetricas(this.value)" style="background: rgba(15, 23, 42, 0.95); color: var(--text-primary); border: 1px solid rgba(0, 180, 216, 0.4); padding: 8px 14px; border-radius: 8px; font-weight: 700; font-size: 0.88rem; cursor: pointer; position: relative; z-index: 10;">
-          <option value="hoy" ${currentRangoMetricas === 'hoy' ? 'selected' : ''}>☀️ Hoy (Día Actual)</option>
-          <option value="esta_semana" ${currentRangoMetricas === 'esta_semana' ? 'selected' : ''}>📆 Esta Semana</option>
-          <option value="este_mes" ${currentRangoMetricas === 'este_mes' ? 'selected' : ''}>📅 Este Mes</option>
-          <option value="mes_anterior" ${currentRangoMetricas === 'mes_anterior' ? 'selected' : ''}>🗓️ Mes Anterior</option>
-          <option value="30_dias" ${currentRangoMetricas === '30_dias' ? 'selected' : ''}>🗓️ Últimos 30 días</option>
-          <option value="anio_actual" ${currentRangoMetricas === 'anio_actual' ? 'selected' : ''}>📆 Año Actual</option>
-          <option value="custom" ${currentRangoMetricas === 'custom' ? 'selected' : ''}>📅 Rango Personalizado...</option>
-          <option value="todo" ${currentRangoMetricas === 'todo' ? 'selected' : ''}>🌐 Todo el Historial</option>
+          <option value="hoy" ${activeRango === 'hoy' ? 'selected' : ''}>☀️ Hoy (Día Actual)</option>
+          <option value="esta_semana" ${activeRango === 'esta_semana' ? 'selected' : ''}>📆 Esta Semana</option>
+          <option value="este_mes" ${activeRango === 'este_mes' ? 'selected' : ''}>📅 Este Mes</option>
+          <option value="mes_anterior" ${activeRango === 'mes_anterior' ? 'selected' : ''}>🗓️ Mes Anterior</option>
+          <option value="30_dias" ${activeRango === '30_dias' ? 'selected' : ''}>🗓️ Últimos 30 días</option>
+          <option value="anio_actual" ${activeRango === 'anio_actual' ? 'selected' : ''}>📆 Año Actual</option>
+          <option value="custom" ${activeRango === 'custom' ? 'selected' : ''}>📅 Rango Personalizado...</option>
+          <option value="todo" ${activeRango === 'todo' ? 'selected' : ''}>🌐 Todo el Historial</option>
         </select>
 
         <button class="btn btn-ghost" onclick="fetchMetricas()" style="gap:6px; display:flex; align-items:center; font-weight:700; border:1px solid rgba(255,255,255,0.15); padding: 8px 14px; border-radius: 8px;">
