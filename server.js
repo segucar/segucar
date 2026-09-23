@@ -3647,17 +3647,23 @@ app.get('/api/metricas/resumen', (req, res) => {
                 if (g.estado_resultado === 'reemplazada') nreReemp++;
             }
         }
-        const nreValidos = Math.max(1, nreTotal - nreReemp);
-        const agsValidos = Math.max(1, agsTotal - agsReemp);
+        const nreUnicos = Math.max(0, nreTotal - nreReemp);
+        const agsUnicos = Math.max(0, agsTotal - agsReemp);
+        const nreValidos = Math.max(1, nreUnicos);
+        const agsValidos = Math.max(1, agsUnicos);
         const desglose_aseguradora = {
             nre: {
                 total_envios: nreTotal,
+                envios_unicos: nreUnicos,
+                reemplazadas: nreReemp,
                 exitosos: nreExitosos,
                 dinero_recuperado: nreDinero,
                 tasa_conversion: nreTotal > 0 ? parseFloat(((nreExitosos / nreValidos) * 100).toFixed(1)) : 0
             },
             ags: {
                 total_envios: agsTotal,
+                envios_unicos: agsUnicos,
+                reemplazadas: agsReemp,
                 exitosos: agsExitosos,
                 dinero_recuperado: agsDinero,
                 tasa_conversion: agsTotal > 0 ? parseFloat(((agsExitosos / agsValidos) * 100).toFixed(1)) : 0

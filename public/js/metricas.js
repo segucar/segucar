@@ -6,18 +6,23 @@ let currentRangoMetricas = 'este_mes';
 let currentCustomDesde = '';
 let currentCustomHasta = '';
 
-async function fetchMetricas(rango = currentRangoMetricas, desde = currentCustomDesde, hasta = currentCustomHasta) {
-  currentRangoMetricas = rango;
-  currentCustomDesde = desde;
-  currentCustomHasta = hasta;
+async function fetchMetricas(rango, desde, hasta) {
+  if (rango !== undefined && rango !== null && rango !== '') {
+    currentRangoMetricas = rango;
+  } else {
+    const sel = document.getElementById('selectRangoMetricas');
+    if (sel && sel.value) currentRangoMetricas = sel.value;
+  }
+  if (desde !== undefined && desde !== null) currentCustomDesde = desde;
+  if (hasta !== undefined && hasta !== null) currentCustomHasta = hasta;
 
   const container = document.getElementById('viewMetricas');
   if (!container) return;
 
   try {
-    let url = `/api/metricas/resumen?rango=${rango}`;
-    if (rango === 'custom' && desde && hasta) {
-      url += `&desde=${desde}&hasta=${hasta}`;
+    let url = `/api/metricas/resumen?rango=${encodeURIComponent(currentRangoMetricas)}`;
+    if (currentRangoMetricas === 'custom' && currentCustomDesde && currentCustomHasta) {
+      url += `&desde=${encodeURIComponent(currentCustomDesde)}&hasta=${encodeURIComponent(currentCustomHasta)}`;
     }
     const [resMetricas, resStats] = await Promise.all([
       fetch(url),
@@ -33,10 +38,16 @@ async function fetchMetricas(rango = currentRangoMetricas, desde = currentCustom
 }
 
 function changeRangoMetricas(rangoVal) {
+  if (!rangoVal) {
+    const sel = document.getElementById('selectRangoMetricas');
+    if (sel) rangoVal = sel.value;
+  }
+  if (!rangoVal) return;
+  currentRangoMetricas = rangoVal;
+
   if (rangoVal === 'custom') {
     const customBox = document.getElementById('customDateRangeBox');
     if (customBox) customBox.style.display = 'inline-flex';
-    currentRangoMetricas = 'custom';
   } else {
     const customBox = document.getElementById('customDateRangeBox');
     if (customBox) customBox.style.display = 'none';
@@ -53,6 +64,18 @@ function applyCustomDateMetricas() {
   }
   fetchMetricas('custom', d, h);
 }
+
+// Ensure functions are globally accessible
+window.changeRangoMetricas = changeRangoMetricas;
+window.fetchMetricas = fetchMetricas;
+window.applyCustomDateMetricas = applyCustomDateMetricas;
+
+// Delegated change listener for period selector
+document.addEventListener('change', (e) => {
+  if (e.target && e.target.id === 'selectRangoMetricas') {
+    changeRangoMetricas(e.target.value);
+  }
+});
 
 function renderMetricasUI(data, stats = {}) {
   const container = document.getElementById('viewMetricas');
@@ -386,6 +409,8 @@ function renderDesgloseAseguradoras(desglose, cobertura) {
   const ags = desglose.ags || {};
   const nreDinero = (nre.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
   const agsDinero = (ags.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const nreUnicos = nre.envios_unicos !== undefined ? nre.envios_unicos : Math.max(0, (nre.total_envios || 0) - (nre.reemplazadas || 0));
+  const agsUnicos = ags.envios_unicos !== undefined ? ags.envios_unicos : Math.max(0, (ags.total_envios || 0) - (ags.reemplazadas || 0));
 
   return `
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-bottom: 24px;">
@@ -404,8 +429,11 @@ function renderDesgloseAseguradoras(desglose, cobertura) {
             <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-primary);">${nreDinero}</div>
           </div>
           <div>
-            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos / Éxitos</div>
-            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">${nre.total_envios} / <span style="color:#2ed573;">${nre.exitosos}</span></div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos Únicos / Éxitos</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">
+              ${nreUnicos} / <span style="color:#2ed573;">${nre.exitosos || 0}</span>
+              ${nre.total_envios > nreUnicos ? `<span style="font-size:0.72rem; font-weight:400; color:var(--text-secondary); margin-left:4px;" title="Total con reenvíos: ${nre.total_envios}">(${nre.total_envios} tot.)</span>` : ''}
+            </div>
           </div>
         </div>
       </div>
@@ -424,8 +452,11 @@ function renderDesgloseAseguradoras(desglose, cobertura) {
             <div style="font-size: 1.25rem; font-weight: 800; color: var(--text-primary);">${agsDinero}</div>
           </div>
           <div>
-            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos / Éxitos</div>
-            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">${ags.total_envios} / <span style="color:#64b5f6;">${ags.exitosos}</span></div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">Envíos Únicos / Éxitos</div>
+            <div style="font-size: 1.05rem; font-weight: 700; color: var(--text-primary);">
+              ${agsUnicos} / <span style="color:#64b5f6;">${ags.exitosos || 0}</span>
+              ${ags.total_envios > agsUnicos ? `<span style="font-size:0.72rem; font-weight:400; color:var(--text-secondary); margin-left:4px;" title="Total con reenvíos: ${ags.total_envios}">(${ags.total_envios} tot.)</span>` : ''}
+            </div>
           </div>
         </div>
       </div>
