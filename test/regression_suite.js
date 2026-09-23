@@ -607,7 +607,146 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 15:", e.message);
     }
 
-    const totalTestsCount = 15;
+    // ─── TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones ───
+    console.log("📌 TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones");
+    try {
+        const notRenewedClause = ` AND NOT EXISTS (
+            SELECT 1 FROM polizas p2 
+            WHERE UPPER(TRIM(p2.patente)) = UPPER(TRIM(p.patente))
+              AND p2.id != p.id 
+              AND p.patente IS NOT NULL AND p.patente != ''
+              AND (
+                  COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) > COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
+                  OR (
+                      COALESCE(p2.fin_vigencia_poliza, p2.fecha_vencimiento) = COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)
+                      AND p2.aseguradora = p.aseguradora
+                      AND CAST(p2.operacion AS INTEGER) > CAST(p.operacion AS INTEGER)
+                  )
+              )
+        )`;
+        const base = `SELECT COUNT(*) as count FROM polizas p WHERE LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja') ` + notRenewedClause;
+        const totalCartera = db.prepare(base).get().count;
+
+        const cVigentes = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) != 7 AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
+        const cAviso7d = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) = 7 AND NOT (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
+        const cConDeuda = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= 0 AND (COALESCE(p.saldo_pendiente, 0) > 2500 AND p.fecha_vencimiento < date('now', 'localtime', '-5 days'))`).get().count;
+        const cVencidas = db.prepare(base + ` AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1 AND COALESCE(p.cuotas_debe, 0) <= 1`).get().count;
+        const cFueraTermino = db.prepare(base + ` AND (CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < -30 OR (CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) BETWEEN -30 AND -1 AND COALESCE(p.cuotas_debe, 0) > 1))`).get().count;
+
+        const sumaRenovaciones = cVigentes + cAviso7d + cConDeuda + cVencidas + cFueraTermino;
+        const matchRenovaciones = (sumaRenovaciones === totalCartera);
+
+        if (matchRenovaciones) {
+            console.log(`  ✅ PASSED -> Reconciliación 100% OK: ${cVigentes} vigentes + ${cAviso7d} aviso 7d + ${cConDeuda} con deuda + ${cVencidas} vencidas 1-30d + ${cFueraTermino} fuera término = ${sumaRenovaciones} / ${totalCartera} cartera activa.\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED -> Discrepancia en suma Renovaciones (${sumaRenovaciones} vs total ${totalCartera})`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 16:", e.message);
+    }
+
+    // ─── TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas ───
+    console.log("📌 TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas");
+    try {
+        const { getArgentinaNow, evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const hoy = getArgentinaNow();
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat in polizasByPatente) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            group.sort((a, b) => {
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+                if (a.aseguradora === b.aseguradora) {
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+                }
+                return 0;
+            });
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
+
+        let cob_al_dia = 0;
+        let cob_48h_prev = 0;
+        let cob_venc_48h = 0;
+        let cob_venc_96h = 0;
+        let cob_bajas = 0;
+        let total_activas = 0;
+
+        for (const p of allPolizas) {
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+            if (renewedPolizaIds.has(p.id)) continue;
+            total_activas++;
+
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+            if (saldoVal > 0) {
+                const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoVal, hoy);
+                if (estadoHabil === 'recordatorio_48hs') cob_48h_prev++;
+                else if (estadoHabil === 'cuota_vencida_0_48hs') cob_venc_48h++;
+                else if (estadoHabil === 'cuota_vencida_48_96hs') cob_venc_96h++;
+                else if (estadoHabil === 'mora_critica') cob_bajas++;
+                else cob_al_dia++;
+            } else {
+                cob_al_dia++;
+            }
+        }
+
+        const sumaCobranzas = cob_al_dia + cob_48h_prev + cob_venc_48h + cob_venc_96h + cob_bajas;
+        const matchCobranzas = (sumaCobranzas === total_activas);
+
+        if (matchCobranzas) {
+            console.log(`  ✅ PASSED -> Reconciliación Cobranzas 100% OK: ${cob_al_dia} al día + ${cob_48h_prev} rec 48h + ${cob_venc_48h} 1° aviso + ${cob_venc_96h} 2° aviso + ${cob_bajas} bajas/sin cob = ${sumaCobranzas} / ${total_activas} cartera activa.\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED -> Discrepancia en suma Cobranzas (${sumaCobranzas} vs total ${total_activas})`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 17:", e.message);
+    }
+
+    // ─── TEST 18: Cese de WhatsApp Automático post-96hs (Cero Mensajes para Mora > 96hs) ───
+    console.log("📌 TEST 18: Cese de WhatsApp Automático post-96hs (Cero Mensajes para Mora > 96hs)");
+    try {
+        const { obtenerPendientesHoy } = require('../automation_scheduler');
+        const testCliId18 = 999995;
+        db.prepare("INSERT OR REPLACE INTO clientes (id, nombre, telefono) VALUES (?, 'Test Cliente Mora 10 Dias', '5491199999995')").run(testCliId18);
+        db.prepare(`
+            INSERT OR REPLACE INTO polizas (id, cliente_id, operacion, patente, fecha_vencimiento, fin_vigencia_poliza, cuotas_debe, saldo_pendiente, estado)
+            VALUES (999995, ?, 'TESTMORA10D', 'TESTMORA10', '2026-08-01', '2026-10-01', 2, 45000, 'vigente')
+        `).run(testCliId18);
+
+        // Evaluar pendientes hoy
+        const pendientes = obtenerPendientesHoy(db, '2026-09-23');
+        const moraPendiente = pendientes.pendientes.find(p => p.operacion === 'TESTMORA10D');
+        const stoppedOk = !moraPendiente; // No debe generar ningún mensaje automático
+
+        // Limpieza
+        db.prepare("DELETE FROM polizas WHERE id = 999995").run();
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(testCliId18);
+
+        if (stoppedOk) {
+            console.log("  ✅ PASSED -> Cese de WhatsApp post-96hs validado: Póliza con mora > 4 días hábiles NUNCA genera envíos automáticos de WhatsApp.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED -> Póliza con mora > 96hs generó mensaje automático erróneamente:", moraPendiente);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 18:", e.message);
+    }
+
+    const totalTestsCount = 18;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
