@@ -9,6 +9,32 @@ let currentFetchSeq = 0;
 let metricasAbortController = null;
 let _metricasDebounceTimer = null;
 
+// Muestra skeleton en las KPI cards mientras hay un fetch en curso
+function _showMetricasLoadingSkeleton() {
+  const skeletonCard = (label, color) => `
+    <div class="card" style="padding: 18px; border-top: 4px solid ${color}; opacity: 0.65;">
+      <div style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700; letter-spacing: 0.5px;">${label}</div>
+      <div style="font-size: 1.6rem; font-weight: 800; color: ${color}; margin: 10px 0 6px 0;">
+        <span style="display:inline-block; width:180px; height:1.6rem; border-radius:6px; background:linear-gradient(90deg,rgba(255,255,255,0.06) 25%,rgba(255,255,255,0.13) 50%,rgba(255,255,255,0.06) 75%); background-size:400% 100%; animation:_skeletonShimmer 1.2s ease-in-out infinite;"></span>
+      </div>
+      <div style="font-size: 0.75rem; color: var(--text-secondary);">⏳ Actualizando...</div>
+    </div>`;
+  if (!document.getElementById('_metricas_shimmer_style')) {
+    const s = document.createElement('style');
+    s.id = '_metricas_shimmer_style';
+    s.textContent = '@keyframes _skeletonShimmer { 0%{background-position:100% 0} 100%{background-position:-100% 0} }';
+    document.head.appendChild(s);
+  }
+  const kpiGrid = document.querySelector('#viewMetricas .stats-grid');
+  if (kpiGrid) {
+    kpiGrid.innerHTML =
+      skeletonCard('💰 Dinero Recuperado', '#2ed573') +
+      skeletonCard('🎯 Tasa de Conversión', '#00b4d8') +
+      skeletonCard('⏱️ Tiempo Promedio Cobro', '#f39c12') +
+      skeletonCard('📤 Estado de Gestiones', '#9b59b6');
+  }
+}
+
 async function fetchMetricas(rango, desde, hasta) {
   const thisSeq = ++currentFetchSeq;
 
@@ -31,6 +57,9 @@ async function fetchMetricas(rango, desde, hasta) {
   const container = document.getElementById('viewMetricas');
   if (!container) return;
 
+  // Mostrar skeleton inmediato en las KPI cards
+  _showMetricasLoadingSkeleton();
+
   try {
     let url = `/api/metricas/resumen?rango=${encodeURIComponent(currentRangoMetricas)}`;
     if (currentRangoMetricas === 'custom' && currentCustomDesde && currentCustomHasta) {
@@ -48,6 +77,13 @@ async function fetchMetricas(rango, desde, hasta) {
 
     const data = await resMetricas.json();
     const stats = await resStats.json();
+
+    // Validación de rango: descartar respuestas que llegaron tarde para un período distinto al actual
+    if (data.rango && data.rango !== currentRangoMetricas) {
+      console.warn(`[Métricas] Respuesta obsoleta descartada: esperado="${currentRangoMetricas}", recibido="${data.rango}"`);
+      return;
+    }
+
     renderMetricasUI(data, stats);
   } catch (err) {
     if (err && err.name === 'AbortError') return;
@@ -56,6 +92,7 @@ async function fetchMetricas(rango, desde, hasta) {
     container.innerHTML = '<div class="card" style="padding:20px; color:var(--danger);">Error al cargar las métricas comerciales.</div>';
   }
 }
+
 
 function changeRangoMetricas(rangoVal) {
   if (!rangoVal) {
