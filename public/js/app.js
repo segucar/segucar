@@ -2189,7 +2189,7 @@ async function triggerSmartWhatsApp(clientId, operacion) {
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.nombre_meta,
+          tipo_plantilla: template.tipo,
           poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
           poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
         })
@@ -2199,19 +2199,6 @@ async function triggerSmartWhatsApp(clientId, operacion) {
       if (dataSend.ok) {
         showToast(`✅ Aviso de WhatsApp enviado exitosamente a ${client.nombre}`, 'success');
         markWhatsAppAsSent(clientId, operacion);
-
-        // Registrar gestión SOLO si el envío fue exitoso
-        fetch('/api/contactos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cliente_id: clientId,
-            poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
-            tipo: template.tipo,
-            medio: 'whatsapp',
-            mensaje: msg
-          })
-        }).catch(err => console.error('Error logging contact:', err));
 
         // Abrir WhatsApp Web en el chat del cliente para ver la conversación
         window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
@@ -2324,7 +2311,7 @@ async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc
           cliente_id: clientId,
           telefono: phone,
           mensaje: msg,
-          tipo_plantilla: template.nombre_meta,
+          tipo_plantilla: template.tipo,
           poliza_operacion: resolvedPoliza ? (resolvedPoliza.operacion || '') : '',
           poliza_patente: resolvedPoliza ? (resolvedPoliza.patente || '') : ''
         })
@@ -2334,18 +2321,6 @@ async function sendWhatsApp(clientId, templateId, operacion, vehiculo, fechaVenc
       if (dataSend.ok) {
         showToast(`✅ Aviso enviado exitosamente por WhatsApp API`, 'success');
         markWhatsAppAsSent(clientId, operacion);
-
-        fetch('/api/contactos', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            cliente_id: clientId,
-            poliza_id: resolvedPoliza ? resolvedPoliza.id : null,
-            tipo: template.tipo,
-            medio: 'whatsapp',
-            mensaje: msg
-          })
-        }).catch(err => console.error('Error logging contact:', err));
 
         window.open(`https://web.whatsapp.com/send?phone=${phone}`, '_blank');
         return;

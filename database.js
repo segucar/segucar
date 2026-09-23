@@ -890,6 +890,84 @@ db.inicializarSiniestros = () => {
     }
 };
 
+db.unificarPlantillasMetricas = () => {
+    try {
+        db.transaction(() => {
+            // 1. Eliminar registros duplicados fantasmas generados por el doble envío (/api/whatsapp/enviar + /api/contactos)
+            // Se identifica cuando un registro fue marcado como 'reemplazada' casi en el mismo segundo (<= 60s)
+            // que otro registro para el mismo cliente con ID superior.
+            db.exec(`
+                DELETE FROM historial_gestiones_whatsapp
+                WHERE id IN (
+                    SELECT h1.id
+                    FROM historial_gestiones_whatsapp h1
+                    JOIN historial_gestiones_whatsapp h2 
+                      ON h1.cliente_id = h2.cliente_id 
+                     AND h1.id != h2.id
+                     AND h1.estado_resultado = 'reemplazada'
+                     AND h2.id > h1.id
+                     AND abs(strftime('%s', h1.fecha_envio) - strftime('%s', h2.fecha_envio)) <= 60
+                    WHERE h1.tipo_plantilla IN (
+                        'recordatorio_preventivo_48hs', 
+                        'primer_aviso_vencida_48hs', 
+                        'cuota_segundo_aviso_vencida_hace_96_hs', 
+                        'aviso_renovacion_7_dias', 
+                        'aviso_renovacion_poliza_vencida', 
+                        'aviso_renovacion_poliza_vencida_v2'
+                    )
+                );
+            `);
+
+            // 2. Unificar nombres técnicos de plantillas hacia las claves canónicas oficiales
+            db.exec(`
+                UPDATE historial_gestiones_whatsapp
+                SET tipo_plantilla = 'recordatorio_48hs'
+                WHERE tipo_plantilla = 'recordatorio_preventivo_48hs';
+
+                UPDATE historial_gestiones_whatsapp
+                SET tipo_plantilla = 'primer_aviso'
+                WHERE tipo_plantilla = 'primer_aviso_vencida_48hs';
+
+                UPDATE historial_gestiones_whatsapp
+                SET tipo_plantilla = 'segundo_aviso'
+                WHERE tipo_plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
+
+                UPDATE historial_gestiones_whatsapp
+                SET tipo_plantilla = 'renovacion_7_dias'
+                WHERE tipo_plantilla IN ('aviso_renovacion_7_dias', 'por_vencer', 'aviso_renovacion');
+
+                UPDATE historial_gestiones_whatsapp
+                SET tipo_plantilla = 'poliza_vencida'
+                WHERE tipo_plantilla IN ('aviso_renovacion_poliza_vencida', 'aviso_renovacion_poliza_vencida_v2');
+
+                -- También en tabla contactos
+                UPDATE contactos
+                SET tipo = 'recordatorio_48hs'
+                WHERE tipo = 'recordatorio_preventivo_48hs';
+
+                UPDATE contactos
+                SET tipo = 'primer_aviso'
+                WHERE tipo = 'primer_aviso_vencida_48hs';
+
+                UPDATE contactos
+                SET tipo = 'segundo_aviso'
+                WHERE tipo = 'cuota_segundo_aviso_vencida_hace_96_hs';
+
+                UPDATE contactos
+                SET tipo = 'renovacion_7_dias'
+                WHERE tipo IN ('aviso_renovacion_7_dias', 'por_vencer', 'aviso_renovacion');
+
+                UPDATE contactos
+                SET tipo = 'poliza_vencida'
+                WHERE tipo IN ('aviso_renovacion_poliza_vencida', 'aviso_renovacion_poliza_vencida_v2');
+            `);
+        })();
+        console.log('✅ Unificación de plantillas e historial de gestiones WhatsApp completada.');
+    } catch (e) {
+        console.error('Error unificando plantillas en métricas:', e);
+    }
+};
+
 // Ejecutar al iniciar para mantener integridad
 db.purgarRegistrosDePrueba();
 db.sincronizarSaldosCuotasHistorial();
@@ -898,6 +976,7 @@ db.sincronizarPolizasSaldadasNRE();
 db.anularPolizasSuperadas();
 db.inicializarCuotasAdmin();
 db.inicializarSiniestros();
+db.unificarPlantillasMetricas();
 
 module.exports = db;
 

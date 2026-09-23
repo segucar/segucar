@@ -101,12 +101,18 @@ function renderMetricasUI(data, stats = {}) {
 
   const plantillaLabels = {
     'recordatorio_48hs': '🟡 Recordatorio 48 hs (Preventivo)',
+    'recordatorio_preventivo_48hs': '🟡 Recordatorio 48 hs (Preventivo)',
     'primer_aviso': '🟠 Primer Aviso (Cuota Vencida)',
+    'primer_aviso_vencida_48hs': '🟠 Primer Aviso (Cuota Vencida)',
     'segundo_aviso': '🔴 Segundo Aviso (Cuota Vencida)',
+    'cuota_segundo_aviso_vencida_hace_96_hs': '🔴 Segundo Aviso (Cuota Vencida)',
     'mora_critica': '🚨 Mora Crítica (+96 hs)',
     'renovacion_7_dias': '📄 Aviso Renovación (Vence en 7 Días)',
+    'aviso_renovacion_7_dias': '📄 Aviso Renovación (Vence en 7 Días)',
     'renovacion_deuda': '📄 Póliza: Renovación + Deuda Pendiente',
     'poliza_vencida': '⚫ Aviso Póliza Vencida',
+    'aviso_renovacion_poliza_vencida': '⚫ Aviso Póliza Vencida',
+    'aviso_renovacion_poliza_vencida_v2': '⚫ Aviso Póliza Vencida',
     'recuperacion_historica': '🔄 Propuesta Reactivación Cartera'
   };
 

@@ -2941,6 +2941,20 @@ app.post('/api/whatsapp/preflight', (req, res) => {
     }
 });
 
+function mapToCanonicalTemplateType(raw) {
+    if (!raw) return 'recordatorio_48hs';
+    const s = String(raw).trim().toLowerCase();
+    if (s === 'recordatorio_preventivo_48hs' || s === 'recordatorio_48hs') return 'recordatorio_48hs';
+    if (s === 'primer_aviso_vencida_48hs' || s === 'primer_aviso') return 'primer_aviso';
+    if (s === 'cuota_segundo_aviso_vencida_hace_96_hs' || s === 'segundo_aviso') return 'segundo_aviso';
+    if (s === 'aviso_renovacion_7_dias' || s === 'renovacion_7_dias' || s === 'por_vencer' || s === 'aviso_renovacion') return 'renovacion_7_dias';
+    if (s.includes('poliza_vencida') || s.includes('renovacion_poliza_vencida')) return 'poliza_vencida';
+    if (s === 'recuperacion_historica') return 'recuperacion_historica';
+    if (s === 'renovacion_deuda') return 'renovacion_deuda';
+    if (s === 'mora_critica') return 'mora_critica';
+    return s;
+}
+
 app.post('/api/whatsapp/enviar', async (req, res) => {
     try {
         let { cliente_id, telefono, mensaje, tipo_plantilla, parametros, poliza_operacion, poliza_patente, origen: explicitOrigen = 'usuario_manual' } = req.body;
@@ -3059,7 +3073,7 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
                     ORDER BY id DESC LIMIT 1
                 `).get(validClienteId) : null;
                 const poliza_id = poliza ? poliza.id : null;
-                const plantillaTipo = tipo_plantilla || 'recordatorio_48hs';
+                const plantillaTipo = mapToCanonicalTemplateType(tipo_plantilla);
 
                 db.prepare('INSERT INTO contactos (cliente_id, poliza_id, tipo, medio, mensaje) VALUES (?, ?, ?, ?, ?)').run(validClienteId, poliza_id, plantillaTipo, 'whatsapp', mensaje || '');
 
@@ -3319,7 +3333,7 @@ app.post('/api/contactos', (req, res) => {
                 const saldoRes = db.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?").get(cliente_id);
                 saldoAlEnviar = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
             }
-            const plantillaTipo = tipo || 'recordatorio_48hs';
+            const plantillaTipo = mapToCanonicalTemplateType(tipo);
 
             // CONTROL DE RE-ENVÍOS (Atribución Única):
             // Si el cliente/póliza ya tenía un envío 'pendiente', marcar el previo como 'reemplazada'
@@ -3457,7 +3471,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         }
 
 
-        const gestiones = gestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
+        const gestiones = gestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(mapToCanonicalTemplateType(g.tipo_plantilla)));
 
         const total_envios = gestiones.length;
         const reemplazadas = gestiones.filter(g => g.estado_resultado === 'reemplazada').length;
@@ -3472,7 +3486,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         const tasa_conversion_global = total_validos > 0 ? ((total_exitosos / total_validos_calc) * 100).toFixed(1) : '0';
 
         function calcularMontoRecuperadoGestion(g) {
-            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(g.tipo_plantilla);
+            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(mapToCanonicalTemplateType(g.tipo_plantilla));
             const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
 
             if (isRenovacion) {
@@ -3536,8 +3550,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         }
 
         for (const g of gestiones) {
-            let t = g.tipo_plantilla || 'desconocido';
-            if (t === 'por_vencer' || t === 'aviso_renovacion') t = 'renovacion_7_dias';
+            let t = mapToCanonicalTemplateType(g.tipo_plantilla);
 
             if (!plantillasMap[t]) {
                 plantillasMap[t] = {
@@ -3589,7 +3602,7 @@ app.get('/api/metricas/resumen', (req, res) => {
         }
 
 
-        const gestionesPrev = gestionesPrevRaw.filter(gp => !['mora_critica', 'renovacion_deuda'].includes(gp.tipo_plantilla));
+        const gestionesPrev = gestionesPrevRaw.filter(gp => !['mora_critica', 'renovacion_deuda'].includes(mapToCanonicalTemplateType(gp.tipo_plantilla)));
 
         let dineroPrev = 0;
         let exitososPrev = 0;
@@ -3731,7 +3744,7 @@ app.get('/api/metricas/resumen', (req, res) => {
             const weStr = toSqliteDateStr(wEnd);
 
             const wGestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(wsStr, weStr);
-            const wGestiones = wGestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(g.tipo_plantilla));
+            const wGestiones = wGestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(mapToCanonicalTemplateType(g.tipo_plantilla)));
 
             let wDinero = 0;
             let wExitosos = 0;
