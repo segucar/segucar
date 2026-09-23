@@ -890,9 +890,133 @@
     </div>
   </div>
 
-  <script src="js/config.js?v=9.3"></script>
-  <script src="js/stateManager.js?v=9.3"></script>
-  <script src="js/metricas.js?v=9.3"></script>
-  <script src="js/app.js?v=9.3"></script>
+  <!-- 🚀 MODAL: CAMPAÑA UPSELL COBERTURA RC (AUTOS Y PICK UPS 100% AL DÍA) -->
+  <div class="modal-overlay" id="modalCampanaUpsell" style="display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.88); backdrop-filter: blur(8px); z-index: 10005; position: fixed; inset: 0;">
+    <div class="modal-content" style="max-width: 980px; width: 95%; max-height: 92vh; overflow-y: auto; background: #0a192f; border: 1px solid #00b4d8; border-radius: 16px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.7); display: flex; flex-direction: column; gap: 16px;">
+      
+      <!-- HEADER -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 14px;">
+        <div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px;">
+            <span>🚀</span> Campaña de Upsell Comercial — Autos y Pick Ups RC
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 3px;">
+            Segmentación de Cartera Activa para migración a Terceros Completo (Plan C). Motos y Camiones 100% excluidos.
+          </div>
+        </div>
+        <button class="btn-close" onclick="closeModalCampanaUpsell()" style="background: none; border: none; color: #a0aec0; font-size: 1.6rem; cursor: pointer;">&times;</button>
+      </div>
+
+      <!-- BANNER DE BLINDAJE Y SEGURIDAD -->
+      <div style="background: rgba(0,180,216,0.08); border: 1px solid rgba(0,180,216,0.3); border-radius: 10px; padding: 12px 14px; font-size: 0.78rem; color: #e2e8f0; line-height: 1.45;">
+        <div style="display: flex; align-items: center; gap: 6px; font-weight: 800; color: var(--accent-cyan-light); margin-bottom: 4px;">
+          <span>🛡️</span> Blindajes Comerciales y Protección Anti-Spam de Meta Activos:
+        </div>
+        <div>
+          • <strong>Regla Saldo $0 Estricto:</strong> Solo candidatos 100% al día sin centavos de deuda ni cuotas adeudadas.<br>
+          • <strong>Sin Roces de Cobranza:</strong> Excluidos automáticamente quienes recibieron avisos de pago en los últimos 15 días.<br>
+          • <strong>Capping Diario (Micro-Lote de 50):</strong> Límite seguro para proteger el Quality Rating del número de WhatsApp de SEGUCar.<br>
+          • <strong>Modo Simulación (Dry-Run):</strong> Valida toda la tubería en memoria sin emitir mensajes reales ni tocar las métricas en la base.
+        </div>
+      </div>
+
+      <!-- KPI CARDS SUMMARY -->
+      <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px;">
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
+          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700;">Candidatos al Día</div>
+          <div style="font-size: 1.35rem; font-weight: 800; color: #00b4d8; margin-top: 4px;" id="kpiUpsellTotal">0</div>
+          <div style="font-size: 0.68rem; color: var(--text-secondary);" id="kpiUpsellDesglose">0 Autos • 0 Pick Ups</div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
+          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700;">Micro-Lote Hoy</div>
+          <div style="font-size: 1.35rem; font-weight: 800; color: #2ed573; margin-top: 4px;" id="kpiUpsellLote">0 / 50</div>
+          <div style="font-size: 0.68rem; color: #2ed573;">Aptos para contacto</div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
+          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700;">Omitidos / En Espera</div>
+          <div style="font-size: 1.35rem; font-weight: 800; color: #f39c12; margin-top: 4px;" id="kpiUpsellSilenciados">0</div>
+          <div style="font-size: 0.68rem; color: var(--text-secondary);">Silenciados o recientes</div>
+        </div>
+
+        <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 10px; padding: 12px; text-align: center;">
+          <div style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase; font-weight: 700;">Estado de Campaña</div>
+          <div style="font-size: 0.88rem; font-weight: 800; color: #2ed573; margin-top: 8px;">🟢 Simulación Activa</div>
+          <div style="font-size: 0.68rem; color: var(--text-secondary);">Testing seguro sin riesgo</div>
+        </div>
+      </div>
+
+      <!-- BARRA DE FILTROS Y ACCIÓN DE EXPORTACIÓN -->
+      <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; background: rgba(255,255,255,0.02); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.75rem; color: var(--text-secondary); font-weight: 700;">Vehículo:</span>
+          <button id="btnFilterUpsell_todos" onclick="filtrarAudienciaUpsell('todos')" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 700; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: #00b4d8; color: #0a192f; cursor: pointer;">🚗 Todos</button>
+          <button id="btnFilterUpsell_auto" onclick="filtrarAudienciaUpsell('auto')" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 700; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: var(--text-secondary); cursor: pointer;">🚗 Autos</button>
+          <button id="btnFilterUpsell_pickup" onclick="filtrarAudienciaUpsell('pickup')" style="padding: 4px 10px; font-size: 0.74rem; font-weight: 700; border-radius: 6px; border: 1px solid rgba(255,255,255,0.15); background: rgba(255,255,255,0.06); color: var(--text-secondary); cursor: pointer;">🛻 Pick Ups</button>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span id="badgeUpsellSeleccionados" style="font-size: 0.75rem; color: #00b4d8; font-weight: 700;">0 seleccionados</span>
+          <button onclick="exportarAudienciaUpsellCSV()" class="btn btn-sm" style="display: inline-flex; align-items: center; gap: 6px; background: rgba(46,213,115,0.15); border: 1px solid rgba(46,213,115,0.4); color: #2ed573; font-weight: 700; border-radius: 8px; padding: 6px 12px; cursor: pointer;">
+            <span>📥</span> Exportar CSV / Excel
+          </button>
+        </div>
+      </div>
+
+      <!-- TABLA DE CANDIDATOS -->
+      <div style="max-height: 240px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.08); border-radius: 10px;">
+        <table style="width: 100%; border-collapse: collapse; text-align: left;">
+          <thead style="background: rgba(15, 23, 42, 0.95); position: sticky; top: 0; z-index: 2; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <tr style="font-size: 0.72rem; color: var(--text-secondary); text-transform: uppercase;">
+              <th style="padding: 10px 12px; width: 36px; text-align: center;">
+                <input type="checkbox" id="chkUpsellMaster" checked onchange="toggleSelectAllUpsell()" style="cursor: pointer;">
+              </th>
+              <th style="padding: 10px 12px;">Cliente / WhatsApp</th>
+              <th style="padding: 10px 12px;">Vehículo / Patente</th>
+              <th style="padding: 10px 12px; text-align: center;">Cobertura Actual</th>
+              <th style="padding: 10px 12px; text-align: center;">Saldo</th>
+              <th style="padding: 10px 12px; text-align: right;">Aptitud</th>
+            </tr>
+          </thead>
+          <tbody id="tbodyUpsellCandidatos">
+            <tr>
+              <td colspan="6" style="text-align: center; padding: 30px; color: var(--text-secondary);">Cargando candidatos...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- PREVIEW DE MENSAJE DE WHATSAPP -->
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 14px;">
+        <div style="font-size: 0.76rem; font-weight: 800; text-transform: uppercase; color: #25d366; letter-spacing: 0.5px; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;">
+          <span>💬</span> Vista Previa del Mensaje WhatsApp (Plantilla Oficial Comercial de Upsell)
+        </div>
+        <div id="previewMensajeUpsell" style="background: #0b141a; border-left: 4px solid #25d366; border-radius: 8px; padding: 12px 14px; font-size: 0.82rem; color: #e9edef; line-height: 1.45; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;">
+          Hola, ¿cómo estás? Te escribimos de SEGUCar...
+        </div>
+      </div>
+
+      <!-- FEEDBACK DE PROGRESO DE SIMULACIÓN -->
+      <div id="progresoDespachoUpsell" style="display: none;"></div>
+
+      <!-- FOOTER -->
+      <div style="display: flex; justify-content: space-between; align-items: center; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px; margin-top: 4px;">
+        <button class="btn btn-ghost" onclick="closeModalCampanaUpsell()" style="padding: 8px 16px;">Cerrar</button>
+
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <button id="btnEjecutarDespachoUpsell" onclick="ejecutarDespachoUpsell()" class="btn btn-primary" style="background: #00b4d8; border: none; font-weight: 800; padding: 9px 20px; border-radius: 8px; display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <span>🚀</span> Ejecutar Simulación (Micro-Lote)
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="js/config.js?v=9.4"></script>
+  <script src="js/stateManager.js?v=9.4"></script>
+  <script src="js/metricas.js?v=9.4"></script>
+  <script src="js/app.js?v=9.4"></script>
 </body>
 </html>

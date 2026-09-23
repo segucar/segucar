@@ -1179,6 +1179,11 @@ function renderDonutsCoberturaVehiculos(coberturaData) {
         </div>
 
         ${insightHtml}
+        ${item.canUpsell ? `
+          <button class="btn btn-sm" onclick="abrirModalCampanaUpsell('${item.filter}')" style="margin-top: 10px; width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; background: rgba(0, 180, 216, 0.12); border: 1px solid rgba(0, 180, 216, 0.35); color: #00b4d8; font-weight: 700; border-radius: 8px; padding: 7px 12px; cursor: pointer; transition: all 0.2s ease;">
+            <span>🚀</span> Audiencia Upsell RC (${rc.toLocaleString('es-AR')})
+          </button>
+        ` : ''}
       </div>
     `;
   }).join('');
@@ -1194,9 +1199,14 @@ function renderDonutsCoberturaVehiculos(coberturaData) {
             Diagnóstico comercial visual de la cartera activa: identifica clientes con cobertura básica para migración a pólizas de mayor valor.
           </div>
         </div>
-        <span style="font-size: 0.72rem; color: var(--accent-cyan-light); background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 700;">
-          5 Coberturas Monitoreadas (RC • Plan B • Plan C • Otros/TR • Sync)
-        </span>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="font-size: 0.72rem; color: var(--accent-cyan-light); background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 700;">
+            5 Coberturas Monitoreadas (RC • Plan B • Plan C • Otros/TR • Sync)
+          </span>
+          <button class="btn btn-sm" onclick="abrirModalCampanaUpsell('todos')" style="padding: 4px 12px; font-size: 0.76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; background: #00b4d8; border: none; border-radius: 20px; color: #0a192f; cursor: pointer; transition: all 0.2s ease;">
+            <span>🚀</span> Campaña Upsell RC
+          </button>
+        </div>
       </div>
 
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px;">
@@ -1411,5 +1421,321 @@ function renderScatterEficienciaPlantillas(plantillasPerformance) {
     </div>
   `;
 }
+
+// ─── LÓGICA DE AUDIENCIA Y MODAL DE CAMPAÑA UPSELL RC ───────────────────────
+
+window._upsellState = {
+  filtroTipo: 'todos',
+  candidatos: [],
+  resumen: {},
+  seleccionados: new Set(),
+  modoDryRun: true
+};
+
+window.abrirModalCampanaUpsell = async function(filtroTipo = 'todos') {
+  window._upsellState.filtroTipo = filtroTipo === 'Pick Up' ? 'pickup' : (filtroTipo === 'Auto' ? 'auto' : 'todos');
+  const modal = document.getElementById('modalCampanaUpsell');
+  if (!modal) return;
+
+  modal.style.display = 'flex';
+  const tbody = document.getElementById('tbodyUpsellCandidatos');
+  if (tbody) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 30px; color: var(--text-secondary);"><span class="spinner-border spinner-border-sm"></span> Cargando y auditando candidatos al día...</td></tr>`;
+  }
+
+  await cargarAudienciaUpsell();
+};
+
+window.closeModalCampanaUpsell = function() {
+  const modal = document.getElementById('modalCampanaUpsell');
+  if (modal) modal.style.display = 'none';
+};
+
+window.filtrarAudienciaUpsell = async function(tipo) {
+  window._upsellState.filtroTipo = tipo;
+  // Actualizar botones de filtro
+  ['todos', 'auto', 'pickup'].forEach(t => {
+    const btn = document.getElementById(`btnFilterUpsell_${t}`);
+    if (btn) {
+      if (t === tipo) {
+        btn.style.background = '#00b4d8';
+        btn.style.color = '#0a192f';
+      } else {
+        btn.style.background = 'rgba(255,255,255,0.06)';
+        btn.style.color = 'var(--text-secondary)';
+      }
+    }
+  });
+  await cargarAudienciaUpsell();
+};
+
+async function cargarAudienciaUpsell() {
+  try {
+    const tipo = window._upsellState.filtroTipo || 'todos';
+    const res = await fetch(`/api/metricas/audiencia-upsell?tipo=${tipo}&limite=50`);
+    const data = await res.json();
+
+    if (!data.ok) {
+      throw new Error(data.error || 'Error cargando candidatos');
+    }
+
+    window._upsellState.candidatos = data.candidatos || [];
+    window._upsellState.resumen = data.resumen || {};
+    window._upsellState.seleccionados = new Set();
+
+    // Seleccionar por defecto los aptos del micro-lote recomendado
+    window._upsellState.candidatos.forEach(c => {
+      if (c.apto_envio) {
+        window._upsellState.seleccionados.add(c.id);
+      }
+    });
+
+    renderResumenUpsell(data.resumen);
+    renderTablaUpsell();
+    actualizarPreviewMensajeUpsell();
+
+  } catch (err) {
+    console.error('[Upsell UI Error]', err);
+    const tbody = document.getElementById('tbodyUpsellCandidatos');
+    if (tbody) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: #ff7675;">❌ Error: ${err.message}</td></tr>`;
+    }
+  }
+}
+
+function renderResumenUpsell(resumen = {}) {
+  const tot = resumen.total_candidatos_al_dia || 0;
+  const autos = resumen.autos_candidatos || 0;
+  const pickups = resumen.pickups_candidatos || 0;
+  const aptosLote = resumen.aptos_en_lote || 0;
+  const silenciados = (resumen.silenciados_humano || 0) + (resumen.excluidos_cobranza_reciente || 0);
+
+  const elTot = document.getElementById('kpiUpsellTotal');
+  if (elTot) elTot.innerText = tot.toLocaleString('es-AR');
+
+  const elSub = document.getElementById('kpiUpsellDesglose');
+  if (elSub) elSub.innerText = `${autos} Autos • ${pickups} Pick Ups`;
+
+  const elLote = document.getElementById('kpiUpsellLote');
+  if (elLote) elLote.innerText = `${aptosLote} / 50`;
+
+  const elSil = document.getElementById('kpiUpsellSilenciados');
+  if (elSil) elSil.innerText = silenciados.toLocaleString('es-AR');
+}
+
+function renderTablaUpsell() {
+  const tbody = document.getElementById('tbodyUpsellCandidatos');
+  if (!tbody) return;
+
+  const candidatos = window._upsellState.candidatos || [];
+  if (candidatos.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center; padding: 24px; color: var(--text-secondary);">No se encontraron pólizas al día con cobertura básica RC para este filtro.</td></tr>`;
+    return;
+  }
+
+  tbody.innerHTML = candidatos.map(c => {
+    const isChecked = window._upsellState.seleccionados.has(c.id);
+    const badgeApto = c.apto_envio
+      ? `<span class="badge" style="background: rgba(46,213,115,0.18); color: #2ed573; border: 1px solid rgba(46,213,115,0.4); font-size: 0.7rem; font-weight: 700;">🟢 Apto Envío</span>`
+      : `<span class="badge" style="background: rgba(243,156,18,0.18); color: #f39c12; border: 1px solid rgba(243,156,18,0.4); font-size: 0.7rem;" title="${c.motivo_inaptitud || 'No disponible'}">🟡 ${c.motivo_inaptitud || 'Omitido'}</span>`;
+
+    return `
+      <tr style="border-bottom: 1px solid rgba(255,255,255,0.05); font-size: 0.8rem; background: ${isChecked ? 'rgba(0,180,216,0.04)' : 'transparent'};">
+        <td style="padding: 10px 12px; text-align: center;">
+          <input type="checkbox" onchange="toggleSelectUpsell(${c.id})" ${isChecked ? 'checked' : ''} style="cursor: pointer;">
+        </td>
+        <td style="padding: 10px 12px;">
+          <div style="font-weight: 700; color: #fff;">${c.cliente_nombre}</div>
+          <div style="font-size: 0.72rem; color: var(--text-secondary); font-family: monospace;">${c.cliente_telefono ? '+'+c.cliente_telefono : '<span style="color:#ff7675;">Sin teléfono</span>'}</div>
+        </td>
+        <td style="padding: 10px 12px;">
+          <div style="font-weight: 600; color: var(--text-primary);">${c.vehiculo || c.tipo_vehiculo}</div>
+          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); font-weight: 700;">${c.patente || 'S/D'} • Op. ${c.operacion}</div>
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <span style="font-size: 0.75rem; background: rgba(72,202,228,0.15); color: #48cae4; border: 1px solid rgba(72,202,228,0.3); padding: 2px 7px; border-radius: 4px; font-weight: 700;">${c.cobertura || 'RC'}</span>
+          <div style="font-size: 0.68rem; color: var(--text-secondary); margin-top: 2px;">${c.aseguradora}</div>
+        </td>
+        <td style="padding: 10px 12px; text-align: center;">
+          <span style="color: #2ed573; font-weight: 700; font-size: 0.75rem;">$0 (Al Día)</span>
+        </td>
+        <td style="padding: 10px 12px; text-align: right;">
+          ${badgeApto}
+        </td>
+      </tr>
+    `;
+  }).join('');
+
+  actualizarContadorSeleccionados();
+}
+
+window.toggleSelectAllUpsell = function() {
+  const master = document.getElementById('chkUpsellMaster');
+  const checked = master ? master.checked : false;
+
+  window._upsellState.seleccionados.clear();
+  if (checked) {
+    (window._upsellState.candidatos || []).forEach(c => {
+      window._upsellState.seleccionados.add(c.id);
+    });
+  }
+  renderTablaUpsell();
+  actualizarPreviewMensajeUpsell();
+};
+
+window.toggleSelectUpsell = function(id) {
+  if (window._upsellState.seleccionados.has(id)) {
+    window._upsellState.seleccionados.delete(id);
+  } else {
+    window._upsellState.seleccionados.add(id);
+  }
+  actualizarContadorSeleccionados();
+  actualizarPreviewMensajeUpsell();
+};
+
+function actualizarContadorSeleccionados() {
+  const count = window._upsellState.seleccionados.size;
+  const badge = document.getElementById('badgeUpsellSeleccionados');
+  if (badge) badge.innerText = `${count} seleccionados`;
+
+  const btnDespacho = document.getElementById('btnEjecutarDespachoUpsell');
+  if (btnDespacho) {
+    btnDespacho.innerText = `🚀 Ejecutar Simulación (${count})`;
+    btnDespacho.disabled = count === 0;
+  }
+}
+
+window.actualizarPreviewMensajeUpsell = function() {
+  const previewBox = document.getElementById('previewMensajeUpsell');
+  if (!previewBox) return;
+
+  const candidatos = window._upsellState.candidatos || [];
+  // Tomar el primer cliente seleccionado o el primero de la lista
+  const primerId = Array.from(window._upsellState.seleccionados)[0];
+  const c = candidatos.find(item => item.id === primerId) || candidatos[0];
+
+  if (!c) {
+    previewBox.innerHTML = `<em>Seleccioná un cliente para ver la vista previa personalizada...</em>`;
+    return;
+  }
+
+  const nombre = c.cliente_nombre ? c.cliente_nombre.split(' ')[0] : 'Cliente';
+  const veh = c.vehiculo || (c.tipo_vehiculo + ' ' + (c.patente || ''));
+  const pat = c.patente || 'S/D';
+
+  const texto = `Hola ${nombre}, ¿cómo estás? Te escribimos de SEGUCar respecto a tu póliza de ${veh} (Patente ${pat}). Notamos que contás con cobertura básica de Responsabilidad Civil. Hoy tenemos una bonificación especial para mejorar tu plan a Terceros Completo (Plan C), sumando cobertura ante robo, incendio y destrucción total con la mejor tarifa. ¿Te gustaría que te coticemos la diferencia sin compromiso?`;
+
+  previewBox.innerText = texto;
+};
+
+window.exportarAudienciaUpsellCSV = function() {
+  const candidatos = window._upsellState.candidatos || [];
+  if (candidatos.length === 0) {
+    alert('No hay candidatos en la lista para exportar.');
+    return;
+  }
+
+  const headers = ['ID_Poliza', 'Cliente', 'Telefono', 'Tipo_Vehiculo', 'Vehiculo', 'Patente', 'Operacion', 'Aseguradora', 'Cobertura_Actual', 'Saldo_Pendiente', 'Estado_Aptitud', 'Motivo_Detalle'];
+  
+  const rows = candidatos.map(c => [
+    c.id,
+    `"${(c.cliente_nombre || '').replace(/"/g, '""')}"`,
+    `"${c.cliente_telefono || ''}"`,
+    `"${c.tipo_vehiculo || ''}"`,
+    `"${(c.vehiculo || '').replace(/"/g, '""')}"`,
+    `"${c.patente || ''}"`,
+    `"${c.operacion || ''}"`,
+    `"${c.aseguradora || ''}"`,
+    `"${c.cobertura || ''}"`,
+    `0`,
+    `"${c.apto_envio ? 'APTO_ENVIO' : 'OMITIDO'}"`,
+    `"${(c.motivo_inaptitud || 'OK').replace(/"/g, '""')}"`
+  ]);
+
+  const csvContent = '\uFEFF' + [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const hoyFmt = new Date().toISOString().slice(0, 10);
+  a.download = `audiencia_upsell_segucar_${hoyFmt}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+window.ejecutarDespachoUpsell = async function() {
+  const seleccionadosIds = Array.from(window._upsellState.seleccionados);
+  if (seleccionadosIds.length === 0) {
+    alert('Seleccione al menos un cliente para la simulación.');
+    return;
+  }
+
+  if (seleccionadosIds.length > 50) {
+    alert('Por seguridad operativa, el tamaño máximo de micro-lote diario es de 50 clientes.');
+    return;
+  }
+
+  const candidatos = (window._upsellState.candidatos || []).filter(c => seleccionadosIds.includes(c.id));
+  const btn = document.getElementById('btnEjecutarDespachoUpsell');
+  const progresoDiv = document.getElementById('progresoDespachoUpsell');
+
+  if (btn) btn.disabled = true;
+  if (progresoDiv) {
+    progresoDiv.style.display = 'block';
+    progresoDiv.innerHTML = `
+      <div style="background: rgba(0,180,216,0.1); border: 1px solid rgba(0,180,216,0.3); border-radius: 8px; padding: 12px; margin-top: 14px; font-size: 0.82rem; color: #48cae4;">
+        ⏳ Ejecutando simulación de despacho seguro (Preflight en memoria para ${candidatos.length} pólizas)...
+      </div>
+    `;
+  }
+
+  try {
+    const res = await fetch('/api/metricas/despacho-upsell', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        polizas: candidatos,
+        dry_run: true // 🛡️ Siempre Simulación (Dry-Run) garantizando CERO contaminación en DB
+      })
+    });
+
+    const data = await res.json();
+
+    if (!data.ok) {
+      throw new Error(data.error || 'Error al ejecutar despacho');
+    }
+
+    if (progresoDiv) {
+      progresoDiv.innerHTML = `
+        <div style="background: rgba(46,213,115,0.1); border: 1px solid rgba(46,213,115,0.35); border-radius: 8px; padding: 14px; margin-top: 14px; font-size: 0.84rem; color: #2ed573;">
+          <div style="font-weight: 800; font-size: 0.95rem; margin-bottom: 4px;">✅ Simulación de Despacho Completada con Éxito</div>
+          <div>${data.mensaje}</div>
+          <div style="margin-top: 6px; font-size: 0.78rem; color: var(--text-secondary);">
+            • Total evaluados: <strong>${data.total_procesados}</strong> | 
+            • Aptos validados: <strong style="color:#2ed573;">${data.simulados_aptos}</strong> | 
+            • Omitidos preflight: <strong style="color:#f39c12;">${data.simulados_omitidos}</strong>
+          </div>
+          <div style="margin-top: 8px; font-size: 0.75rem; color: #48cae4;">
+            🔒 <em>Protección activa: Ningún mensaje real fue emitido y ningún registro de métricas fue modificado.</em>
+          </div>
+        </div>
+      `;
+    }
+
+  } catch (err) {
+    if (progresoDiv) {
+      progresoDiv.innerHTML = `
+        <div style="background: rgba(255,71,87,0.1); border: 1px solid rgba(255,71,87,0.4); border-radius: 8px; padding: 12px; margin-top: 14px; font-size: 0.82rem; color: #ff7675;">
+          ❌ ${err.message}
+        </div>
+      `;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+};
+
 
 

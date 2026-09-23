@@ -363,6 +363,20 @@ try {
     db.prepare("UPDATE plantillas SET mensaje = ? WHERE tipo = 'recuperacion_historica'").run(
         'Hola, te saludamos de SEGUCar. Queremos ponernos en contacto nuevamente por tu póliza N° {operacion} (Patente {patente}). Contamos con nuevas propuestas y excelentes coberturas para reactivar tu seguro. ¡Consultanos sin compromiso!'
     );
+
+    const existeUpsell = db.prepare("SELECT id FROM plantillas WHERE tipo = 'upsell_cobertura_c'").get();
+    if (!existeUpsell) {
+        db.prepare(`
+            INSERT INTO plantillas (nombre, tipo, mensaje, activa, nombre_meta)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(
+            '🚀 Comercial: Propuesta Mejora Cobertura (Terceros Completo)',
+            'upsell_cobertura_c',
+            'Hola {nombre}, ¿cómo estás? Te escribimos de SEGUCar respecto a tu póliza de {vehiculo} (Patente {patente}). Notamos que contás con cobertura básica de Responsabilidad Civil. Hoy tenemos una bonificación especial para mejorar tu plan a Terceros Completo (Plan C), sumando cobertura ante robo, incendio y destrucción total con la mejor tarifa. ¿Te gustaría que te coticemos la diferencia sin compromiso?',
+            1,
+            'propuesta_upsell_cobertura_c'
+        );
+    }
 } catch (e) {
     console.error('Error actualizando plantillas sin vehiculo:', e);
 }

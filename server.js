@@ -2949,6 +2949,25 @@ app.post('/api/whatsapp/preflight', (req, res) => {
                 }
             }
 
+            // ✅ CHECK: Si la plantilla es de Upsell Comercial (upsell_cobertura_c), BLOQUEAR si tiene deuda o si no es Auto/Pick Up con RC
+            const isUpsell = tipoNorm.includes('upsell');
+            if (isUpsell) {
+                if (saldo > 0 || cuotasDebe > 0) {
+                    return res.json({
+                        ok: false,
+                        razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: La póliza ${poliza_operacion} tiene saldo pendiente de $${saldo.toLocaleString('es-AR')}. Las propuestas de mejora de plan son exclusivas para clientes 100% al día.`
+                    });
+                }
+                const tVeh = (poliza.tipo_vehiculo || '').trim();
+                const esAutoOPickup = tVeh === 'Auto' || tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario';
+                if (!esAutoOPickup) {
+                    return res.json({
+                        ok: false,
+                        razon: `⚠️ BLOQUEADO POR PROTECCIÓN COMERCIAL: El vehículo (${tVeh}) no admite campañas de upsell (exclusivas para Autos y Pick Ups).`
+                    });
+                }
+            }
+
             // ✅ CHECK 5: Es la póliza más nueva para esa patente (no fue renovada)
             if (poliza.patente) {
                 const polizaMasNueva = db.prepare(`
@@ -2989,6 +3008,7 @@ function mapToCanonicalTemplateType(raw) {
     if (s === 'recuperacion_historica') return 'recuperacion_historica';
     if (s === 'renovacion_deuda') return 'renovacion_deuda';
     if (s === 'mora_critica') return 'mora_critica';
+    if (s === 'upsell_cobertura_c' || s.includes('upsell')) return 'upsell_cobertura_c';
     return s;
 }
 
@@ -3843,6 +3863,309 @@ app.get('/api/metricas/resumen', (req, res) => {
         });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── ENDPOINTS CAMPAÑA UPSELL COBERTURA RC (AUTOS Y PICK UPS 100% AL DÍA) ───
+
+// GET /api/metricas/audiencia-upsell
+// Filtra con precisión quirúrgica a clientes con Autos y Pick Ups con solo cobertura RC básica,
+// garantizando que estén 100% al día (saldo $0 estricto), sin cobranzas activas ni recientes.
+app.get('/api/metricas/audiencia-upsell', (req, res) => {
+    try {
+        const filtroTipo = (req.query.tipo || 'todos').toLowerCase(); // 'todos', 'auto', 'pickup'
+        const limiteParam = req.query.limite === 'todos' ? 0 : (req.query.limite ? parseInt(req.query.limite, 10) : 50);
+
+        const todayStr = toLocalISOString(getArgentinaNow());
+        const hoy = getArgentinaNow();
+        const esDiaNoHabil = esNoHabil(hoy);
+
+        const allPolizas = db.prepare(`
+            SELECT p.id, p.operacion, p.patente, p.vehiculo, p.fecha_vencimiento, p.fin_vigencia_poliza,
+                   p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora,
+                   c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono
+            FROM polizas p
+            JOIN clientes c ON p.cliente_id = c.id
+        `).all();
+
+        // 1. Deduplicación por patente (la más nueva en fin_vigencia gana)
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat in polizasByPatente) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            group.sort((a, b) => {
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+                if (a.aseguradora === b.aseguradora) {
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+                }
+                return 0;
+            });
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
+
+        // Obtener historial de cobranza en los últimos 15 días (regla estricta sin roces de cobro)
+        const cobranzasRecientes = new Set();
+        try {
+            const cobRows = db.prepare(`
+                SELECT DISTINCT cliente_id FROM historial_gestiones_whatsapp
+                WHERE fecha_envio >= datetime('now', '-15 days')
+                  AND tipo_plantilla IN ('recordatorio_48hs', 'primer_aviso', 'segundo_aviso', 'mora_critica')
+            `).all();
+            for (const r of cobRows) {
+                if (r.cliente_id) cobranzasRecientes.add(r.cliente_id);
+            }
+        } catch (e) {}
+
+        // Obtener historial de propuestas de upsell recientes (últimos 30 días)
+        const upsellRecientes = new Set();
+        try {
+            const upRows = db.prepare(`
+                SELECT DISTINCT cliente_id FROM historial_gestiones_whatsapp
+                WHERE fecha_envio >= datetime('now', '-30 days')
+                  AND tipo_plantilla = 'upsell_cobertura_c'
+            `).all();
+            for (const r of upRows) {
+                if (r.cliente_id) upsellRecientes.add(r.cliente_id);
+            }
+        } catch (e) {}
+
+        let total_candidatos_al_dia = 0;
+        let autos_candidatos = 0;
+        let pickups_candidatos = 0;
+        let silenciados_humano = 0;
+        let excluidos_cobranza_reciente = 0;
+        let contactados_recientes_upsell = 0;
+        let sin_telefono = 0;
+
+        const candidatos = [];
+
+        for (const p of allPolizas) {
+            // A. Cartera Activa viva
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+            if (renewedPolizaIds.has(p.id)) continue;
+
+            const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
+            let calDiffRen = 0;
+            if (fvRen) {
+                const parts = fvRen.split('-');
+                if (parts.length === 3) {
+                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                }
+            }
+            if (calDiffRen < -30) continue;
+
+            // B. Filtro estricto por tipo de vehículo: SOLO Autos y Pick Ups (Motos y Camiones 100% excluidos)
+            const tVeh = (p.tipo_vehiculo || '').trim();
+            let vCategoria = null;
+            if (tVeh === 'Auto') {
+                vCategoria = 'Auto';
+            } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
+                vCategoria = 'Pick Up';
+            } else {
+                continue; // Motos, Camiones y Sin clasificar excluidos
+            }
+
+            // C. Cobertura básica clasificada como RC únicamente
+            const cobRaw = (p.cobertura || '').trim().toUpperCase();
+            let cKey = 'pendiente';
+            if (cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC') || cobRaw.includes('RESPONSABILIDAD CIVIL')) {
+                cKey = 'rc';
+            }
+            if (cKey !== 'rc') continue; // Solo RC
+
+            // D. REGLA ESTRICTA 100% AL DÍA (SALDO $0 SIN EXCEPCIÓN)
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+            const cuotasDebe = parseInt(p.cuotas_debe || 0, 10);
+            let estadoCob = 'al_dia';
+            if (saldoVal > 0 && !esDiaNoHabil) {
+                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
+            }
+            // Si tiene cualquier saldo pendiente (>0) o cuotas adeudadas o no está al día, se descarta
+            if (saldoVal > 0 || cuotasDebe > 0 || estadoCob !== 'al_dia') {
+                continue;
+            }
+
+            // Conteo general de candidatos al día
+            total_candidatos_al_dia++;
+            if (vCategoria === 'Auto') autos_candidatos++;
+            else pickups_candidatos++;
+
+            // Filtro por sub-tipo si fue pedido en query
+            if (filtroTipo === 'auto' && vCategoria !== 'Auto') continue;
+            if (filtroTipo === 'pickup' && vCategoria !== 'Pick Up') continue;
+
+            // E. Evaluar aptitud para contacto
+            const rawPhone = p.cliente_telefono || '';
+            const cleanPhone = String(rawPhone).replace(/\D/g, '');
+            const hasValidPhone = cleanPhone.length >= 10;
+
+            let apto = true;
+            let motivoInaptitud = null;
+
+            if (!hasValidPhone) {
+                apto = false;
+                motivoInaptitud = 'Sin teléfono de WhatsApp válido';
+                sin_telefono++;
+            } else if (cobranzasRecientes.has(p.cliente_id)) {
+                apto = false;
+                motivoInaptitud = 'Gestión de cobranza en últimos 15 días';
+                excluidos_cobranza_reciente++;
+            } else if (upsellRecientes.has(p.cliente_id)) {
+                apto = false;
+                motivoInaptitud = 'Contactado por Upsell en últimos 30 días';
+                contactados_recientes_upsell++;
+            } else {
+                const botState = waService.getEstadoBot(cleanPhone);
+                if (botState && botState.estado_bot === 'silenciado') {
+                    apto = false;
+                    motivoInaptitud = `Silenciado por atención humana`;
+                    silenciados_humano++;
+                }
+            }
+
+            candidatos.push({
+                id: p.id,
+                cliente_id: p.cliente_id,
+                cliente_nombre: p.cliente_nombre || 'Cliente',
+                cliente_telefono: cleanPhone,
+                operacion: p.operacion,
+                patente: p.patente,
+                vehiculo: p.vehiculo || `${vCategoria} (${p.patente || ''})`,
+                marca_modelo: p.vehiculo || `${vCategoria} (${p.patente || ''})`,
+                tipo_vehiculo: vCategoria,
+                aseguradora: p.aseguradora || 'NRE',
+                cobertura: p.cobertura || 'RC',
+                saldo_pendiente: saldoVal,
+                apto_envio: apto,
+                motivo_inaptitud: motivoInaptitud
+            });
+        }
+
+        // Ordenar: primero los aptos para envío inmediato
+        candidatos.sort((a, b) => (b.apto_envio ? 1 : 0) - (a.apto_envio ? 1 : 0));
+
+        // Aplicar límite para el micro-lote recomendado de hoy si se especificó
+        const candidatosLote = (limiteParam && limiteParam > 0) ? candidatos.slice(0, limiteParam) : candidatos;
+        const aptos_en_lote = candidatosLote.filter(c => c.apto_envio).length;
+
+        res.json({
+            ok: true,
+            resumen: {
+                total_candidatos_al_dia,
+                autos_candidatos,
+                pickups_candidatos,
+                lote_recomendado_max: 50,
+                candidatos_en_pantalla: candidatosLote.length,
+                aptos_en_lote,
+                silenciados_humano,
+                excluidos_cobranza_reciente,
+                contactados_recientes_upsell,
+                sin_telefono
+            },
+            candidatos: candidatosLote
+        });
+    } catch (err) {
+        console.error('[/api/metricas/audiencia-upsell] Error:', err);
+        res.status(500).json({ ok: false, error: err.message });
+    }
+});
+
+// POST /api/metricas/despacho-upsell
+// Despacho de micro-lotes con capping estricto de 50 mensajes diarios y blindaje contra polución de métricas
+app.post('/api/metricas/despacho-upsell', async (req, res) => {
+    try {
+        const { polizas = [], mensaje, dry_run = true } = req.body;
+
+        if (!Array.isArray(polizas) || polizas.length === 0) {
+            return res.status(400).json({ ok: false, error: 'Debe seleccionar al menos una póliza para la campaña.' });
+        }
+
+        // Capping estricto anti-saturación de WhatsApp: máximo 50 por lote
+        if (polizas.length > 50) {
+            return res.status(400).json({
+                ok: false,
+                error: 'Tope de Seguridad Superado: El tamaño máximo de lote diario es de 50 mensajes para proteger la calidad del número de WhatsApp.'
+            });
+        }
+
+        // 🛡️ MODO SIMULACIÓN (DRY-RUN): Cero inserciones en base de datos, cero mensajes reales
+        if (dry_run === true || dry_run === 'true') {
+            const simulados = [];
+            for (const item of polizas) {
+                const phone = String(item.telefono || item.cliente_telefono || '').replace(/\D/g, '');
+                const poliza = db.prepare('SELECT id, operacion, patente, tipo_vehiculo, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ?').get(item.id);
+                
+                let preflightOk = true;
+                let razon = 'OK';
+
+                if (!phone || phone.length < 10) {
+                    preflightOk = false;
+                    razon = 'Teléfono inválido';
+                } else if (!poliza) {
+                    preflightOk = false;
+                    razon = 'Póliza no encontrada';
+                } else if (parseFloat(poliza.saldo_pendiente || 0) > 0 || parseInt(poliza.cuotas_debe || 0, 10) > 0) {
+                    preflightOk = false;
+                    razon = 'Cliente con saldo pendiente (no al día)';
+                } else {
+                    const botState = waService.getEstadoBot(phone);
+                    if (botState && botState.estado_bot === 'silenciado') {
+                        preflightOk = false;
+                        razon = 'Bot silenciado por atención humana';
+                    }
+                }
+
+                simulados.push({
+                    poliza_id: item.id,
+                    cliente_id: item.cliente_id,
+                    cliente_nombre: item.cliente_nombre,
+                    telefono: phone,
+                    operacion: item.operacion,
+                    patente: item.patente,
+                    simulado: true,
+                    preflight_ok: preflightOk,
+                    resultado: preflightOk ? 'SIMULACION_EXITOSA' : 'SIMULACION_OMITIDO',
+                    detalle: razon
+                });
+            }
+
+            const totalExitosos = simulados.filter(s => s.preflight_ok).length;
+            const totalOmitidos = simulados.length - totalExitosos;
+
+            return res.json({
+                ok: true,
+                dry_run: true,
+                mensaje: '✅ Simulación completada con éxito. Cero mensajes reales emitidos y cero registros modificados en la base de datos.',
+                total_procesados: simulados.length,
+                simulados_aptos: totalExitosos,
+                simulados_omitidos: totalOmitidos,
+                detalle: simulados
+            });
+        }
+
+        // 🛡️ MODO REAL: Bloqueado preventivamente hasta contar con plantilla homologada por Meta
+        return res.status(403).json({
+            ok: false,
+            error: 'BLOQUEO PREVENTIVO DE SEGURIDAD: Los envíos masivos comerciales hacia WhatsApp están pausados en Modo Real hasta que la plantilla HSM "propuesta_upsell_cobertura_c" sea formalmente aprobada por Meta Business. Utilice la función "Descargar Audiencia (Excel/CSV)" para gestión directa o ejecute la campaña en Modo Simulación.'
+        });
+
+    } catch (err) {
+        console.error('[/api/metricas/despacho-upsell] Error:', err);
+        res.status(500).json({ ok: false, error: err.message });
     }
 });
 
