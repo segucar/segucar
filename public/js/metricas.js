@@ -417,6 +417,9 @@ function renderMetricasUI(data, stats = {}) {
     <!-- 🛡️ DESGLOSE DE COBERTURAS POR TIPO DE VEHÍCULO (TABLA CRUZADA AUDITADA) -->
     ${renderTablaCoberturasPorVehiculo(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
 
+    <!-- 🍩 PROPORCIÓN DE COBERTURA & OPORTUNIDADES DE UPSELL (4 DONUTS CON 5 SEGMENTOS) -->
+    ${renderDonutsCoberturaVehiculos(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
+
     <!-- KPI CARDS GRID -->
     <div class="stats-grid mb-3" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
       
@@ -476,6 +479,9 @@ function renderMetricasUI(data, stats = {}) {
 
     <!-- HISTÓRICO SEMANAL TRAJECTORY CHART -->
     ${renderHistoricoSemanalChart(data.historico_semanal)}
+
+    <!-- 🎯 MATRIZ DE EFICIENCIA POR PLANTILLA (SCATTER 4 CUADRANTES) -->
+    ${renderScatterEficienciaPlantillas(data.plantillas_performance)}
 
     <!-- COMPARATIVE TABLE BY TEMPLATE -->
     <div class="card mb-3" style="padding: 24px;">
@@ -670,26 +676,102 @@ function renderFunnelConversion(funnel) {
 
 function renderHistoricoSemanalChart(historico) {
   if (!historico || historico.length === 0) return '';
-  const maxDinero = Math.max(1, ...historico.map(h => h.dinero_recuperado || 0));
+  const maxDinero = Math.max(1000, ...historico.map(h => h.dinero_recuperado || 0));
+  const maxTasa = 100;
 
-  const bars = historico.map(h => {
-    const barHeightPct = Math.round(((h.dinero_recuperado || 0) / maxDinero) * 100);
-    const dineroFmt = (h.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  // Dual axis SVG geometry
+  const svgW = 740;
+  const svgH = 210;
+  const padL = 70;
+  const padR = 55;
+  const padT = 25;
+  const padB = 40;
+  const plotW = svgW - padL - padR; // 615
+  const plotH = svgH - padT - padB; // 145
+
+  const n = historico.length;
+  const stepX = n > 1 ? plotW / (n - 1) : plotW;
+
+  const pointsDinero = [];
+  const pointsTasa = [];
+
+  historico.forEach((h, idx) => {
+    const x = padL + idx * stepX;
+    const din = Math.max(0, h.dinero_recuperado || 0);
+    const tasa = Math.min(100, Math.max(0, parseFloat(h.tasa_conversion || 0)));
+    const yDin = padT + plotH - (din / maxDinero) * plotH;
+    const yTasa = padT + plotH - (tasa / maxTasa) * plotH;
+
+    pointsDinero.push({ x, y: yDin, val: din, h });
+    pointsTasa.push({ x, y: yTasa, val: tasa, h });
+  });
+
+  // Continuous SVG paths across all 8 weeks
+  const pathDineroD = pointsDinero.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const areaDineroD = `${pathDineroD} L ${pointsDinero[pointsDinero.length - 1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${pointsDinero[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+  const pathTasaD = pointsTasa.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+  // Left Y axis ticks (Dinero - Green)
+  const yTicksDin = [0, maxDinero * 0.5, maxDinero].map(val => {
+    const y = padT + plotH - (val / maxDinero) * plotH;
+    const fmt = val === 0 ? '$0' : (val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : `$${Math.round(val / 1000)}k`);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${padL - 10}" y="${y + 4}" fill="#2ed573" font-size="10" font-weight="700" text-anchor="end">${fmt}</text>
+    `;
+  }).join('');
+
+  // Right Y axis ticks (Conversión - Cyan)
+  const yTicksTasa = [0, 50, 100].map(val => {
+    const y = padT + plotH - (val / maxTasa) * plotH;
+    return `
+      <text x="${padL + plotW + 10}" y="${y + 4}" fill="#00b4d8" font-size="10" font-weight="700" text-anchor="start">${val}%</text>
+    `;
+  }).join('');
+
+  // Nodes for Dinero (green) and Tasa (cyan)
+  const nodesDinero = pointsDinero.map(p => {
+    const dinFmt = p.val.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    return `
+      <g>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#2ed573" stroke="#0a192f" stroke-width="2">
+          <title>${p.h.semana} (${p.h.label}): ${dinFmt} recuperados en ${p.h.exitosos || 0} cobros</title>
+        </circle>
+      </g>
+    `;
+  }).join('');
+
+  const nodesTasa = pointsTasa.map(p => {
+    return `
+      <g>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#00b4d8" stroke="#0a192f" stroke-width="2">
+          <title>${p.h.semana} (${p.h.label}): ${p.val}% conversión</title>
+        </circle>
+      </g>
+    `;
+  }).join('');
+
+  // X labels
+  const xLabels = historico.map((h, idx) => {
+    const x = padL + idx * stepX;
+    return `
+      <text x="${x.toFixed(1)}" y="${padT + plotH + 16}" fill="var(--text-primary)" font-size="10.5" font-weight="700" text-anchor="middle">${h.semana}</text>
+      <text x="${x.toFixed(1)}" y="${padT + plotH + 28}" fill="var(--text-secondary)" font-size="9" text-anchor="middle">${h.label}</text>
+    `;
+  }).join('');
+
+  // Bottom ratio cards
+  const ratioCards = historico.map(h => {
     const ratio = parseFloat(h.reenvios_ratio || 1.0);
     const isSpamRisk = ratio >= 2.50;
     const ratioColor = isSpamRisk ? '#ff7675' : '#a0aec0';
-    const ratioTitle = isSpamRisk ? `⚠️ Alerta: ${ratio.toFixed(2)}x reenvíos/cliente (Riesgo de saturación WA)` : `${ratio.toFixed(2)}x reenvíos por cliente`;
+    const dineroFmt = (h.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
 
     return `
-      <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 75px;">
+      <div style="flex: 1; text-align: center; min-width: 65px; background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 4px; border: 1px solid rgba(255,255,255,0.06);">
         <div style="font-size: 0.72rem; font-weight: 800; color: #2ed573;">${dineroFmt}</div>
-        <div style="font-size: 0.68rem; font-weight: 700; color: #00b4d8; background: rgba(0, 180, 216, 0.15); padding: 2px 6px; border-radius: 4px;">${h.tasa_conversion}%</div>
-        <div style="width: 100%; max-width: 42px; height: 110px; background: rgba(255,255,255,0.04); border-radius: 6px; display: flex; align-items: flex-end; overflow: hidden; position: relative;">
-          <div style="width: 100%; height: ${Math.max(4, barHeightPct)}%; background: linear-gradient(180deg, #2ed573 0%, #00b4d8 100%); border-radius: 4px 4px 0 0; transition: height 0.3s ease;" title="${h.semana} (${h.label}): ${dineroFmt} recuperados en ${h.exitosos} pagos de ${h.envios} envíos"></div>
-        </div>
-        <div style="font-size: 0.78rem; font-weight: 700; color: var(--text-primary); margin-top: 2px;">${h.semana}</div>
-        <div style="font-size: 0.68rem; color: var(--text-secondary);">${h.label}</div>
-        <div style="font-size: 0.65rem; font-weight: 700; color: ${ratioColor}; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 4px; border: 1px solid ${ratioColor}40;" title="${ratioTitle}">
+        <div style="font-size: 0.68rem; font-weight: 700; color: #00b4d8; margin: 3px 0;">${h.tasa_conversion}%</div>
+        <div style="font-size: 0.63rem; color: ${ratioColor}; font-weight: 700;" title="${ratio.toFixed(2)}x reenvíos por cliente">
           ${ratio.toFixed(2)}x ${isSpamRisk ? '⚠️' : ''}
         </div>
       </div>
@@ -697,30 +779,62 @@ function renderHistoricoSemanalChart(historico) {
   }).join('');
 
   return `
-    <div class="card mb-3" style="padding: 24px; margin-bottom: 24px;">
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 10px;">
+    <div class="card mb-3" style="padding: 24px; margin-bottom: 24px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
         <div>
-          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px;">
-            📈 Trayectoria Histórica Semanal & Reenvíos (Últimas 8 Semanas)
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>📈</span> TRAYECTORIA HISTÓRICA SEMANAL CON DOBLE EJE (ÚLTIMAS 8 SEMANAS)
           </div>
           <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
-            Evolución del dinero recuperado, tasa de conversión y ratio promedio de reenvíos por cliente
+            Evolución continua de Dinero Recuperado ($) vs. Tasa de Conversión (%) semana a semana, con control de saturación.
           </div>
         </div>
-        <div style="display: flex; gap: 14px; font-size: 0.78rem; font-weight: 700; flex-wrap: wrap;">
+        <div style="display: flex; gap: 14px; font-size: 0.76rem; font-weight: 700; flex-wrap: wrap;">
           <span style="display: flex; align-items: center; gap: 6px; color: #2ed573;">
-            <span style="width: 10px; height: 10px; background: #2ed573; border-radius: 2px; display: inline-block;"></span> Dinero Recuperado
+            <span style="width: 10px; height: 10px; background: #2ed573; border-radius: 2px; display: inline-block;"></span> Dinero Recuperado ($ Eje Izq.)
           </span>
           <span style="display: flex; align-items: center; gap: 6px; color: #00b4d8;">
-            <span style="width: 10px; height: 10px; background: #00b4d8; border-radius: 2px; display: inline-block;"></span> % Conversión
+            <span style="width: 10px; height: 10px; background: #00b4d8; border-radius: 2px; display: inline-block;"></span> % Conversión (Eje Der.)
           </span>
           <span style="display: flex; align-items: center; gap: 6px; color: #a0aec0;">
             <span style="font-size: 0.75rem;">🔁</span> Ratio Reenvíos
           </span>
         </div>
       </div>
-      <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 10px 0; overflow-x: auto;">
-        ${bars}
+
+      <!-- SVG DUAL AXIS CHART -->
+      <div style="width: 100%; overflow-x: auto;">
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; max-height: 230px; min-width: 580px; display: block;">
+          <defs>
+            <linearGradient id="gradienteDinero" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2ed573" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="#2ed573" stop-opacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          <!-- Grid Lines -->
+          ${yTicksDin}
+          ${yTicksTasa}
+
+          <!-- Area & Line Dinero (Green) -->
+          <path d="${areaDineroD}" fill="url(#gradienteDinero)"></path>
+          <path d="${pathDineroD}" fill="none" stroke="#2ed573" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+
+          <!-- Line Conversión (Cyan Dashed) -->
+          <path d="${pathTasaD}" fill="none" stroke="#00b4d8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,3"></path>
+
+          <!-- Interactive Nodes -->
+          ${nodesDinero}
+          ${nodesTasa}
+
+          <!-- X Labels -->
+          ${xLabels}
+        </svg>
+      </div>
+
+      <!-- Weekly KPI Summary Cards -->
+      <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; overflow-x: auto; padding: 4px 0;">
+        ${ratioCards}
       </div>
     </div>
   `;
@@ -930,4 +1044,373 @@ function renderTablaCoberturasPorVehiculo(coberturaData) {
     </div>
   `;
 }
+
+function renderDonutsCoberturaVehiculos(coberturaData) {
+  if (!coberturaData) return '';
+  const c = coberturaData;
+  const autos = c.autos || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 };
+  const pickups = c.pickups || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 };
+  const motos = c.motos || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 };
+  const camiones = c.camiones || { rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 };
+
+  const items = [
+    { key: 'Autos', icon: '🚗', name: 'Autos', data: autos, color: '#48cae4', canUpsell: true, filter: 'Auto' },
+    { key: 'Pickups', icon: '🛻', name: 'Pick Ups / Utilitarios', data: pickups, color: '#2ed573', canUpsell: true, filter: 'Pick Up' },
+    { key: 'Motos', icon: '🏍️', name: 'Motos', data: motos, color: '#f39c12', canUpsell: false, filter: 'Moto' },
+    { key: 'Camiones', icon: '🚛', name: 'Camiones', data: camiones, color: '#a29bfe', canUpsell: false, filter: 'Camión' }
+  ];
+
+  const donutCards = items.map(item => {
+    const d = item.data;
+    const rc = d.rc || 0;
+    const planB = d.plan_b || 0;
+    const planC = d.plan_c || 0;
+    const otros = (d.todo_riesgo || 0) + (d.otros || 0); // 5to segmento asegurado contra pérdida de datos
+    const pendiente = d.pendiente || 0;
+    const total = d.total || (rc + planB + planC + otros + pendiente) || 1;
+    const confirmadas = rc + planB + planC + otros;
+
+    // SVG Donut geometry
+    const R = 38;
+    const circ = 2 * Math.PI * R; // ~238.76
+
+    const segments = [
+      { name: 'RC (Plan A)', val: rc, color: '#48cae4' },
+      { name: 'Plan B', val: planB, color: '#2ed573' },
+      { name: 'Plan C', val: planC, color: '#f1c40f' },
+      { name: 'Otros / TR', val: otros, color: '#a29bfe' },
+      { name: 'Pendiente', val: pendiente, color: '#f39c12' }
+    ];
+
+    let accumOffset = 0;
+    const circleSvgs = segments.map(seg => {
+      if (seg.val <= 0) return '';
+      const sliceLen = (seg.val / total) * circ;
+      const isPendiente = seg.name === 'Pendiente';
+      const dash = `${sliceLen.toFixed(2)} ${(circ - sliceLen).toFixed(2)}`;
+      const offset = (-accumOffset).toFixed(2);
+      accumOffset += sliceLen;
+
+      return `<circle cx="60" cy="60" r="${R}" fill="none" stroke="${seg.color}" stroke-width="12"
+        stroke-dasharray="${dash}" stroke-dashoffset="${offset}"
+        stroke-linecap="butt" ${isPendiente ? 'opacity="0.45"' : ''}>
+        <title>${seg.name}: ${seg.val.toLocaleString('es-AR')} pólizas (${((seg.val / total) * 100).toFixed(1)}%)</title>
+      </circle>`;
+    }).join('');
+
+    // Distinción de negocio estricta: solo Autos y Pickups admiten upsell; Motos y Camiones son estructuralmente RC
+    let insightHtml = '';
+    if (item.canUpsell) {
+      if (confirmadas > 0 && rc > 0) {
+        const pctRcConf = Math.round((rc / confirmadas) * 100);
+        insightHtml = `
+          <div style="margin-top: 10px; font-size: 0.72rem; padding: 6px 10px; border-radius: 8px; background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); color: #48cae4; line-height: 1.35;">
+            💡 <strong>Oportunidad Upsell:</strong> <strong>${pctRcConf}%</strong> de pólizas confirmadas tienen solo RC básica. Foco en ofrecer migración a Terceros Completo (Plan C).
+          </div>`;
+      } else if (confirmadas > 0 && rc === 0) {
+        insightHtml = `
+          <div style="margin-top: 10px; font-size: 0.72rem; padding: 6px 10px; border-radius: 8px; background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.25); color: #2ed573; line-height: 1.35;">
+            ✨ <strong>Cartera protegida:</strong> 100% de las pólizas confirmadas cuentan con cobertura superior a RC básica.
+          </div>`;
+      } else {
+        insightHtml = `
+          <div style="margin-top: 10px; font-size: 0.72rem; padding: 6px 10px; border-radius: 8px; background: rgba(243, 156, 18, 0.08); border: 1px solid rgba(243, 156, 18, 0.25); color: #f39c12; line-height: 1.35;">
+            ⏳ <strong>En proceso de backfill:</strong> Extrayendo coberturas desde NRE para evaluar potencial de upsell.
+          </div>`;
+      }
+    } else {
+      const motivo = item.key === 'Motos' 
+        ? 'por naturaleza de riesgo y suscripción de aseguradoras' 
+        : 'por segmento de flota comercial pesada';
+      insightHtml = `
+        <div style="margin-top: 10px; font-size: 0.72rem; padding: 6px 10px; border-radius: 8px; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); color: var(--text-secondary); line-height: 1.35;">
+          🛡️ <strong>Perfil de Cartera:</strong> Orientada estructuralmente a RC ${motivo}. No aplica campaña de upsell.
+        </div>`;
+    }
+
+    return `
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; justify-content: space-between;">
+        <div>
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <div style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 0.9rem; color: ${item.color};">
+              <span style="font-size: 1.2rem;">${item.icon}</span> ${item.name}
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="openViewWithVehicleFilter('${item.filter}')" style="padding: 2px 7px; font-size: 0.72rem; color: ${item.color}; border: 1px solid ${item.color}40;" title="Ver pólizas de ${item.name}">
+              ${d.total.toLocaleString('es-AR')} →
+            </button>
+          </div>
+
+          <div style="display: flex; align-items: center; justify-content: center; gap: 14px; margin: 10px 0;">
+            <div style="position: relative; width: 110px; height: 110px;">
+              <svg viewBox="0 0 120 120" style="transform: rotate(-90deg); width: 100%; height: 100%;">
+                <circle cx="60" cy="60" r="${R}" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="12"></circle>
+                ${circleSvgs}
+              </svg>
+              <div style="position: absolute; top:0; left:0; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none;">
+                <span style="font-size: 1.05rem; font-weight: 800; color: #fff;">${d.total.toLocaleString('es-AR')}</span>
+                <span style="font-size: 0.65rem; color: var(--text-secondary); text-transform: uppercase;">Activas</span>
+              </div>
+            </div>
+
+            <!-- Legend with 5 items -->
+            <div style="font-size: 0.72rem; display: flex; flex-direction: column; gap: 4px; min-width: 110px;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="display:flex; align-items:center; gap:5px; color:#48cae4;"><span style="width:8px; height:8px; border-radius:50%; background:#48cae4; display:inline-block;"></span> RC:</span>
+                <strong style="color:#fff;">${rc.toLocaleString('es-AR')}</strong>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="display:flex; align-items:center; gap:5px; color:#2ed573;"><span style="width:8px; height:8px; border-radius:50%; background:#2ed573; display:inline-block;"></span> Plan B:</span>
+                <strong style="color:#fff;">${planB.toLocaleString('es-AR')}</strong>
+              </div>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="display:flex; align-items:center; gap:5px; color:#f1c40f;"><span style="width:8px; height:8px; border-radius:50%; background:#f1c40f; display:inline-block;"></span> Plan C:</span>
+                <strong style="color:#fff;">${planC.toLocaleString('es-AR')}</strong>
+              </div>
+              ${otros > 0 ? `
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
+                <span style="display:flex; align-items:center; gap:5px; color:#a29bfe;"><span style="width:8px; height:8px; border-radius:50%; background:#a29bfe; display:inline-block;"></span> Otros / TR:</span>
+                <strong style="color:#fff;">${otros.toLocaleString('es-AR')}</strong>
+              </div>` : ''}
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.08);">
+                <span style="display:flex; align-items:center; gap:5px; color:#f39c12;"><span style="width:8px; height:8px; border-radius:50%; background:#f39c12; display:inline-block;"></span> ⏳ Sync:</span>
+                <strong style="color:#f39c12;">${pendiente.toLocaleString('es-AR')}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        ${insightHtml}
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.88rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>🍩</span> PROPORCIÓN DE COBERTURA &amp; OPORTUNIDADES DE UPSELL
+          </div>
+          <div style="font-size: 0.78rem; color: var(--text-secondary); margin-top: 3px;">
+            Diagnóstico comercial visual de la cartera activa: identifica clientes con cobertura básica para migración a pólizas de mayor valor.
+          </div>
+        </div>
+        <span style="font-size: 0.72rem; color: var(--accent-cyan-light); background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 700;">
+          4 Segmentos de Cartera
+        </span>
+      </div>
+
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px;">
+        ${donutCards}
+      </div>
+    </div>
+  `;
+}
+
+function renderScatterEficienciaPlantillas(plantillasPerformance) {
+  if (!plantillasPerformance) return '';
+  const filtered = plantillasPerformance.filter(p => !['mora_critica', 'renovacion_deuda'].includes(p.tipo_plantilla));
+  if (filtered.length === 0) return '';
+
+  const plantillaLabels = {
+    'recordatorio_48hs': 'Recordatorio 48 hs',
+    'recordatorio_preventivo_48hs': 'Recordatorio 48 hs',
+    'primer_aviso': '1° Aviso Mora',
+    'primer_aviso_vencida_48hs': '1° Aviso Mora',
+    'segundo_aviso': '2° Aviso Mora',
+    'cuota_segundo_aviso_vencida_hace_96_hs': '2° Aviso Mora',
+    'renovacion_7_dias': 'Aviso Renovación 7d',
+    'aviso_renovacion_7_dias': 'Aviso Renovación 7d',
+    'poliza_vencida': 'Póliza Vencida',
+    'aviso_renovacion_poliza_vencida': 'Póliza Vencida',
+    'aviso_renovacion_poliza_vencida_v2': 'Póliza Vencida',
+    'recuperacion_historica': 'Reactivación Cartera'
+  };
+
+  const plantillaColors = {
+    'recordatorio_48hs': '#f1c40f',
+    'recordatorio_preventivo_48hs': '#f1c40f',
+    'primer_aviso': '#e67e22',
+    'primer_aviso_vencida_48hs': '#e67e22',
+    'segundo_aviso': '#e74c3c',
+    'cuota_segundo_aviso_vencida_hace_96_hs': '#e74c3c',
+    'renovacion_7_dias': '#00b4d8',
+    'aviso_renovacion_7_dias': '#00b4d8',
+    'poliza_vencida': '#a29bfe',
+    'aviso_renovacion_poliza_vencida': '#a29bfe',
+    'aviso_renovacion_poliza_vencida_v2': '#a29bfe',
+    'recuperacion_historica': '#2ed573'
+  };
+
+  const activePoints = [];
+  const inactivePoints = [];
+
+  for (const p of filtered) {
+    const totalEnvios = p.total_envios || 0;
+    const reemplazadas = p.reemplazadas || 0;
+    const validos = Math.max(0, totalEnvios - reemplazadas); // BASE ESTRICTA DE CONTACTOS ÚNICOS
+    const exitosos = p.exitosos || 0;
+    const dinero = p.dinero_recuperado || 0;
+    const label = plantillaLabels[p.tipo_plantilla] || p.tipo_plantilla;
+    const color = plantillaColors[p.tipo_plantilla] || '#00b4d8';
+
+    if (validos === 0) {
+      inactivePoints.push({ label, color, tipo: p.tipo_plantilla });
+      continue;
+    }
+
+    const conversion = parseFloat(((exitosos / validos) * 100).toFixed(1));
+    const retornoPorContacto = Math.round(dinero / validos);
+
+    activePoints.push({
+      label,
+      tipo: p.tipo_plantilla,
+      color,
+      validos,
+      totalEnvios,
+      reemplazadas,
+      exitosos,
+      dinero,
+      conversion,
+      retornoPorContacto
+    });
+  }
+
+  // SVG Geometry
+  const svgW = 740;
+  const svgH = 340;
+  const padL = 75;
+  const padR = 35;
+  const padT = 30;
+  const padB = 45;
+  const plotW = svgW - padL - padR; // 630
+  const plotH = svgH - padT - padB; // 265
+
+  // X scale: 0 to 100 (%)
+  const minX = 0;
+  const maxX = 100;
+  const scaleX = (val) => padL + (Math.max(minX, Math.min(maxX, val)) / maxX) * plotW;
+
+  // Y scale: $0 to maxRetorno (with 20% headroom)
+  const maxRawY = Math.max(1000, ...activePoints.map(p => p.retornoPorContacto));
+  const maxY = Math.ceil((maxRawY * 1.2) / 5000) * 5000;
+  const scaleY = (val) => padT + plotH - (Math.max(0, Math.min(maxY, val)) / maxY) * plotH;
+
+  // Median / Quadrant lines
+  const midX = scaleX(50); // 50% conversion line
+  const midY = scaleY(maxY / 2); // 50% ticket line
+
+  // Max validos for radius scaling
+  const maxValidos = Math.max(1, ...activePoints.map(p => p.validos));
+
+  // Build grid ticks
+  const yTicks = [0, maxY * 0.25, maxY * 0.5, maxY * 0.75, maxY];
+  const gridLinesY = yTicks.map(t => {
+    const yPos = scaleY(t);
+    const labelFmt = t === 0 ? '$0' : (t >= 1000 ? `$${Math.round(t/1000)}k` : `$${Math.round(t)}`);
+    return `
+      <line x1="${padL}" y1="${yPos}" x2="${padL + plotW}" y2="${yPos}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${padL - 10}" y="${yPos + 4}" fill="var(--text-secondary)" font-size="11" text-anchor="end" font-weight="600">${labelFmt}</text>
+    `;
+  }).join('');
+
+  const xTicks = [0, 25, 50, 75, 100];
+  const gridLinesX = xTicks.map(t => {
+    const xPos = scaleX(t);
+    return `
+      <line x1="${xPos}" y1="${padT}" x2="${xPos}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${xPos}" y="${padT + plotH + 20}" fill="var(--text-secondary)" font-size="11" text-anchor="middle" font-weight="600">${t}%</text>
+    `;
+  }).join('');
+
+  // Quadrant Labels (Watermarks)
+  const quadWatermarks = `
+    <text x="${padL + plotW - 12}" y="${padT + 22}" fill="rgba(46, 213, 115, 0.22)" font-size="11" font-weight="800" text-anchor="end">🌟 ALTO RETORNO &amp; ALTA CONVERSIÓN</text>
+    <text x="${padL + 14}" y="${padT + 22}" fill="rgba(0, 180, 216, 0.22)" font-size="11" font-weight="800" text-anchor="start">💎 ALTO RETORNO &amp; OPTIMIZAR CONV.</text>
+    <text x="${padL + 14}" y="${padT + plotH - 12}" fill="rgba(255, 118, 117, 0.22)" font-size="11" font-weight="800" text-anchor="start">⚠️ BAJA EFICIENCIA (REVISAR)</text>
+    <text x="${padL + plotW - 12}" y="${padT + plotH - 12}" fill="rgba(241, 196, 15, 0.22)" font-size="11" font-weight="800" text-anchor="end">⚡ RECORDATORIOS ÁGILES</text>
+  `;
+
+  // Plot Bubbles
+  const bubbles = activePoints.map(p => {
+    const cx = scaleX(p.conversion);
+    const cy = scaleY(p.retornoPorContacto);
+    // Radius proportional to sqrt(validos)
+    const r = Math.max(9, Math.min(28, Math.round(9 + Math.sqrt(p.validos / maxValidos) * 19)));
+    const dineroFmt = p.dinero.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const retFmt = p.retornoPorContacto.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+    const tooltip = `${p.label}
+• Contactos Únicos: ${p.validos} (${p.totalEnvios} disparos totales)
+• Tasa Conversión: ${p.conversion}% (${p.exitosos} cobros)
+• Dinero Recuperado: ${dineroFmt}
+• Rendimiento: ${retFmt} por cliente único`;
+
+    return `
+      <g style="cursor: pointer;" class="scatter-bubble-group">
+        <circle cx="${cx}" cy="${cy}" r="${r + 4}" fill="${p.color}" opacity="0.18"></circle>
+        <circle cx="${cx}" cy="${cy}" r="${r}" fill="${p.color}" fill-opacity="0.85" stroke="#fff" stroke-width="1.5">
+          <title>${tooltip}</title>
+        </circle>
+        <text x="${cx}" y="${cy - r - 6}" fill="#fff" font-size="10.5" font-weight="800" text-anchor="middle" style="pointer-events: none; text-shadow: 0 1px 4px rgba(0,0,0,0.8);">${p.label}</text>
+      </g>
+    `;
+  }).join('');
+
+  // Inactive templates list (no data lost silently)
+  const inactivePills = inactivePoints.length > 0
+    ? `<div style="margin-top: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 0.73rem; color: var(--text-secondary);">
+        <span>📭 Sin envíos en este período:</span>
+        ${inactivePoints.map(p => `<span style="background: rgba(255,255,255,0.05); padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); color: var(--text-secondary);">${p.label}</span>`).join('')}
+       </div>`
+    : '';
+
+  return `
+    <div class="card mb-3" style="padding: 22px; margin-bottom: 24px; border: 1px solid var(--border-color); background: rgba(10, 25, 47, 0.85); border-radius: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>🎯</span> MATRIZ DE EFICIENCIA POR PLANTILLA (CONVERSIÓN VS. RETORNO)
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px;">
+            Clasificación estratégica en 4 cuadrantes. Tamaño de burbuja = clientes únicos contactados (base limpia sin reenvíos).
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 10px; font-size: 0.74rem;">
+          <span style="color: var(--text-secondary);">Eje X: <strong>% Conversión</strong></span>
+          <span style="color: var(--text-secondary);">•</span>
+          <span style="color: var(--text-secondary);">Eje Y: <strong>$ / Contacto Único</strong></span>
+        </div>
+      </div>
+
+      <div style="width: 100%; overflow-x: auto;">
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; max-height: 380px; min-width: 580px; display: block;">
+          <!-- Quadrant Background Tints -->
+          <rect x="${padL}" y="${padT}" width="${plotW}" height="${plotH}" fill="rgba(255,255,255,0.015)" rx="8"></rect>
+          
+          <!-- Midpoint Quadrant Dividers -->
+          <line x1="${midX}" y1="${padT}" x2="${midX}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-dasharray="4,4"></line>
+          <line x1="${padL}" y1="${midY}" x2="${padL + plotW}" y2="${midY}" stroke="rgba(255,255,255,0.12)" stroke-width="1.5" stroke-dasharray="4,4"></line>
+
+          <!-- Watermarks -->
+          ${quadWatermarks}
+
+          <!-- Grid Lines & Ticks -->
+          ${gridLinesY}
+          ${gridLinesX}
+
+          <!-- Axis Labels -->
+          <text x="${padL + plotW / 2}" y="${svgH - 6}" fill="var(--text-secondary)" font-size="11" font-weight="700" text-anchor="middle">Tasa de Conversión sobre Contactos Únicos →</text>
+          <text x="18" y="${padT + plotH / 2}" fill="var(--text-secondary)" font-size="11" font-weight="700" text-anchor="middle" transform="rotate(-90 18 ${padT + plotH / 2})">Dinero Recuperado por Contacto ($) →</text>
+
+          <!-- Bubbles -->
+          ${bubbles}
+        </svg>
+      </div>
+
+      ${inactivePills}
+    </div>
+  `;
+}
+
 

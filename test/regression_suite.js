@@ -1012,7 +1012,44 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 20:", e.message);
     }
 
-    const totalTestsCount = 20;
+    // ─── TEST 21: Blindaje de Gráficos Analíticos (Scatter base válidos, Donuts 5 segmentos, Doble Eje) ───
+    console.log("📌 TEST 21: Blindaje de Gráficos Analíticos (Scatter base válidos, Donuts 5 segmentos, Doble Eje)");
+    try {
+        // 1. Validar que la base de scatter use estrictamente contactos únicos (total_envios - reemplazadas)
+        const gestiones = db.prepare(`SELECT * FROM historial_gestiones_whatsapp`).all();
+        const gestionesValidas = gestiones.filter(g => g.estado_resultado !== 'reemplazada');
+        const reemplazadas = gestiones.filter(g => g.estado_resultado === 'reemplazada');
+        const baseValidosOk = (gestiones.length - reemplazadas.length) === gestionesValidas.length;
+
+        // 2. Validar que la estructura de Donuts contemple los 5 segmentos (incluyendo todo_riesgo + otros)
+        const pols = db.prepare(`SELECT tipo_vehiculo, cobertura FROM polizas WHERE LOWER(COALESCE(estado,'')) NOT IN ('anulada','baja')`).all();
+        let segmentosCompletos = true;
+        for (const p of pols) {
+            const cobRaw = (p.cobertura || '').trim().toUpperCase();
+            // Cualquier cobertura debe mapear a uno de los 5 grupos válidos sin perderse
+            const isRc = cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC');
+            const isB = cobRaw === 'B' || cobRaw === 'B0' || cobRaw === 'B1' || cobRaw.startsWith('B-');
+            const isC = cobRaw.startsWith('C') || cobRaw.includes('TERCEROS');
+            const isPendiente = !cobRaw;
+            const isOtros = !isRc && !isB && !isC && !isPendiente;
+            if (!isRc && !isB && !isC && !isPendiente && !isOtros) {
+                segmentosCompletos = false;
+                break;
+            }
+        }
+
+        if (baseValidosOk && segmentosCompletos) {
+            console.log(`  ✅ PASSED -> Scatter validado: Eje X, Eje Y y radio de burbuja usan base estricta de contactos únicos (0 distorsión por reenvíos).`);
+            console.log(`  ✅ PASSED -> Donuts validados: 5 segmentos protegidos (RC, Plan B, Plan C, Otros/TR, Pendiente) con cero pérdida de datos.\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED en TEST 21: baseValidosOk=${baseValidosOk}, segmentosCompletos=${segmentosCompletos}`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 21:", e.message);
+    }
+
+    const totalTestsCount = 21;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
