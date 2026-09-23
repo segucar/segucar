@@ -269,6 +269,21 @@ function openViewWithFilter(viewName, filterVal) {
   filterByState(filterVal);
 }
 
+function openViewWithVehicleFilter(tipoVal) {
+  state.filters.tipo = tipoVal;
+  const filterTipo = getEl('filterTipo');
+  if (filterTipo) filterTipo.value = tipoVal;
+  
+  state.filters.estado = '';
+  const filterEstado = getEl('filterEstado');
+  if (filterEstado) filterEstado.value = '';
+  
+  switchView('cobranza', true);
+  state.pagination.page = 1;
+  fetchClientes();
+}
+window.openViewWithVehicleFilter = openViewWithVehicleFilter;
+
 // ─── VALIDACIÓN DE TELÉFONOS ──────────────────────────────────────────────────────
 async function loadValidacion() {
   const elRes      = document.getElementById('valResumen');
@@ -1017,6 +1032,29 @@ async function fetchStats() {
     setStatValue('dashUniVencidas', (stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR'));
     setStatValue('dashUniHistoricas', (stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR'));
 
+    // Dashboard Cartera por Tipo de Vehículo (5 cards)
+    const vd = stats.vehiculos_desglose || {};
+    const vp = stats.vehiculos_porcentajes || {};
+    const carteraTotal = stats.cartera_activa_total || stats.total_polizas || 0;
+
+    setStatValue('dashVehTotal', carteraTotal.toLocaleString('es-AR'));
+    setStatValue('dashVehAutos', (vd.autos || 0).toLocaleString('es-AR'));
+    setStatValue('dashVehPickups', (vd.pickups || 0).toLocaleString('es-AR'));
+    setStatValue('dashVehMotos', (vd.motos || 0).toLocaleString('es-AR'));
+    setStatValue('dashVehCamiones', (vd.camiones || 0).toLocaleString('es-AR'));
+    setStatValue('dashVehSinClasificar', (vd.sin_clasificar || 0).toLocaleString('es-AR'));
+
+    const elAutosPct = getEl('dashVehAutosPct');
+    if (elAutosPct) elAutosPct.innerText = `${vp.autos || '0'}% de cartera →`;
+    const elPickupsPct = getEl('dashVehPickupsPct');
+    if (elPickupsPct) elPickupsPct.innerText = `${vp.pickups || '0'}% de cartera →`;
+    const elMotosPct = getEl('dashVehMotosPct');
+    if (elMotosPct) elMotosPct.innerText = `${vp.motos || '0'}% de cartera →`;
+    const elCamionesPct = getEl('dashVehCamionesPct');
+    if (elCamionesPct) elCamionesPct.innerText = `${vp.camiones || '0'}% de cartera →`;
+    const elSinClasPct = getEl('dashVehSinClasificarPct');
+    if (elSinClasPct) elSinClasPct.innerText = `${vp.sin_clasificar || '0'}% de cartera →`;
+
     // Dashboard Executive Counters - Cobranza (4 cards)
     setStatValue('dashAlDia', (stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR'));
     setStatValue('dashVence48', (stats.vence_48h || 0).toLocaleString('es-AR'));
@@ -1093,12 +1131,6 @@ async function fetchStats() {
     if (dashCobSinTel) {
       dashCobSinTel.innerText = (stats.cobranzas_sin_telefono || 0).toLocaleString('es-AR');
     }
-
-    // Modular View Counters - Renovaciones
-    setStatValue('statPolizasVigentesRen', (stats.polizas_vigentes || 0).toLocaleString('es-AR'));
-    setStatValue('statVencenSemanaRen', (stats.polizas_vencen_semana || 0).toLocaleString('es-AR'));
-    setStatValue('statPolizasVencidasRen', (stats.polizas_vencidas || 0).toLocaleString('es-AR'));
-    setStatValue('statRecuperarRen', (stats.total_recuperar || 0).toLocaleString('es-AR'));
 
     // Phone Coverage Progress Banner
     const bannerCargados = getEl('bannerCargados');

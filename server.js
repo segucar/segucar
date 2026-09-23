@@ -627,7 +627,7 @@ app.get('/api/dashboard/stats', (req, res) => {
         const esDiaNoHabil = esNoHabil(hoy);
 
         const allPolizas = db.prepare(`
-            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
             FROM polizas p 
             LEFT JOIN clientes c ON p.cliente_id = c.id
         `).all();
@@ -675,6 +675,14 @@ app.get('/api/dashboard/stats', (req, res) => {
         let renovaciones_sin_telefono = 0;
         let cobranzas_sin_telefono = 0;
 
+        const vehiculos_desglose = {
+            autos: 0,
+            pickups: 0,
+            motos: 0,
+            camiones: 0,
+            sin_clasificar: 0
+        };
+
         for (const p of allPolizas) {
             const est = (p.estado || '').toLowerCase();
             if (est === 'anulada' || est === 'baja') continue;
@@ -716,6 +724,14 @@ app.get('/api/dashboard/stats', (req, res) => {
             }
 
             // ── Cartera Activa Viva ──────────────────────────
+            // Desglose por tipo de vehículo
+            const tVeh = (p.tipo_vehiculo || '').trim();
+            if (tVeh === 'Auto') vehiculos_desglose.autos++;
+            else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') vehiculos_desglose.pickups++;
+            else if (tVeh === 'Moto') vehiculos_desglose.motos++;
+            else if (tVeh === 'Camión' || tVeh === 'Camion') vehiculos_desglose.camiones++;
+            else vehiculos_desglose.sin_clasificar++;
+
             // Cobranza:
             if (estadoCob === 'recordatorio_48hs') {
                 vence_48h++;
@@ -762,6 +778,14 @@ app.get('/api/dashboard/stats', (req, res) => {
         const polizas_historicas_total = polizas_historicas_db + polizas_anuladas_db + bajas_por_mora_96h + bajas_vencidas_mas_30d;
         const cobranza_avisos_total = vence_48h + vencio_48h + vencio_96h;
 
+        const vehiculos_porcentajes = {
+            autos: cartera_activa_total > 0 ? ((vehiculos_desglose.autos / cartera_activa_total) * 100).toFixed(1) : '0.0',
+            pickups: cartera_activa_total > 0 ? ((vehiculos_desglose.pickups / cartera_activa_total) * 100).toFixed(1) : '0.0',
+            motos: cartera_activa_total > 0 ? ((vehiculos_desglose.motos / cartera_activa_total) * 100).toFixed(1) : '0.0',
+            camiones: cartera_activa_total > 0 ? ((vehiculos_desglose.camiones / cartera_activa_total) * 100).toFixed(1) : '0.0',
+            sin_clasificar: cartera_activa_total > 0 ? ((vehiculos_desglose.sin_clasificar / cartera_activa_total) * 100).toFixed(1) : '0.0'
+        };
+
         const syncInfo = getLastSyncInfo();
 
         res.json({ 
@@ -788,6 +812,8 @@ app.get('/api/dashboard/stats', (req, res) => {
             polizas_historicas_total,
             bajas_por_mora_96h,
             bajas_vencidas_mas_30d,
+            vehiculos_desglose,
+            vehiculos_porcentajes,
             last_sync_date: lastSync,
             last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
             last_sync_ags: syncInfo.last_sync_ags || null,
@@ -1474,8 +1500,21 @@ app.get('/api/clientes', (req, res) => {
             params.push(...searchObj.params);
         }
         if (tipo_vehiculo) {
-            where += ` AND p.tipo_vehiculo = ?`;
-            params.push(tipo_vehiculo);
+            const tNorm = tipo_vehiculo.toLowerCase().trim();
+            if (tNorm === 'sin_clasificar' || tNorm === 'sin clasificar' || tNorm === 'desconocido') {
+                where += ` AND (p.tipo_vehiculo IS NULL OR TRIM(p.tipo_vehiculo) = '' OR p.tipo_vehiculo NOT IN ('Auto', 'Moto', 'Pick Up', 'Pick-up', 'Utilitario', 'Pick Up/Utilitario', 'Camión', 'Camion'))`;
+            } else if (tNorm === 'pick up' || tNorm === 'pick-up' || tNorm === 'utilitario' || tNorm === 'pick up / utilitario' || tNorm === 'pick up/utilitario') {
+                where += ` AND (p.tipo_vehiculo = 'Pick Up' OR p.tipo_vehiculo = 'Utilitario' OR p.tipo_vehiculo = 'Pick-up' OR p.tipo_vehiculo = 'Pick Up/Utilitario')`;
+            } else if (tNorm === 'camión' || tNorm === 'camion') {
+                where += ` AND (p.tipo_vehiculo = 'Camión' OR p.tipo_vehiculo = 'Camion')`;
+            } else if (tNorm === 'auto') {
+                where += ` AND p.tipo_vehiculo = 'Auto'`;
+            } else if (tNorm === 'moto') {
+                where += ` AND p.tipo_vehiculo = 'Moto'`;
+            } else {
+                where += ` AND p.tipo_vehiculo = ?`;
+                params.push(tipo_vehiculo);
+            }
         }
         let orderOverride = null;
 

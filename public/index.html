@@ -80,66 +80,66 @@
           </button>
         </div>
 
-        <!-- 📊 CUADRO DE MANDO UNIFICADO DE CARTERA -->
-        <div class="card mb-3" style="padding: 20px 22px; background: linear-gradient(135deg, rgba(13, 37, 63, 0.95), rgba(10, 25, 47, 0.95)); border: 1px solid rgba(0, 180, 216, 0.4); border-radius: 16px; margin-bottom: 20px; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);">
-          <div style="font-size: 0.86rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <!-- 📊 CARTERA ACTUAL POR TIPO DE VEHÍCULO -->
+        <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 16px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+          <div style="font-size: 0.85rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 14px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
             <span style="display: flex; align-items: center; gap: 8px;">
-              <span>📊</span> CUADRO DE MANDO UNIFICADO — ESTADO REAL DE CARTERA
+              <span>📊</span> CARTERA ACTUAL POR TIPO DE VEHÍCULO
             </span>
-            <span style="font-size: 0.72rem; color: #a0aec0; text-transform: none; background: rgba(0, 180, 216, 0.15); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.3); font-weight: 600;">
-              Sincronizado con DB en vivo
+            <span style="font-size: 0.72rem; color: #a0aec0; text-transform: none; background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.25); font-weight: 600;">
+              Total Cartera Activa: <strong id="dashVehTotal" style="color: #fff;">0</strong>
             </span>
           </div>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px;">
+            <!-- 1. Autos -->
+            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Auto')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.6rem;">🚗</span>
+                <span style="font-size: 1.45rem; font-weight: 800; color: #48cae4;" id="dashVehAutos">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Autos</div>
+              <div style="font-size: 0.75rem; color: var(--accent-cyan-light); margin-top: 2px; font-weight: 600;" id="dashVehAutosPct">0% de cartera →</div>
+            </button>
 
-          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px;">
-            <!-- 1. Cartera Activa Total -->
-            <div style="background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.12); padding: 12px 14px; border-radius: 12px;">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">🚗 Cartera Activa</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #ffffff; margin-top: 4px;" id="dashUniCartera">0</div>
-              <div style="font-size: 0.7rem; color: #48cae4; margin-top: 2px;">100% pólizas vivas</div>
-            </div>
+            <!-- 2. Pick Ups / Utilitarios -->
+            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Pick Up')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.6rem;">🛻</span>
+                <span style="font-size: 1.45rem; font-weight: 800; color: #2ed573;" id="dashVehPickups">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Pick Ups / Utilitarios</div>
+              <div style="font-size: 0.75rem; color: #2ed573; margin-top: 2px; font-weight: 600;" id="dashVehPickupsPct">0% de cartera →</div>
+            </button>
 
-            <!-- 2. Al Día (Cobranza) -->
-            <div style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('cobranza', 'al_dia')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #2ed573; text-transform: uppercase; letter-spacing: 0.5px;">🟢 Al Día</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #2ed573; margin-top: 4px;" id="dashUniAlDia">0</div>
-              <div style="font-size: 0.7rem; color: rgba(46, 213, 115, 0.9); margin-top: 2px;">Sin atraso de cuota →</div>
-            </div>
+            <!-- 3. Motos -->
+            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Moto')" style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.6rem;">🏍️</span>
+                <span style="font-size: 1.45rem; font-weight: 800; color: #f39c12;" id="dashVehMotos">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Motos</div>
+              <div style="font-size: 0.75rem; color: #f39c12; margin-top: 2px; font-weight: 600;" id="dashVehMotosPct">0% de cartera →</div>
+            </button>
 
-            <!-- 3. Avisos Cobranza Hoy -->
-            <div style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('cobranza', 'vencio_48h')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #f39c12; text-transform: uppercase; letter-spacing: 0.5px;">🟡 Avisos Hoy</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #f39c12; margin-top: 4px;" id="dashUniAvisos">0</div>
-              <div style="font-size: 0.7rem; color: rgba(241, 196, 15, 0.9); margin-top: 2px;">48 hs & 96 hs (16+7+5) →</div>
-            </div>
+            <!-- 4. Camiones -->
+            <button class="action-card-btn" onclick="openViewWithVehicleFilter('Camión')" style="background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.35); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.6rem;">🚛</span>
+                <span style="font-size: 1.45rem; font-weight: 800; color: #a29bfe;" id="dashVehCamiones">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Camiones</div>
+              <div style="font-size: 0.75rem; color: #a29bfe; margin-top: 2px; font-weight: 600;" id="dashVehCamionesPct">0% de cartera →</div>
+            </button>
 
-            <!-- 4. Contratos Vigentes -->
-            <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'vigente')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #00b4d8; text-transform: uppercase; letter-spacing: 0.5px;">🛡️ Vigentes</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #00b4d8; margin-top: 4px;" id="dashUniVigentes">0</div>
-              <div style="font-size: 0.7rem; color: rgba(0, 180, 216, 0.9); margin-top: 2px;">Vigencia activa >7d →</div>
-            </div>
-
-            <!-- 5. Aviso Renovación 7d -->
-            <div style="background: rgba(0, 180, 216, 0.12); border: 1px solid rgba(0, 180, 216, 0.45); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'por_vencer')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #48cae4; text-transform: uppercase; letter-spacing: 0.5px;">📄 Aviso 7 Días</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #48cae4; margin-top: 4px;" id="dashUniPorVencer">0</div>
-              <div style="font-size: 0.7rem; color: rgba(72, 202, 228, 0.9); margin-top: 2px;">Vence en 7 días →</div>
-            </div>
-
-            <!-- 6. Pólizas Vencidas (1-30d) -->
-            <div style="background: rgba(255, 71, 87, 0.08); border: 1px solid rgba(255, 71, 87, 0.35); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #ff4757; text-transform: uppercase; letter-spacing: 0.5px;">⏳ Vencidas (1-30d)</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #ff4757; margin-top: 4px;" id="dashUniVencidas">0</div>
-              <div style="font-size: 0.7rem; color: rgba(255, 71, 87, 0.9); margin-top: 2px;">Re-emisión comercial →</div>
-            </div>
-
-            <!-- 7. Históricas / Bajas -->
-            <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); padding: 12px 14px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;" onclick="window.location.href='recuperacion.html'">
-              <div style="font-size: 0.72rem; font-weight: 700; color: #a0aec0; text-transform: uppercase; letter-spacing: 0.5px;">📂 Históricas / Bajas</div>
-              <div style="font-size: 1.45rem; font-weight: 900; color: #e2e8f0; margin-top: 4px;" id="dashUniHistoricas">0</div>
-              <div style="font-size: 0.7rem; color: #a0aec0; margin-top: 2px;">Recuperación →</div>
-            </div>
+            <!-- 5. Sin clasificar -->
+            <button class="action-card-btn" onclick="openViewWithVehicleFilter('sin_clasificar')" style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.15); text-align: left; padding: 16px; border-radius: 12px; cursor: pointer; transition: all 0.2s ease;">
+              <div style="display:flex; justify-content:space-between; align-items:center;">
+                <span style="font-size: 1.6rem;">❓</span>
+                <span style="font-size: 1.45rem; font-weight: 800; color: #a0aec0;" id="dashVehSinClasificar">0</span>
+              </div>
+              <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-primary); margin-top: 6px;">Sin clasificar</div>
+              <div style="font-size: 0.75rem; color: #a0aec0; margin-top: 2px; font-weight: 600;" id="dashVehSinClasificarPct">0% de cartera →</div>
+            </button>
           </div>
         </div>
 
@@ -391,9 +391,10 @@
           <select id="filterTipo" class="filter-select">
             <option value="">Vehículo (Todos)</option>
             <option value="Auto">🚗 Auto</option>
+            <option value="Pick Up">🛻 Pick Up / Utilitario</option>
             <option value="Moto">🏍️ Moto</option>
-            <option value="Pick Up">🛻 Pick Up</option>
             <option value="Camión">🚛 Camión</option>
+            <option value="sin_clasificar">❓ Sin clasificar</option>
           </select>
           <select id="filterEstado" class="filter-select">
             <option value="">Estado (Todos)</option>

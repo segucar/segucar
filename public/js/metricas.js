@@ -19,9 +19,13 @@ async function fetchMetricas(rango = currentRangoMetricas, desde = currentCustom
     if (rango === 'custom' && desde && hasta) {
       url += `&desde=${desde}&hasta=${hasta}`;
     }
-    const res = await fetch(url);
-    const data = await res.json();
-    renderMetricasUI(data);
+    const [resMetricas, resStats] = await Promise.all([
+      fetch(url),
+      fetch('/api/dashboard/stats')
+    ]);
+    const data = await resMetricas.json();
+    const stats = await resStats.json();
+    renderMetricasUI(data, stats);
   } catch (err) {
     console.error('Error fetching metricas:', err);
     container.innerHTML = '<div class="card" style="padding:20px; color:var(--danger);">Error al cargar las métricas comerciales.</div>';
@@ -50,7 +54,7 @@ function applyCustomDateMetricas() {
   fetchMetricas('custom', d, h);
 }
 
-function renderMetricasUI(data) {
+function renderMetricasUI(data, stats = {}) {
   const container = document.getElementById('viewMetricas');
   if (!container) return;
 
@@ -164,6 +168,87 @@ function renderMetricasUI(data) {
         <a href="/api/exportar-sin-telefono" class="btn btn-ghost" style="color: var(--accent-cyan-light); border: 1px solid rgba(0, 180, 216, 0.4); background: rgba(0, 180, 216, 0.1); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;" title="Descargar reporte Excel unificado con todos los clientes sin teléfono, incompletos o invalidados">
           📱 Exportar Clientes Sin Teléfono
         </a>
+      </div>
+    </div>
+
+    <!-- CUADRO DE MANDO ESTRATÉGICO (7 TARJETAS) -->
+    <div class="card mb-3" style="padding: 18px 20px; background: rgba(10, 25, 47, 0.9); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
+      <div style="font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+        <span style="display: flex; align-items: center; gap: 8px;">
+          <span>🎯</span> CUADRO DE MANDO ESTRATÉGICO — RESUMEN GLOBAL DE CARTERA
+        </span>
+        <span style="font-size: 0.72rem; color: var(--text-secondary); text-transform: none;">Accesos directos con filtros automáticos</span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px;">
+        <!-- 1. Cartera Total -->
+        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">👥</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #00b4d8;">${(stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Cartera Activa Total</div>
+          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); margin-top: 2px;">Vigentes + Avisos</div>
+        </button>
+
+        <!-- 2. Al Día -->
+        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">🟢</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #2ed573;">${(stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Al Día (Sin mora)</div>
+          <div style="font-size: 0.72rem; color: #2ed573; margin-top: 2px;">Sin cuotas vencidas</div>
+        </button>
+
+        <!-- 3. Avisos Cobranza -->
+        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'vencio_48h')" style="background: rgba(230, 126, 34, 0.08); border: 1px solid rgba(230, 126, 34, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">⚠️</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #e67e22;">${(stats.cobranza_avisos_total || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Avisos Cobranza</div>
+          <div style="font-size: 0.72rem; color: #e67e22; margin-top: 2px;">48h + 1° y 2° aviso</div>
+        </button>
+
+        <!-- 4. Contrato Vigente -->
+        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'vigente')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">🛡️</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #2ed573;">${(stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Contrato Vigente</div>
+          <div style="font-size: 0.72rem; color: #2ed573; margin-top: 2px;">Vigencia > 7 días</div>
+        </button>
+
+        <!-- 5. Aviso Renovación (7d) -->
+        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'por_vencer')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">📄</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #00b4d8;">${(stats.polizas_vencen_semana || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Aviso Renovación</div>
+          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); margin-top: 2px;">Vence en 7 días</div>
+        </button>
+
+        <!-- 6. Póliza Vencida (1-30d) -->
+        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')" style="background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">⏳</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #e74c3c;">${(stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Póliza Vencida</div>
+          <div style="font-size: 0.72rem; color: #ff7675; margin-top: 2px;">Vencida hace 1-30d</div>
+        </button>
+
+        <!-- 7. Históricas / Bajas -->
+        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'recuperar')" style="background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <span style="font-size: 1.3rem;">📦</span>
+            <span style="font-size: 1.35rem; font-weight: 800; color: #a29bfe;">${(stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR')}</span>
+          </div>
+          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Históricas / Bajas</div>
+          <div style="font-size: 0.72rem; color: #a29bfe; margin-top: 2px;">Bajas mora + >30d</div>
+        </button>
       </div>
     </div>
 

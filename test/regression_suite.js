@@ -822,7 +822,91 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 18:", e.message);
     }
 
-    const totalTestsCount = 18;
+    // ─── TEST 19: Desglose de Cartera por Tipo de Vehículo (100% Cobertura de Cartera Activa) ───
+    console.log("📌 TEST 19: Desglose de Cartera por Tipo de Vehículo (100% Cobertura de Cartera Activa)");
+    try {
+        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
+        const hoy = getArgentinaNow();
+        const todayStr = toLocalDateString(hoy);
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        
+        const renewedPolizaIds = new Set();
+        const polizasByPatente = {};
+        for (const p of allPolizas) {
+            if (!p.patente) continue;
+            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+            polizasByPatente[p.patente].push(p);
+        }
+        for (const pat in polizasByPatente) {
+            const group = polizasByPatente[pat];
+            if (group.length <= 1) continue;
+            group.sort((a, b) => {
+                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+                if (a.aseguradora === b.aseguradora) {
+                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+                }
+                return 0;
+            });
+            for (let i = 1; i < group.length; i++) {
+                renewedPolizaIds.add(group[i].id);
+            }
+        }
+
+        const vehDesglose = { autos: 0, pickups: 0, motos: 0, camiones: 0, sin_clasificar: 0 };
+        let activeCount = 0;
+
+        for (const p of allPolizas) {
+            const est = (p.estado || '').toLowerCase();
+            if (est === 'anulada' || est === 'baja') continue;
+            if (renewedPolizaIds.has(p.id)) continue;
+
+            const fv = p.fecha_vencimiento;
+            const fvRen = p.fin_vigencia_poliza || fv;
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+
+            let estadoCob = 'al_dia';
+            if (saldoVal > 0) {
+                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
+            }
+            if (estadoCob === 'mora_critica') continue;
+
+            let calDiffRen = 0;
+            if (fvRen) {
+                const parts = fvRen.split('-');
+                if (parts.length === 3) {
+                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                    const todayDate = parseLocalDate(todayStr);
+                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+                }
+            }
+
+            if (calDiffRen < -30) continue;
+
+            activeCount++;
+            const tVeh = (p.tipo_vehiculo || '').trim();
+            if (tVeh === 'Auto') vehDesglose.autos++;
+            else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') vehDesglose.pickups++;
+            else if (tVeh === 'Moto') vehDesglose.motos++;
+            else if (tVeh === 'Camión' || tVeh === 'Camion') vehDesglose.camiones++;
+            else vehDesglose.sin_clasificar++;
+        }
+
+        const sumaVehiculos = vehDesglose.autos + vehDesglose.pickups + vehDesglose.motos + vehDesglose.camiones + vehDesglose.sin_clasificar;
+        const matchVeh = (sumaVehiculos === activeCount && activeCount === 1601);
+
+        if (matchVeh) {
+            console.log(`  ✅ PASSED -> Desglose Vehículos 100% OK: ${vehDesglose.autos} autos + ${vehDesglose.pickups} pickups + ${vehDesglose.motos} motos + ${vehDesglose.camiones} camiones + ${vehDesglose.sin_clasificar} sin clasificar = ${sumaVehiculos} / ${activeCount} Cartera Activa.\n`);
+            totalPassed++;
+        } else {
+            console.error(`  ❌ FAILED -> Discrepancia en suma Vehículos (${sumaVehiculos} vs ${activeCount})`);
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 19:", e.message);
+    }
+
+    const totalTestsCount = 19;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
