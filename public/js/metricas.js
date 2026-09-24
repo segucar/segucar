@@ -264,6 +264,10 @@ function renderMetricasUI(data, stats = {}) {
           🔄 Actualizar
         </button>
 
+        <button class="btn btn-ghost" onclick="exportarReporteEjecutivoExcel()" style="color: #2ed573; border: 1px solid rgba(46, 213, 115, 0.4); background: rgba(46, 213, 115, 0.1); font-weight: 700; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px; cursor: pointer;" title="Descargar reporte ejecutivo Excel consolidado con 4 hojas (Resumen, Plantillas, Vehículos, Trayectoria)">
+          📊 Exportar Reporte Ejecutivo
+        </button>
+
         <a href="/api/exportar-sin-telefono" class="btn btn-ghost" style="color: var(--accent-cyan-light); border: 1px solid rgba(0, 180, 216, 0.4); background: rgba(0, 180, 216, 0.1); font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 8px;" title="Descargar reporte Excel unificado con todos los clientes sin teléfono, incompletos o invalidados">
           📱 Exportar Clientes Sin Teléfono
         </a>
@@ -1735,6 +1739,15 @@ window.ejecutarDespachoUpsell = async function() {
   } finally {
     if (btn) btn.disabled = false;
   }
+};
+
+window.exportarReporteEjecutivoExcel = function() {
+  const rango = currentRangoMetricas || 'este_mes';
+  let url = `/api/metricas/exportar-excel?rango=${encodeURIComponent(rango)}`;
+  if (rango === 'custom' && currentCustomDesde && currentCustomHasta) {
+    url += `&desde=${encodeURIComponent(currentCustomDesde)}&hasta=${encodeURIComponent(currentCustomHasta)}`;
+  }
+  window.open(url, '_blank');
 };
 
 

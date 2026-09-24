@@ -597,267 +597,268 @@ function getSaldoExigible(poliza) {
 
 
 
+function calcularDashboardStatsData() {
+    const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
+    const clientes_con_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().count;
+    const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
+    const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
+
+    const total_polizas = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')").get().count;
+    const total_recuperar = db.prepare(`
+        SELECT COUNT(*) as count FROM polizas_historicas ph
+        WHERE (ph.fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
+            SELECT 1 FROM polizas p 
+            WHERE (p.patente = ph.patente AND p.patente IS NOT NULL AND p.patente != '')
+               OR (p.operacion = ph.operacion AND p.operacion IS NOT NULL AND p.operacion != '')
+        )
+    `).get().count;
+
+    const todayStr = toLocalISOString(getArgentinaNow());
+    const lastSync = getLastSyncDate();
+    const hoy = getArgentinaNow();
+
+    // ── Días hábiles: si hoy es finde o feriado, los contadores de cobranza muestran 0
+    //    El panel permanece visible pero no genera alertas falsas en días no laborables.
+    const esDiaNoHabil = esNoHabil(hoy);
+
+    const allPolizas = db.prepare(`
+        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+        FROM polizas p 
+        LEFT JOIN clientes c ON p.cliente_id = c.id
+    `).all();
+
+    // Build set of poliza IDs that have been superseded by a newer operation for the same patente
+    const renewedPolizaIds = new Set();
+    const polizasByPatente = {};
+    for (const p of allPolizas) {
+        if (!p.patente) continue;
+        if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
+        polizasByPatente[p.patente].push(p);
+    }
+    for (const pat in polizasByPatente) {
+        const group = polizasByPatente[pat];
+        if (group.length <= 1) continue;
+        group.sort((a, b) => {
+            const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+            const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+            if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+            if (a.aseguradora === b.aseguradora) {
+                return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+            }
+            return 0;
+        });
+        for (let i = 1; i < group.length; i++) {
+            renewedPolizaIds.add(group[i].id);
+        }
+    }
+    
+    let vence_48h = 0;
+    let vencio_48h = 0;
+    let vencio_96h = 0;
+    let al_dia_estricto = 0;
+
+    let polizas_vigentes = 0;
+    let polizas_vencen_semana = 0;
+    let polizas_vencidas = 0;
+
+    let bajas_por_mora_96h = 0;
+    let bajas_vencidas_mas_30d = 0;
+
+    let renovaciones_sin_telefono = 0;
+    let cobranzas_sin_telefono = 0;
+
+    const vehiculos_desglose = {
+        autos: 0,
+        pickups: 0,
+        motos: 0,
+        camiones: 0,
+        sin_clasificar: 0
+    };
+
+    const cobertura_vehiculos = {
+        autos: { label: 'Autos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+        pickups: { label: 'Pick Ups / Utilitarios', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+        motos: { label: 'Motos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+        camiones: { label: 'Camiones', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+        sin_clasificar: { label: 'Sin clasificar', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
+        totales: { label: 'TOTAL CARTERA ACTIVA', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 }
+    };
+
+    for (const p of allPolizas) {
+        const est = (p.estado || '').toLowerCase();
+        if (est === 'anulada' || est === 'baja') continue;
+        const isRenewed = renewedPolizaIds.has(p.id);
+        if (isRenewed) continue;
+
+        const fv = p.fecha_vencimiento;
+        const fvRen = p.fin_vigencia_poliza || fv;
+        const saldoVal = parseFloat(p.saldo_pendiente || 0);
+        const hasPhone = p.cliente_telefono && String(p.cliente_telefono).replace(/\D/g, '').length >= 10;
+
+        // 1. Evaluar Cobranza (días hábiles con feriados)
+        let estadoCob = 'al_dia';
+        if (saldoVal > 0 && !esDiaNoHabil) {
+            estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
+        }
+
+        // Si tiene cuota vencida > 96hs (4 días hábiles), pasa a BAJA dinámica (0 envíos automáticos)
+        if (estadoCob === 'mora_critica') {
+            bajas_por_mora_96h++;
+            continue; // No cuenta en Cartera Activa viva
+        }
+
+        // 2. Evaluar vigencia de contrato
+        let calDiffRen = 0;
+        if (fvRen) {
+            const parts = fvRen.split('-');
+            if (parts.length === 3) {
+                const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+                const todayDate = parseLocalDate(todayStr);
+                calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
+            }
+        }
+
+        // Si expiró hace más de 30 días, pasa a Históricas / Bajas
+        if (calDiffRen < -30) {
+            bajas_vencidas_mas_30d++;
+            continue;
+        }
+
+        // ── Cartera Activa Viva ──────────────────────────
+        // Desglose por tipo de vehículo
+        let vKey = 'sin_clasificar';
+        const tVeh = (p.tipo_vehiculo || '').trim();
+        if (tVeh === 'Auto') {
+            vehiculos_desglose.autos++;
+            vKey = 'autos';
+        } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
+            vehiculos_desglose.pickups++;
+            vKey = 'pickups';
+        } else if (tVeh === 'Moto') {
+            vehiculos_desglose.motos++;
+            vKey = 'motos';
+        } else if (tVeh === 'Camión' || tVeh === 'Camion') {
+            vehiculos_desglose.camiones++;
+            vKey = 'camiones';
+        } else {
+            vehiculos_desglose.sin_clasificar++;
+        }
+
+        // Desglose cruzado por tipo de vehículo y cobertura
+        const cobRaw = (p.cobertura || '').trim().toUpperCase();
+        let cKey = 'pendiente';
+        if (cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC') || cobRaw.includes('RESPONSABILIDAD CIVIL')) {
+            cKey = 'rc';
+        } else if (cobRaw === 'B' || cobRaw === 'B0' || cobRaw === 'B1' || cobRaw.startsWith('B-') || cobRaw.startsWith('B1')) {
+            cKey = 'plan_b';
+        } else if (cobRaw.startsWith('C') || cobRaw.includes('TERCEROS')) {
+            cKey = 'plan_c';
+        } else if (cobRaw.startsWith('D') || cobRaw.includes('TODO RIESGO') || cobRaw.includes('TR')) {
+            cKey = 'todo_riesgo';
+        } else if (cobRaw) {
+            cKey = 'otros';
+        }
+
+        cobertura_vehiculos[vKey][cKey]++;
+        cobertura_vehiculos[vKey].total++;
+        cobertura_vehiculos.totales[cKey]++;
+        cobertura_vehiculos.totales.total++;
+
+        // Cobranza:
+        if (estadoCob === 'recordatorio_48hs') {
+            vence_48h++;
+            if (!hasPhone) cobranzas_sin_telefono++;
+        } else if (estadoCob === 'cuota_vencida_0_48hs') {
+            vencio_48h++;
+            if (!hasPhone) cobranzas_sin_telefono++;
+        } else if (estadoCob === 'cuota_vencida_48_96hs') {
+            vencio_96h++;
+            if (!hasPhone) cobranzas_sin_telefono++;
+        } else {
+            al_dia_estricto++;
+        }
+
+        // Renovaciones:
+        let cuotaAtrasada5d = false;
+        if (fv && saldoVal > 2500) {
+            const partsCuota = fv.split('-');
+            if (partsCuota.length === 3) {
+                const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
+                const todayDate = parseLocalDate(todayStr);
+                cuotaAtrasada5d = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
+            }
+        }
+
+        if (calDiffRen === 7) {
+            if (cuotaAtrasada5d) {
+                polizas_vigentes++; // Sigue en Contrato Vigente pero sin disparo de aviso
+            } else {
+                polizas_vencen_semana++;
+                if (!hasPhone) renovaciones_sin_telefono++;
+            }
+        } else if (calDiffRen >= 0) {
+            polizas_vigentes++;
+        } else if (calDiffRen >= -30) {
+            polizas_vencidas++;
+        }
+    }
+
+    const cartera_activa_total = al_dia_estricto + vence_48h + vencio_48h + vencio_96h;
+    const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
+    const polizas_anuladas_db = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").get().count;
+    const polizas_historicas_total = polizas_historicas_db + polizas_anuladas_db + bajas_por_mora_96h + bajas_vencidas_mas_30d;
+    const cobranza_avisos_total = vence_48h + vencio_48h + vencio_96h;
+
+    const vehiculos_porcentajes = {
+        autos: cartera_activa_total > 0 ? ((vehiculos_desglose.autos / cartera_activa_total) * 100).toFixed(1) : '0.0',
+        pickups: cartera_activa_total > 0 ? ((vehiculos_desglose.pickups / cartera_activa_total) * 100).toFixed(1) : '0.0',
+        motos: cartera_activa_total > 0 ? ((vehiculos_desglose.motos / cartera_activa_total) * 100).toFixed(1) : '0.0',
+        camiones: cartera_activa_total > 0 ? ((vehiculos_desglose.camiones / cartera_activa_total) * 100).toFixed(1) : '0.0',
+        sin_clasificar: cartera_activa_total > 0 ? ((vehiculos_desglose.sin_clasificar / cartera_activa_total) * 100).toFixed(1) : '0.0'
+    };
+
+    const syncInfo = getLastSyncInfo();
+
+    return { 
+        total_clientes, 
+        total_polizas: cartera_activa_total, 
+        cartera_activa_total,
+        clientes_con_telefono,
+        clientes_sin_telefono,
+        cobertura_porcentaje,
+        polizas_vencen_semana, 
+        polizas_vencidas,
+        polizas_vigentes,
+        polizas_vigentes_puras: polizas_vigentes,
+        al_dia: al_dia_estricto,
+        al_dia_estricto,
+        cobranza_avisos_total,
+        cuotas_deuda: 0, 
+        total_deudores: 0, 
+        vence_48h,
+        vencio_48h,
+        vencio_96h,
+        renovaciones_sin_telefono,
+        cobranzas_sin_telefono,
+        total_recuperar: polizas_historicas_total,
+        polizas_historicas_total,
+        bajas_por_mora_96h,
+        bajas_vencidas_mas_30d,
+        vehiculos_desglose,
+        vehiculos_porcentajes,
+        cobertura_vehiculos,
+        last_sync_date: lastSync,
+        last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
+        last_sync_ags: syncInfo.last_sync_ags || null,
+        last_sync_nre_status: syncInfo.last_sync_nre_status || 'ok',
+        last_sync_ags_status: syncInfo.last_sync_ags_status || 'ok',
+        es_dia_no_habil: esDiaNoHabil
+    };
+}
+
 app.get('/api/dashboard/stats', (req, res) => {
     try {
-        const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
-        const clientes_con_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().count;
-        const clientes_sin_telefono = db.prepare("SELECT COUNT(*) as count FROM clientes WHERE telefono IS NULL OR length(telefono) < 10").get().count;
-        const cobertura_porcentaje = total_clientes > 0 ? ((clientes_con_telefono / total_clientes) * 100).toFixed(1) : '0';
-
-        const total_polizas = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')").get().count;
-        const total_recuperar = db.prepare(`
-            SELECT COUNT(*) as count FROM polizas_historicas ph
-            WHERE (ph.fecha_vencimiento < date('now', '-30 days')) AND NOT EXISTS (
-                SELECT 1 FROM polizas p 
-                WHERE (p.patente = ph.patente AND p.patente IS NOT NULL AND p.patente != '')
-                   OR (p.operacion = ph.operacion AND p.operacion IS NOT NULL AND p.operacion != '')
-            )
-        `).get().count;
-
-        const todayStr = toLocalISOString(getArgentinaNow());
-        const lastSync = getLastSyncDate();
-        const hoy = getArgentinaNow();
-
-        // ── Días hábiles: si hoy es finde o feriado, los contadores de cobranza muestran 0
-        //    El panel permanece visible pero no genera alertas falsas en días no laborables.
-        const esDiaNoHabil = esNoHabil(hoy);
-
-        const allPolizas = db.prepare(`
-            SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
-            FROM polizas p 
-            LEFT JOIN clientes c ON p.cliente_id = c.id
-        `).all();
-
-        // Build set of poliza IDs that have been superseded by a newer operation for the same patente
-        const renewedPolizaIds = new Set();
-        const polizasByPatente = {};
-        for (const p of allPolizas) {
-            if (!p.patente) continue;
-            if (!polizasByPatente[p.patente]) polizasByPatente[p.patente] = [];
-            polizasByPatente[p.patente].push(p);
-        }
-        for (const pat in polizasByPatente) {
-            const group = polizasByPatente[pat];
-            if (group.length <= 1) continue;
-            // Ordenar primero por fecha de fin de vigencia (el más nuevo en el tiempo gana)
-            // y solo por número de operación si es dentro de la misma aseguradora
-            group.sort((a, b) => {
-                const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
-                const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
-                if (fvA !== fvB) return fvA > fvB ? -1 : 1;
-                if (a.aseguradora === b.aseguradora) {
-                    return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
-                }
-                return 0;
-            });
-            // Todas excepto la primera (activa más reciente) quedan marcadas como reemplazadas
-            for (let i = 1; i < group.length; i++) {
-                renewedPolizaIds.add(group[i].id);
-            }
-        }
-        
-        let vence_48h = 0;
-        let vencio_48h = 0;
-        let vencio_96h = 0;
-        let al_dia_estricto = 0;
-
-        let polizas_vigentes = 0;
-        let polizas_vencen_semana = 0;
-        let polizas_vencidas = 0;
-
-        let bajas_por_mora_96h = 0;
-        let bajas_vencidas_mas_30d = 0;
-
-        let renovaciones_sin_telefono = 0;
-        let cobranzas_sin_telefono = 0;
-
-        const vehiculos_desglose = {
-            autos: 0,
-            pickups: 0,
-            motos: 0,
-            camiones: 0,
-            sin_clasificar: 0
-        };
-
-        const cobertura_vehiculos = {
-            autos: { label: 'Autos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
-            pickups: { label: 'Pick Ups / Utilitarios', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
-            motos: { label: 'Motos', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
-            camiones: { label: 'Camiones', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
-            sin_clasificar: { label: 'Sin clasificar', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 },
-            totales: { label: 'TOTAL CARTERA ACTIVA', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 }
-        };
-
-        for (const p of allPolizas) {
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
-            const isRenewed = renewedPolizaIds.has(p.id);
-            if (isRenewed) continue;
-
-            const fv = p.fecha_vencimiento;
-            const fvRen = p.fin_vigencia_poliza || fv;
-            const saldoVal = parseFloat(p.saldo_pendiente || 0);
-            const hasPhone = p.cliente_telefono && String(p.cliente_telefono).replace(/\D/g, '').length >= 10;
-
-            // 1. Evaluar Cobranza (días hábiles con feriados)
-            let estadoCob = 'al_dia';
-            if (saldoVal > 0 && !esDiaNoHabil) {
-                estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
-            }
-
-            // Si tiene cuota vencida > 96hs (4 días hábiles), pasa a BAJA dinámica (0 envíos automáticos)
-            if (estadoCob === 'mora_critica') {
-                bajas_por_mora_96h++;
-                continue; // No cuenta en Cartera Activa viva
-            }
-
-            // 2. Evaluar vigencia de contrato
-            let calDiffRen = 0;
-            if (fvRen) {
-                const parts = fvRen.split('-');
-                if (parts.length === 3) {
-                    const vtoDate = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
-                    const todayDate = parseLocalDate(todayStr);
-                    calDiffRen = Math.round((vtoDate - todayDate) / (1000 * 60 * 60 * 24));
-                }
-            }
-
-            // Si expiró hace más de 30 días, pasa a Históricas / Bajas
-            if (calDiffRen < -30) {
-                bajas_vencidas_mas_30d++;
-                continue;
-            }
-
-            // ── Cartera Activa Viva ──────────────────────────
-            // Desglose por tipo de vehículo
-            let vKey = 'sin_clasificar';
-            const tVeh = (p.tipo_vehiculo || '').trim();
-            if (tVeh === 'Auto') {
-                vehiculos_desglose.autos++;
-                vKey = 'autos';
-            } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
-                vehiculos_desglose.pickups++;
-                vKey = 'pickups';
-            } else if (tVeh === 'Moto') {
-                vehiculos_desglose.motos++;
-                vKey = 'motos';
-            } else if (tVeh === 'Camión' || tVeh === 'Camion') {
-                vehiculos_desglose.camiones++;
-                vKey = 'camiones';
-            } else {
-                vehiculos_desglose.sin_clasificar++;
-            }
-
-            // Desglose cruzado por tipo de vehículo y cobertura
-            const cobRaw = (p.cobertura || '').trim().toUpperCase();
-            let cKey = 'pendiente';
-            if (cobRaw === 'A' || cobRaw === 'A2' || cobRaw === 'RC' || cobRaw.startsWith('RC') || cobRaw.includes('RESPONSABILIDAD CIVIL')) {
-                cKey = 'rc';
-            } else if (cobRaw === 'B' || cobRaw === 'B0' || cobRaw === 'B1' || cobRaw.startsWith('B-') || cobRaw.startsWith('B1')) {
-                cKey = 'plan_b';
-            } else if (cobRaw.startsWith('C') || cobRaw.includes('TERCEROS')) {
-                cKey = 'plan_c';
-            } else if (cobRaw.startsWith('D') || cobRaw.includes('TODO RIESGO') || cobRaw.includes('TR')) {
-                cKey = 'todo_riesgo';
-            } else if (cobRaw) {
-                cKey = 'otros';
-            }
-
-            cobertura_vehiculos[vKey][cKey]++;
-            cobertura_vehiculos[vKey].total++;
-            cobertura_vehiculos.totales[cKey]++;
-            cobertura_vehiculos.totales.total++;
-
-            // Cobranza:
-            if (estadoCob === 'recordatorio_48hs') {
-                vence_48h++;
-                if (!hasPhone) cobranzas_sin_telefono++;
-            } else if (estadoCob === 'cuota_vencida_0_48hs') {
-                vencio_48h++;
-                if (!hasPhone) cobranzas_sin_telefono++;
-            } else if (estadoCob === 'cuota_vencida_48_96hs') {
-                vencio_96h++;
-                if (!hasPhone) cobranzas_sin_telefono++;
-            } else {
-                al_dia_estricto++;
-            }
-
-            // Renovaciones:
-            // Regla interna: clientes con cuota atrasada > 5 días dentro de los 96hs no reciben aviso de renovación 7d
-            let cuotaAtrasada5d = false;
-            if (fv && saldoVal > 2500) {
-                const partsCuota = fv.split('-');
-                if (partsCuota.length === 3) {
-                    const vtoCuotaDate = new Date(parseInt(partsCuota[0]), parseInt(partsCuota[1]) - 1, parseInt(partsCuota[2]));
-                    const todayDate = parseLocalDate(todayStr);
-                    cuotaAtrasada5d = Math.round((vtoCuotaDate - todayDate) / (1000 * 60 * 60 * 24)) < -5;
-                }
-            }
-
-            if (calDiffRen === 7) {
-                if (cuotaAtrasada5d) {
-                    polizas_vigentes++; // Sigue en Contrato Vigente pero sin disparo de aviso
-                } else {
-                    polizas_vencen_semana++;
-                    if (!hasPhone) renovaciones_sin_telefono++;
-                }
-            } else if (calDiffRen >= 0) {
-                polizas_vigentes++;
-            } else if (calDiffRen >= -30) {
-                polizas_vencidas++;
-            }
-        }
-
-        const cartera_activa_total = al_dia_estricto + vence_48h + vencio_48h + vencio_96h;
-        const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
-        const polizas_anuladas_db = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").get().count;
-        const polizas_historicas_total = polizas_historicas_db + polizas_anuladas_db + bajas_por_mora_96h + bajas_vencidas_mas_30d;
-        const cobranza_avisos_total = vence_48h + vencio_48h + vencio_96h;
-
-        const vehiculos_porcentajes = {
-            autos: cartera_activa_total > 0 ? ((vehiculos_desglose.autos / cartera_activa_total) * 100).toFixed(1) : '0.0',
-            pickups: cartera_activa_total > 0 ? ((vehiculos_desglose.pickups / cartera_activa_total) * 100).toFixed(1) : '0.0',
-            motos: cartera_activa_total > 0 ? ((vehiculos_desglose.motos / cartera_activa_total) * 100).toFixed(1) : '0.0',
-            camiones: cartera_activa_total > 0 ? ((vehiculos_desglose.camiones / cartera_activa_total) * 100).toFixed(1) : '0.0',
-            sin_clasificar: cartera_activa_total > 0 ? ((vehiculos_desglose.sin_clasificar / cartera_activa_total) * 100).toFixed(1) : '0.0'
-        };
-
-        const syncInfo = getLastSyncInfo();
-
-        res.json({ 
-            total_clientes, 
-            total_polizas: cartera_activa_total, 
-            cartera_activa_total,
-            clientes_con_telefono,
-            clientes_sin_telefono,
-            cobertura_porcentaje,
-            polizas_vencen_semana, 
-            polizas_vencidas,
-            polizas_vigentes,
-            al_dia: al_dia_estricto,
-            al_dia_estricto,
-            cobranza_avisos_total,
-            cuotas_deuda: 0, 
-            total_deudores: 0, 
-            vence_48h,
-            vencio_48h,
-            vencio_96h,
-            renovaciones_sin_telefono,
-            cobranzas_sin_telefono,
-            total_recuperar: polizas_historicas_total,
-            polizas_historicas_total,
-            bajas_por_mora_96h,
-            bajas_vencidas_mas_30d,
-            vehiculos_desglose,
-            vehiculos_porcentajes,
-            cobertura_vehiculos,
-            last_sync_date: lastSync,
-            last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
-            last_sync_ags: syncInfo.last_sync_ags || null,
-            last_sync_nre_status: syncInfo.last_sync_nre_status || 'ok',
-            last_sync_ags_status: syncInfo.last_sync_ags_status || 'ok',
-            es_dia_no_habil: esDiaNoHabil
-        });
+        res.json(calcularDashboardStatsData());
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -3446,13 +3447,10 @@ app.get('/api/metricas', (req, res) => {
     res.redirect('/api/metricas/resumen');
 });
 
-app.get('/api/metricas/resumen', (req, res) => {
-    try {
-        evaluarAtribucionMetricas();
+function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
+    evaluarAtribucionMetricas();
 
-        const rango = req.query.rango || 'este_mes';
-        const desdeParam = req.query.desde;
-        const hastaParam = req.query.hasta;
+    const rango = rangoInput || 'este_mes';
 
         function toSqliteDateStr(d) {
             if (!d) return null;
@@ -3859,7 +3857,7 @@ app.get('/api/metricas/resumen', (req, res) => {
             porcentaje: totalClientes > 0 ? parseFloat(((conTel / totalClientes) * 100).toFixed(1)) : 0
         };
 
-        res.json({
+        return {
             rango,
             total_envios,
             total_validos,
@@ -3878,11 +3876,465 @@ app.get('/api/metricas/resumen', (req, res) => {
             funnel_conversion,
             historico_semanal,
             cobertura_contacto
-        });
+        };
+}
+
+app.get('/api/metricas/resumen', (req, res) => {
+    try {
+        const data = calcularMetricasResumenData(req.query.rango, req.query.desde, req.query.hasta);
+        res.json(data);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
 });
+
+// ─── EXPORTACIÓN A EXCEL: REPORTE EJECUTIVO DE MÉTRICAS (4 HOJAS CONSOLIDADAS) ───
+
+async function generarReporteEjecutivoMetricasExcel(req, res) {
+    try {
+        const rango = req.query.rango || 'este_mes';
+        const desdeParam = req.query.desde;
+        const hastaParam = req.query.hasta;
+
+        const metrics = calcularMetricasResumenData(rango, desdeParam, hastaParam);
+        const stats = calcularDashboardStatsData();
+
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'SEGUCar';
+        workbook.created = new Date();
+
+        function getRangoDescripcion(r, d, h) {
+            if (r === 'hoy') return 'Hoy (Día Actual)';
+            if (r === 'esta_semana') return 'Esta Semana (Lunes a Hoy)';
+            if (r === 'este_mes') return 'Este Mes';
+            if (r === 'mes_anterior') return 'Mes Anterior';
+            if (r === '30_dias') return 'Últimos 30 Días';
+            if (r === 'anio_actual') return 'Año Actual';
+            if (r === 'custom') return `Rango Personalizado (${d || ''} al ${h || ''})`;
+            if (r === 'todo') return 'Todo el Historial';
+            return r || 'Este Mes';
+        }
+
+        const ahoraArg = getArgentinaNow();
+        const fechaEmisionStr = ahoraArg.toLocaleString('es-AR', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+        const todayFileStr = toLocalISOString(ahoraArg);
+        const periodoDesc = getRangoDescripcion(rango, desdeParam, hastaParam);
+
+        // Estilos reutilizables
+        function applyHeaderStyle(row) {
+            row.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FFFFFFFF' } };
+            row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF0A192F' } };
+            row.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+            row.eachCell({ includeEmpty: false }, cell => {
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FF334155' } },
+                    left: { style: 'thin', color: { argb: 'FF334155' } },
+                    bottom: { style: 'medium', color: { argb: 'FF00B4D8' } },
+                    right: { style: 'thin', color: { argb: 'FF334155' } }
+                };
+            });
+        }
+
+        function applyRowBorders(row) {
+            row.eachCell({ includeEmpty: false }, cell => {
+                cell.border = {
+                    top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                    left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                    bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+                    right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+                };
+            });
+        }
+
+        function applyTotalStyle(row) {
+            row.font = { name: 'Segoe UI', size: 10, bold: true, color: { argb: 'FF003366' } };
+            row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEBF8FF' } };
+            row.eachCell({ includeEmpty: false }, cell => {
+                cell.border = {
+                    top: { style: 'medium', color: { argb: 'FF00B4D8' } },
+                    left: { style: 'thin', color: { argb: 'FFBEE3F8' } },
+                    bottom: { style: 'double', color: { argb: 'FF00B4D8' } },
+                    right: { style: 'thin', color: { argb: 'FFBEE3F8' } }
+                };
+            });
+        }
+
+        const SECTION_FONT = { name: 'Segoe UI', size: 11, bold: true, color: { argb: 'FF007ACC' } };
+
+        // ══════════════════════════════════════════════════════════════════
+        // HOJA 1: RESUMEN GENERAL
+        // ══════════════════════════════════════════════════════════════════
+        const ws1 = workbook.addWorksheet('Resumen General');
+        ws1.views = [{ showGridLines: true }];
+
+        const r1_1 = ws1.addRow(['SEGUCar — Reporte Ejecutivo de Métricas y Conversión Comercial']);
+        r1_1.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FF0A192F' } };
+
+        const r1_2 = ws1.addRow([`Período Cubierto: ${periodoDesc}  |  Emisión: ${fechaEmisionStr} (Hora Argentina)`]);
+        r1_2.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: 'FF475569' } };
+        ws1.addRow([]);
+
+        // Bloque 1: KPIs Principales
+        const rSec1 = ws1.addRow(['1. INDICADORES CLAVE DE CONVERSIÓN (KPIs DEL PERÍODO)']);
+        rSec1.font = SECTION_FONT;
+
+        const rHeadKpis = ws1.addRow(['Indicador', 'Valor del Período', 'Detalle Operativo / Comparativa']);
+        applyHeaderStyle(rHeadKpis);
+
+        const rKpi1 = ws1.addRow([
+            'Dinero Recuperado Total',
+            metrics.dinero_recuperado_total || 0,
+            metrics.comparativa?.prev_dinero !== undefined ? `vs ${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_dinero_pct >= 0 ? '+' : ''}${metrics.comparativa.var_dinero_pct}%` : 'Atribuido a gestiones de cobranza y renovación'
+        ]);
+        rKpi1.getCell(2).numFmt = '"$"#,##0.00';
+        applyRowBorders(rKpi1);
+
+        const rKpi2 = ws1.addRow([
+            'Tasa de Conversión Global',
+            parseFloat(metrics.tasa_conversion_global || 0) / 100,
+            metrics.comparativa?.var_conversion_pts !== undefined ? `vs ${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_conversion_pts >= 0 ? '+' : ''}${metrics.comparativa.var_conversion_pts} pts` : 'Calculada sobre contactos válidos (únicos)'
+        ]);
+        rKpi2.getCell(2).numFmt = '0.0%';
+        applyRowBorders(rKpi2);
+
+        const rKpi3 = ws1.addRow([
+            'Tiempo Promedio de Cobro',
+            `${metrics.tiempo_promedio_dias || 0} días`,
+            'Promedio ponderado desde envío de WhatsApp hasta resolución de cuota'
+        ]);
+        applyRowBorders(rKpi3);
+
+        const rKpi4 = ws1.addRow([
+            'Estado de Gestiones',
+            `${metrics.total_envios || 0} envíos totales`,
+            `${metrics.total_validos || 0} únicos (${metrics.reemplazadas || 0} re-envíos), ${metrics.exitosos_totales + metrics.exitosos_parciales} exitosos, ${metrics.pendientes} pendientes, ${metrics.vencidos_sin_pago} vencidos`
+        ]);
+        applyRowBorders(rKpi4);
+
+        ws1.addRow([]);
+
+        // Bloque 2: Cuadro de Mando Estratégico
+        const rSec2 = ws1.addRow(['2. CUADRO DE MANDO ESTRATÉGICO — RESUMEN GLOBAL DE CARTERA']);
+        rSec2.font = SECTION_FONT;
+
+        const rNota2 = ws1.addRow(['* Nota: Foto global de la cartera al momento de generar el reporte — no varía según el período seleccionado arriba.']);
+        rNota2.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+
+        const rHeadCartera = ws1.addRow(['Concepto / Estado', 'Pólizas', 'Detalle Operativo']);
+        applyHeaderStyle(rHeadCartera);
+
+        const rowsCartera = [
+            ['👥 Cartera Activa Total', stats.cartera_activa_total || stats.total_polizas || 0, 'Pólizas vigentes + avisos de cobranza activos'],
+            ['🟢 Al Día (Sin mora)', stats.al_dia_estricto || stats.al_dia || 0, 'Clientes 100% al día sin cuotas adeudadas ni mora'],
+            ['⚠️ Avisos Cobranza', stats.cobranza_avisos_total || 0, 'Recordatorio 48h preventivo + 1° y 2° aviso mora'],
+            ['🛡️ Contrato Vigente', stats.polizas_vigentes_puras || stats.polizas_vigentes || 0, 'Pólizas con vigencia mayor a 7 días'],
+            ['📄 Aviso Renovación', stats.polizas_vencen_semana || 0, 'Pólizas al día con vencimiento en los próximos 7 días'],
+            ['⚫ Póliza Vencida', stats.polizas_vencidas || 0, 'Pólizas vencidas de 1 a 30 días en gestión'],
+            ['📦 Históricas / Bajas', stats.polizas_historicas_total || stats.total_recuperar || 0, 'Pólizas expiradas >30d o baja por mora >96hs']
+        ];
+        rowsCartera.forEach(rc => {
+            const row = ws1.addRow(rc);
+            row.getCell(2).numFmt = '#,##0';
+            applyRowBorders(row);
+        });
+
+        ws1.addRow([]);
+
+        // Bloque 3: Desglose por Aseguradora
+        const rSec3 = ws1.addRow(['3. DESGLOSE COMERCIAL POR ASEGURADORA (PERÍODO SELECCIONADO)']);
+        rSec3.font = SECTION_FONT;
+
+        const rHeadAseg = ws1.addRow(['Aseguradora', 'Dinero Recuperado', 'Envíos Únicos', 'Tasa Conversión', 'Ticket Promedio por Envío']);
+        applyHeaderStyle(rHeadAseg);
+
+        const nre = metrics.desglose_aseguradora?.nre || {};
+        const ags = metrics.desglose_aseguradora?.ags || {};
+
+        const rNre = ws1.addRow([
+            'Triunvirato (NRE)',
+            nre.dinero_recuperado || 0,
+            nre.envios_unicos || 0,
+            parseFloat(nre.tasa_conversion || 0) / 100,
+            nre.ticket_promedio_envio || 0
+        ]);
+        rNre.getCell(2).numFmt = '"$"#,##0.00';
+        rNre.getCell(3).numFmt = '#,##0';
+        rNre.getCell(4).numFmt = '0.0%';
+        rNre.getCell(5).numFmt = '"$"#,##0.00';
+        applyRowBorders(rNre);
+
+        const rAgs = ws1.addRow([
+            'Agrosalta (AGS)',
+            ags.dinero_recuperado || 0,
+            ags.envios_unicos || 0,
+            parseFloat(ags.tasa_conversion || 0) / 100,
+            ags.ticket_promedio_envio || 0
+        ]);
+        rAgs.getCell(2).numFmt = '"$"#,##0.00';
+        rAgs.getCell(3).numFmt = '#,##0';
+        rAgs.getCell(4).numFmt = '0.0%';
+        rAgs.getCell(5).numFmt = '"$"#,##0.00';
+        applyRowBorders(rAgs);
+
+        const totDinAseg = (nre.dinero_recuperado || 0) + (ags.dinero_recuperado || 0);
+        const totUnicosAseg = (nre.envios_unicos || 0) + (ags.envios_unicos || 0);
+        const totExitAseg = (nre.exitosos || 0) + (ags.exitosos || 0);
+        const totTasaAseg = totUnicosAseg > 0 ? (totExitAseg / totUnicosAseg) : 0;
+        const totTicketAseg = totUnicosAseg > 0 ? (totDinAseg / totUnicosAseg) : 0;
+
+        const rTotAseg = ws1.addRow([
+            'TOTAL CONSOLIDADO',
+            totDinAseg,
+            totUnicosAseg,
+            totTasaAseg,
+            totTicketAseg
+        ]);
+        rTotAseg.getCell(2).numFmt = '"$"#,##0.00';
+        rTotAseg.getCell(3).numFmt = '#,##0';
+        rTotAseg.getCell(4).numFmt = '0.0%';
+        rTotAseg.getCell(5).numFmt = '"$"#,##0.00';
+        applyTotalStyle(rTotAseg);
+
+        // ══════════════════════════════════════════════════════════════════
+        // HOJA 2: RENDIMIENTO POR PLANTILLA
+        // ══════════════════════════════════════════════════════════════════
+        const ws2 = workbook.addWorksheet('Rendimiento por Plantilla');
+        ws2.views = [{ showGridLines: true }];
+
+        const r2_1 = ws2.addRow(['SEGUCar — Rendimiento y Efectividad por Plantilla de WhatsApp']);
+        r2_1.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FF0A192F' } };
+
+        const r2_2 = ws2.addRow([`Período Cubierto: ${periodoDesc}  |  Emisión: ${fechaEmisionStr}`]);
+        r2_2.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: 'FF475569' } };
+        ws2.addRow([]);
+
+        const rHeadPlant = ws2.addRow([
+            'Plantilla / Gestión',
+            'Total Envíos',
+            'Re-envíos Reemplazados',
+            'Contactos Válidos (Únicos)',
+            'Gestiones Exitosas',
+            'Pendientes',
+            'Vencidos',
+            'Tasa de Conversión',
+            'Dinero Recuperado'
+        ]);
+        applyHeaderStyle(rHeadPlant);
+
+        const plantillaNombres = {
+            'recordatorio_48hs': 'Recordatorio 48 hs (Preventivo)',
+            'primer_aviso': 'Primer Aviso (Cuota Vencida)',
+            'segundo_aviso': 'Segundo Aviso (Cuota Vencida)',
+            'renovacion_7_dias': 'Aviso Renovación (Vence en 7 Días)',
+            'poliza_vencida': 'Aviso Póliza Vencida (1 a 30 Días)',
+            'recuperacion_historica': 'Propuesta Reactivación Cartera',
+            'upsell_cobertura_c': 'Campaña Upsell Cobertura (Plan C)'
+        };
+
+        const perfList = (metrics.plantillas_performance || []).filter(p => !['mora_critica', 'renovacion_deuda'].includes(p.tipo_plantilla));
+
+        let sumEnvios = 0, sumReemp = 0, sumValidos = 0, sumExit = 0, sumPend = 0, sumVenc = 0, sumDin = 0;
+
+        for (const p of perfList) {
+            const validos = Math.max(0, p.total_envios - (p.reemplazadas || 0));
+            sumEnvios += (p.total_envios || 0);
+            sumReemp += (p.reemplazadas || 0);
+            sumValidos += validos;
+            sumExit += (p.exitosos || 0);
+            sumPend += (p.pendientes || 0);
+            sumVenc += (p.vencidos || 0);
+            sumDin += (p.dinero_recuperado || 0);
+
+            const row = ws2.addRow([
+                plantillaNombres[p.tipo_plantilla] || p.tipo_plantilla,
+                p.total_envios || 0,
+                p.reemplazadas || 0,
+                validos,
+                p.exitosos || 0,
+                p.pendientes || 0,
+                p.vencidos || 0,
+                parseFloat(p.tasa_conversion || 0) / 100,
+                p.dinero_recuperado || 0
+            ]);
+            row.getCell(2).numFmt = '#,##0';
+            row.getCell(3).numFmt = '#,##0';
+            row.getCell(4).numFmt = '#,##0';
+            row.getCell(5).numFmt = '#,##0';
+            row.getCell(6).numFmt = '#,##0';
+            row.getCell(7).numFmt = '#,##0';
+            row.getCell(8).numFmt = '0.0%';
+            row.getCell(9).numFmt = '"$"#,##0.00';
+            applyRowBorders(row);
+        }
+
+        const tasaGlobalPerf = sumValidos > 0 ? (sumExit / sumValidos) : 0;
+        const rTotPlant = ws2.addRow([
+            'TOTALES CONSOLIDADOS',
+            sumEnvios,
+            sumReemp,
+            sumValidos,
+            sumExit,
+            sumPend,
+            sumVenc,
+            tasaGlobalPerf,
+            sumDin
+        ]);
+        rTotPlant.getCell(2).numFmt = '#,##0';
+        rTotPlant.getCell(3).numFmt = '#,##0';
+        rTotPlant.getCell(4).numFmt = '#,##0';
+        rTotPlant.getCell(5).numFmt = '#,##0';
+        rTotPlant.getCell(6).numFmt = '#,##0';
+        rTotPlant.getCell(7).numFmt = '#,##0';
+        rTotPlant.getCell(8).numFmt = '0.0%';
+        rTotPlant.getCell(9).numFmt = '"$"#,##0.00';
+        applyTotalStyle(rTotPlant);
+
+        // ══════════════════════════════════════════════════════════════════
+        // HOJA 3: COBERTURA POR TIPO DE VEHÍCULO
+        // ══════════════════════════════════════════════════════════════════
+        const ws3 = workbook.addWorksheet('Cobertura por Vehículo');
+        ws3.views = [{ showGridLines: true }];
+
+        const r3_1 = ws3.addRow(['SEGUCar — Distribución Cruzada: Tipo de Vehículo × Cobertura']);
+        r3_1.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FF0A192F' } };
+
+        const r3_2 = ws3.addRow(['Foto global de la cartera activa conciliada (100% de vehículos auditados)']);
+        r3_2.font = { name: 'Segoe UI', size: 10, italic: true, color: { argb: 'FF475569' } };
+        ws3.addRow([]);
+
+        const rHeadCob = ws3.addRow([
+            'Tipo de Vehículo',
+            'Responsabilidad Civil (RC)',
+            'Plan B (Terceros)',
+            'Plan C (Terceros Completo)',
+            'Todo Riesgo',
+            'Otros',
+            'Pendiente de Relevamiento',
+            'Total Pólizas'
+        ]);
+        applyHeaderStyle(rHeadCob);
+
+        const cob = stats.cobertura_vehiculos || {};
+        const catRows = [
+            { label: 'Autos', data: cob.autos || {} },
+            { label: 'Pick Ups / Utilitarios', data: cob.pickups || {} },
+            { label: 'Motos', data: cob.motos || {} },
+            { label: 'Camiones', data: cob.camiones || {} }
+        ];
+
+        if (cob.sin_clasificar && cob.sin_clasificar.total > 0) {
+            catRows.push({ label: 'Sin Clasificar', data: cob.sin_clasificar });
+        }
+
+        catRows.forEach(c => {
+            const row = ws3.addRow([
+                c.label,
+                c.data.rc || 0,
+                c.data.plan_b || 0,
+                c.data.plan_c || 0,
+                c.data.todo_riesgo || 0,
+                c.data.otros || 0,
+                c.data.pendiente || 0,
+                c.data.total || 0
+            ]);
+            for (let col = 2; col <= 8; col++) {
+                row.getCell(col).numFmt = '#,##0';
+            }
+            applyRowBorders(row);
+        });
+
+        const totCob = cob.totales || {};
+        const rTotCob = ws3.addRow([
+            'TOTAL CARTERA ACTIVA',
+            totCob.rc || 0,
+            totCob.plan_b || 0,
+            totCob.plan_c || 0,
+            totCob.todo_riesgo || 0,
+            totCob.otros || 0,
+            totCob.pendiente || 0,
+            totCob.total || 0
+        ]);
+        for (let col = 2; col <= 8; col++) {
+            rTotCob.getCell(col).numFmt = '#,##0';
+        }
+        applyTotalStyle(rTotCob);
+
+        // ══════════════════════════════════════════════════════════════════
+        // HOJA 4: TRAYECTORIA SEMANAL
+        // ══════════════════════════════════════════════════════════════════
+        const ws4 = workbook.addWorksheet('Trayectoria Semanal');
+        ws4.views = [{ showGridLines: true }];
+
+        const r4_1 = ws4.addRow(['SEGUCar — Trayectoria y Evolución Semanal de Cobranzas']);
+        r4_1.font = { name: 'Segoe UI', size: 14, bold: true, color: { argb: 'FF0A192F' } };
+
+        const r4_2 = ws4.addRow(['* Nota: Últimas 8 semanas corridas, independiente del período seleccionado arriba.']);
+        r4_2.font = { name: 'Segoe UI', size: 9, italic: true, color: { argb: 'FF64748B' } };
+        ws4.addRow([]);
+
+        const rHeadSem = ws4.addRow([
+            'Semana',
+            'Fecha Inicio',
+            'Envíos Totales',
+            'Contactos Únicos',
+            'Ratio Reenvíos',
+            'Gestiones Exitosas',
+            'Tasa de Conversión',
+            'Dinero Recuperado'
+        ]);
+        applyHeaderStyle(rHeadSem);
+
+        const semList = metrics.historico_semanal || [];
+        for (const s of semList) {
+            const row = ws4.addRow([
+                s.semana,
+                s.label,
+                s.envios || 0,
+                s.envios_unicos || 0,
+                `${(s.reenvios_ratio || 1).toFixed(2)}x`,
+                s.exitosos || 0,
+                parseFloat(s.tasa_conversion || 0) / 100,
+                s.dinero_recuperado || 0
+            ]);
+            row.getCell(3).numFmt = '#,##0';
+            row.getCell(4).numFmt = '#,##0';
+            row.getCell(6).numFmt = '#,##0';
+            row.getCell(7).numFmt = '0.0%';
+            row.getCell(8).numFmt = '"$"#,##0.00';
+            applyRowBorders(row);
+        }
+
+        // Auto-ajustar ancho de columnas en todas las hojas
+        [ws1, ws2, ws3, ws4].forEach(ws => {
+            ws.columns.forEach(column => {
+                let maxLen = 0;
+                column.eachCell({ includeEmpty: false }, cell => {
+                    const val = cell.value ? String(cell.value) : '';
+                    if (val.length > maxLen && !val.includes('\n')) {
+                        maxLen = val.length;
+                    }
+                });
+                column.width = Math.max(maxLen + 4, 15);
+            });
+        });
+
+        const cleanRango = (rango || 'este_mes').replace(/[^a-zA-Z0-9_-]/g, '_');
+        const filename = `SEGUCar_Reporte_Metricas_${cleanRango}_${todayFileStr}.xlsx`;
+
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        await workbook.xlsx.write(res);
+        res.end();
+    } catch (error) {
+        console.error('Error generando reporte ejecutivo Excel:', error);
+        res.status(500).json({ error: error.message });
+    }
+}
+
+app.get('/api/metricas/exportar-excel', generarReporteEjecutivoMetricasExcel);
 
 // ─── ENDPOINTS CAMPAÑA UPSELL COBERTURA RC (AUTOS Y PICK UPS 100% AL DÍA) ───
 
@@ -4960,5 +5412,9 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
 
 // ─── DESPACHADOR AUTOMÁTICO DE WHATSAPP 8:00 AM ────────────────────────────
 iniciarScheduler8AM({ db, waService });
+
+app.calcularDashboardStatsData = calcularDashboardStatsData;
+app.calcularMetricasResumenData = calcularMetricasResumenData;
+app.generarReporteEjecutivoMetricasExcel = generarReporteEjecutivoMetricasExcel;
 
 module.exports = app;
