@@ -666,8 +666,8 @@ async function toggleAnulada(polizaId, operacion) {
         const data = await res.json();
         if (data.ok) {
             alert(data.message);
-            if (typeof loadClientData === 'function') {
-                loadClientData();
+            if (typeof loadData === 'function') {
+                await loadData();
             } else {
                 window.location.reload();
             }

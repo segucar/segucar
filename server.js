@@ -2209,11 +2209,11 @@ app.get('/api/clientes/:id', (req, res) => {
     try {
         const cliente = db.prepare('SELECT * FROM clientes WHERE id = ?').get(req.params.id);
         if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+        // En la ficha individual del cliente se muestra el historial completo de pólizas (incluyendo anuladas y vigentes)
         cliente.polizas = db.prepare(`
             SELECT * FROM polizas 
             WHERE cliente_id = ? 
-              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
-            ORDER BY fecha_vencimiento DESC
+            ORDER BY fecha_vencimiento DESC, id DESC
         `).all(cliente.id);
         cliente.contactos = db.prepare('SELECT * FROM contactos WHERE cliente_id = ? ORDER BY fecha DESC LIMIT 20').all(cliente.id);
         res.json(cliente);
@@ -2446,25 +2446,22 @@ app.delete('/api/polizas/:id', (req, res) => {
 app.post('/api/polizas/:id/toggle-anulada', (req, res) => {
     try {
         const idParam = req.params.id;
-        const pol = db.prepare('SELECT id, operacion, patente, estado, anulada, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ? OR operacion = ?').get(idParam, idParam);
+        const pol = db.prepare('SELECT id, operacion, patente, estado, anulada, estado_nre, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ? OR operacion = ?').get(idParam, idParam);
         if (!pol) return res.status(404).json({ ok: false, error: 'Póliza no encontrada' });
 
-        const nuevoAnulada = pol.anulada === 1 ? 0 : 1;
-        const nuevoEstado = nuevoAnulada === 1 ? 'anulada' : 'vigente';
+        const isCurrentlyAnulada = db.esPolizaAnulada(pol);
+        let nuevoAnulada = 0;
+        let nuevoEstado = 'vigente';
 
-        db.prepare(`
-            UPDATE polizas 
-            SET anulada = ?,
-                estado = ?,
-                saldo_pendiente = CASE WHEN ? = 1 THEN 0 ELSE saldo_pendiente END,
-                cuotas_debe = CASE WHEN ? = 1 THEN 0 ELSE cuotas_debe END,
-                observaciones = CASE 
-                    WHEN ? = 1 AND (observaciones IS NULL OR observaciones = '') THEN 'Anulada en NRE'
-                    WHEN ? = 1 AND observaciones NOT LIKE '%Anulada en NRE%' THEN observaciones || ' | Anulada en NRE'
-                    ELSE observaciones 
-                END
-            WHERE id = ?
-        `).run(nuevoAnulada, nuevoEstado, nuevoAnulada, nuevoAnulada, nuevoAnulada, nuevoAnulada, pol.id);
+        if (isCurrentlyAnulada) {
+            db.desmarcarPolizaAnulada(pol.id);
+            nuevoAnulada = 0;
+            nuevoEstado = 'vigente';
+        } else {
+            db.marcarPolizaAnulada(pol.id, 'Anulada manualmente');
+            nuevoAnulada = 1;
+            nuevoEstado = 'anulada';
+        }
 
         res.json({
             ok: true,

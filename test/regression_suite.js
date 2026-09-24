@@ -1238,17 +1238,35 @@ async function runRegressionSuite() {
         }
         const op4ResurrectOk = activeOp4Only === 1 && activeOpId === 'TESTOP4_NAV';
 
+        // E. Ficha Individual del Cliente: debe devolver todas las pólizas (historial completo visible para auditar/reactivar)
+        const polizasDetailClient = db.prepare(`
+            SELECT * FROM polizas 
+            WHERE cliente_id = ? 
+            ORDER BY fecha_vencimiento DESC, id DESC
+        `).all(cliNavTest);
+        const detailSheetShowsAllOk = polizasDetailClient.length === 4;
+
+        // F. Toggle manual (para corregir errores humanos o reactivar desde UI)
+        db.desmarcarPolizaAnulada(999923);
+        const pol3Reactivada = db.prepare("SELECT * FROM polizas WHERE id = 999923").get();
+        const reactivadaOk = db.esPolizaAnulada(pol3Reactivada) === false && pol3Reactivada.anulada === 0;
+
+        db.marcarPolizaAnulada(999923, 'Anulada nuevamente');
+        const pol3Reanulada = db.prepare("SELECT * FROM polizas WHERE id = 999923").get();
+        const reanuladaOk = db.esPolizaAnulada(pol3Reanulada) === true && pol3Reanulada.anulada === 1;
+
         // Limpieza de datos sintéticos
         db.prepare("DELETE FROM polizas WHERE cliente_id = ?").run(cliNavTest);
         db.prepare("DELETE FROM clientes WHERE id = ?").run(cliNavTest);
 
-        if (helperOk && zeroMessagesOk && zeroActiveOk && op4ResurrectOk) {
+        if (helperOk && zeroMessagesOk && zeroActiveOk && op4ResurrectOk && detailSheetShowsAllOk && reactivadaOk && reanuladaOk) {
             console.log("  ✅ PASSED -> Helper canónico db.esPolizaAnulada validado (anulada=1, estado='anulada', estado_nre='Anulada').");
             console.log("  ✅ PASSED -> Deduplicación Multiop: Póliza más reciente anulada EXCLUYE vehículo completo (0 mensajes, 0 cartera activa).");
-            console.log("  ✅ PASSED -> Resurrección Controlada: Nueva operación vigente para la misma patente activa solo la nueva sin revivir intermedias.\n");
+            console.log("  ✅ PASSED -> Resurrección Controlada: Nueva operación vigente para la misma patente activa solo la nueva sin revivir intermedias.");
+            console.log("  ✅ PASSED -> Ficha Individual: Historial completo visible para auditoría (polizas.length > 0) y toggle de reactivación/anulación 100% funcional.\n");
             totalPassed++;
         } else {
-            console.error("  ❌ FAILED en TEST 23:", { helperOk, zeroMessagesOk, zeroActiveOk, op4ResurrectOk });
+            console.error("  ❌ FAILED en TEST 23:", { helperOk, zeroMessagesOk, zeroActiveOk, op4ResurrectOk, detailSheetShowsAllOk, reactivadaOk, reanuladaOk });
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 23:", e.message);
