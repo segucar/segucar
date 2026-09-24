@@ -232,18 +232,36 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
                 else if ((venc - hoy) / 86400000 <= 30) estado = 'por_vencer';
             }
 
-            // Detect vehicle type
+            // Detect vehicle type (Prioridad 1: Sección oficial de NRE; Prioridad 2: Fallback por regex)
+            const MOTO_KEYWORDS_REGEX = /\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110|GIXXER|INTRUDER|V-STROM|BURGMAN|AN\s*125|DR\s*\d+|GS\s*\d+|SUZUKI\s*MOTO)\b/i;
+            const CAMION_PESADO_REGEX = /\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i;
+            const PICKUP_REGEX = /\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i;
+
             let tipoVehiculo = 'Auto';
-            if (String(item.seccion || '').trim() === '36') {
+            const seccionStr = String(item.seccion || '').trim();
+            if (seccionStr === '36') {
                 tipoVehiculo = 'Moto';
-            } else {
+            } else if (seccionStr === '4') {
+                // Sección 4 = Automotores (NUNCA puede ser Moto)
                 const v = (item.vehiculo || '').toUpperCase();
-                if (/\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|SUZUKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110)\b/i.test(v)) {
-                    tipoVehiculo = 'Moto';
-                } else if (/\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i.test(v)) {
+                if (CAMION_PESADO_REGEX.test(v)) {
                     tipoVehiculo = 'Camión';
-                } else if (/\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i.test(v)) {
+                } else if (PICKUP_REGEX.test(v)) {
                     tipoVehiculo = 'Pick Up';
+                } else {
+                    tipoVehiculo = 'Auto';
+                }
+            } else {
+                // Fallback para secciones no reconocidas o vacías (ej. AGS)
+                const v = (item.vehiculo || '').toUpperCase();
+                if (MOTO_KEYWORDS_REGEX.test(v)) {
+                    tipoVehiculo = 'Moto';
+                } else if (CAMION_PESADO_REGEX.test(v)) {
+                    tipoVehiculo = 'Camión';
+                } else if (PICKUP_REGEX.test(v)) {
+                    tipoVehiculo = 'Pick Up';
+                } else {
+                    tipoVehiculo = 'Auto';
                 }
             }
 

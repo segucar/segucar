@@ -330,8 +330,11 @@ addColumn('cuotas_historial', 'TEXT');
 addColumn('fecha_vencimiento_grucar', 'DATE');
 addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
-addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 addColumn('cobertura', 'TEXT');
+addColumn('anulada', 'INTEGER DEFAULT 0');
+
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_polizas_anulada ON polizas(anulada)"); } catch(e) {}
+try { db.prepare("UPDATE polizas SET anulada = 1 WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").run(); } catch(e) {}
 
 // ─── Migraciones de Columnas para Clientes ──────────────────────────────────
 addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
@@ -990,7 +993,12 @@ db.normalizarTipoVehiculos = () => {
             db.exec(`UPDATE polizas SET tipo_vehiculo = 'Moto' WHERE (seccion = 36 OR seccion = '36') AND tipo_vehiculo != 'Moto'`);
             db.exec(`UPDATE polizas_historicas SET tipo_vehiculo = 'Moto' WHERE (seccion = 36 OR seccion = '36') AND tipo_vehiculo != 'Moto'`);
 
-            // 2. Semirremolques, acoplados y transporte pesado
+            // 2. Automotores oficiales de NRE (sección 4): NUNCA pueden ser 'Moto'
+            // Corrige cualquier caso (ej. Suzuki Fun/Swift/Vitara, Peugeot 306 XR) que haya matcheado erróneamente con regexes
+            db.exec(`UPDATE polizas SET tipo_vehiculo = 'Auto' WHERE (seccion = 4 OR seccion = '4') AND tipo_vehiculo = 'Moto'`);
+            db.exec(`UPDATE polizas_historicas SET tipo_vehiculo = 'Auto' WHERE (seccion = 4 OR seccion = '4') AND tipo_vehiculo = 'Moto'`);
+
+            // 3. Semirremolques, acoplados y transporte pesado
             db.exec(`
                 UPDATE polizas 
                 SET tipo_vehiculo = 'Camión' 
@@ -1004,7 +1012,7 @@ db.normalizarTipoVehiculos = () => {
                   AND (vehiculo LIKE '%SEMIRREMOLQUE%' OR vehiculo LIKE '%ACOPLADO%' OR vehiculo LIKE '%TRAILER%' OR vehiculo LIKE '%AST-PRA%')
             `);
         })();
-        console.log('✅ Normalización de tipo_vehiculo (Motos secc 36 y Semirremolques) completada en DB.');
+        console.log('✅ Normalización de tipo_vehiculo (Motos secc 36, Automotores secc 4 y Semirremolques) completada en DB.');
     } catch (e) {
         console.error('Error normalizando tipo_vehiculo en DB:', e);
     }

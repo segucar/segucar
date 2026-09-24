@@ -592,10 +592,41 @@ function getSaldoExigible(poliza) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-//  DASHBOARD
+//  DASHBOARD & CLASIFICADOR CANÓNICO DE VEHÍCULOS
 // ═══════════════════════════════════════════════════════════════════════════
 
+const MOTO_KEYWORDS_REGEX = /\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110|GIXXER|INTRUDER|V-STROM|BURGMAN|AN\s*125|DR\s*\d+|GS\s*\d+|SUZUKI\s*MOTO)\b/i;
+const CAMION_PESADO_REGEX = /\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i;
+const PICKUP_REGEX = /\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i;
 
+function clasificarVehiculoReal(p) {
+    if (!p) return 'Auto';
+
+    // 1. MÁXIMA PRIORIDAD: Sección oficial de NRE
+    const seccionStr = String(p.seccion || '').trim();
+    if (seccionStr === '36') {
+        return 'Moto';
+    }
+    if (seccionStr === '4') {
+        // Sección 4 = Automotores (NUNCA puede ser Moto)
+        const v = String(p.vehiculo || '').toUpperCase();
+        if (CAMION_PESADO_REGEX.test(v)) return 'Camión';
+        if (PICKUP_REGEX.test(v)) return 'Pick Up';
+        return 'Auto';
+    }
+
+    // 2. FALLBACK: Si seccion viene vacía, null o no reconocida (ej. Agrosalta)
+    const v = String(p.vehiculo || '').toUpperCase();
+    if (MOTO_KEYWORDS_REGEX.test(v)) return 'Moto';
+    if (CAMION_PESADO_REGEX.test(v)) return 'Camión';
+    if (PICKUP_REGEX.test(v)) return 'Pick Up';
+
+    const t = String(p.tipo_vehiculo || '').trim().toLowerCase();
+    if (t === 'moto') return 'Moto';
+    if (t === 'camión' || t === 'camion') return 'Camión';
+    if (t.includes('pick') || t === 'utilitario') return 'Pick Up';
+    return 'Auto';
+}
 
 function calcularDashboardStatsData() {
     const total_clientes = db.prepare('SELECT COUNT(*) as count FROM clientes').get().count;
@@ -622,7 +653,7 @@ function calcularDashboardStatsData() {
     const esDiaNoHabil = esNoHabil(hoy);
 
     const allPolizas = db.prepare(`
-        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
         FROM polizas p 
         LEFT JOIN clientes c ON p.cliente_id = c.id
     `).all();
@@ -725,19 +756,19 @@ function calcularDashboardStatsData() {
         }
 
         // ── Cartera Activa Viva ──────────────────────────
-        // Desglose por tipo de vehículo
+        // Desglose por tipo de vehículo (usando clasificador canónico con máxima prioridad en seccion)
         let vKey = 'sin_clasificar';
-        const tVeh = (p.tipo_vehiculo || '').trim();
-        if (tVeh === 'Auto') {
+        const vReal = clasificarVehiculoReal(p);
+        if (vReal === 'Auto') {
             vehiculos_desglose.autos++;
             vKey = 'autos';
-        } else if (tVeh === 'Pick Up' || tVeh === 'Pick-up' || tVeh === 'Utilitario' || tVeh === 'Pick Up/Utilitario') {
+        } else if (vReal === 'Pick Up') {
             vehiculos_desglose.pickups++;
             vKey = 'pickups';
-        } else if (tVeh === 'Moto') {
+        } else if (vReal === 'Moto') {
             vehiculos_desglose.motos++;
             vKey = 'motos';
-        } else if (tVeh === 'Camión' || tVeh === 'Camion') {
+        } else if (vReal === 'Camión') {
             vehiculos_desglose.camiones++;
             vKey = 'camiones';
         } else {
@@ -2877,25 +2908,6 @@ app.get('/api/whatsapp/chat/:clienteId', (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
-// ─── CLASIFICADOR CANÓNICO DE VEHÍCULOS (SECCIÓN 36 + MARCAS/MODELOS) ─────
-const MOTO_KEYWORDS_REGEX = /\b(MOTO|MOTOS|MOTOCICLETA|CICLOMOTOR|CUATRICICLO|ATV|SCOOTER|ZANELLA|TITAN|TORNADO|TWISTER|WAVE|BIZ|STORM|YBR|FZ|XTZ|CRYPTON|BENELLI|BAJAJ|ROUSER|DUKE|KTM|GILERA|MOTOMEL|CORVEN|MONDIAL|GUERRERO|SIAMBRETA|SIAM|KELLER|BRAVA|PIAGGIO|VESPA|KLIGHT|MEGELLI|SMASH|HUNTER|MILESTONE|SKUA|TRIP|JAWA|DAYTONA|GARELLI|BETA|SYM|KYMCO|ROYAL\s*ENFIELD|DUCATI|HARLEY|KAWASAKI|SUZUKI|YAMAHA|HUSQVARNA|KEEWAY|RVM|ZONTES|CFMOTO|VOGE|HERO|NAKED|FZR|NINJA|CBR|GSX|XRE|XR\s*\d+|CG\s*\d+|GN\s*125|EN\s*125|AX\s*100|GLH|NEW\s*CRYPTON|RD\s*200|ENERGY\s*110|KN\s*110|LD\s*110)\b/i;
-const CAMION_PESADO_REGEX = /\b(CAMION|CAMIÓN|SCANIA|IVECO|VOLVO|ACOPLADO|SEMI|SEMIRREMOLQUE|SEMI-RREMOLQUE|TRAILER|BATAM|CHASIS|CARGO|1114|1215|1620|608|7000|14000|DP\s*800|K\s*2400|HD78|HD65|AGRALE|CASA\s*RODANTE|IMPLEMENTO|MERCEDES\s*BENZ\s*L|FORD\s*CAMION|TRACTOR|CARRETON|BATEA|AST-PRA|AST\s*PRA|RANDON|HELVETICA|BONANO|MALDONADO|SALTO|CRESPO|HERMANN)\b/i;
-const PICKUP_REGEX = /\b(PICK\s*UP|PICKUP|PICK-UP|P-UP|HILUX|RANGER|AMAROK|L200|S10|FRONTIER|ALASKAN|STRADA|SAVEIRO|TORO|FIORINO|KANGOO|PARTNER|BERLINGO|COURIER|OROCH|MONTANA|RAM|F-100|F100|SILVERADO|CHEYENNE|DAKOTA|C-10|C10|D-20|D20|LUV|RASTROJERO|EXPERT|JUMPY|VITO|TRANSIT|DUCATO|MASTER|SPRINTER|TRAFIC|JUMPER|BOXER|EXPRESS|FURGON|FURGÓN)\b/i;
-
-function clasificarVehiculoReal(p) {
-    if (!p) return 'Auto';
-    if (String(p.seccion || '').trim() === '36') return 'Moto';
-    const v = String(p.vehiculo || '').toUpperCase();
-    if (MOTO_KEYWORDS_REGEX.test(v)) return 'Moto';
-    if (CAMION_PESADO_REGEX.test(v)) return 'Camión';
-    if (PICKUP_REGEX.test(v)) return 'Pick Up';
-    const t = String(p.tipo_vehiculo || '').trim().toLowerCase();
-    if (t === 'moto') return 'Moto';
-    if (t === 'camión' || t === 'camion') return 'Camión';
-    if (t.includes('pick') || t === 'utilitario') return 'Pick Up';
-    return 'Auto';
-}
 
 // POST Enviar mensaje via API (Texto o Plantilla)
 // ─── PRE-FLIGHT CHECK ANTES DE ENVIAR WHATSAPP ────────────────────────────

@@ -616,9 +616,9 @@ async function runRegressionSuite() {
     // ─── TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones ───
     console.log("📌 TEST 16: Reconciliación Matemática 100% Cartera Activa — Renovaciones");
     try {
-        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
-        const hoy = getArgentinaNow();
-        const todayStr = toLocalDateString(hoy);
+        const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const hoy = new Date('2026-09-23T12:00:00-03:00');
+        const todayStr = '2026-09-23';
         const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
@@ -712,9 +712,9 @@ async function runRegressionSuite() {
     // ─── TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas ───
     console.log("📌 TEST 17: Reconciliación Matemática 100% Cartera Activa — Cobranzas");
     try {
-        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
-        const hoy = getArgentinaNow();
-        const todayStr = toLocalDateString(hoy);
+        const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const hoy = new Date('2026-09-23T12:00:00-03:00');
+        const todayStr = '2026-09-23';
         const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
@@ -825,9 +825,9 @@ async function runRegressionSuite() {
     // ─── TEST 19: Desglose de Cartera por Tipo de Vehículo (100% Cobertura de Cartera Activa) ───
     console.log("📌 TEST 19: Desglose de Cartera por Tipo de Vehículo (100% Cobertura de Cartera Activa)");
     try {
-        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
-        const hoy = getArgentinaNow();
-        const todayStr = toLocalDateString(hoy);
+        const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const hoy = new Date('2026-09-23T12:00:00-03:00');
+        const todayStr = '2026-09-23';
         const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
@@ -909,9 +909,9 @@ async function runRegressionSuite() {
     // ─── TEST 20: Desglose Cruzado Tipo de Vehículo × Cobertura (Reconciliación 100% Cartera Activa) ───
     console.log("📌 TEST 20: Desglose Cruzado Tipo de Vehículo × Cobertura (Reconciliación 100% Cartera Activa)");
     try {
-        const { getArgentinaNow, evaluarEstadoCobranzaHabil, toLocalDateString } = require('../holidays_ar');
-        const hoy = getArgentinaNow();
-        const todayStr = toLocalDateString(hoy);
+        const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
+        const hoy = new Date('2026-09-23T12:00:00-03:00');
+        const todayStr = '2026-09-23';
         const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
