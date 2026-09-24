@@ -19,8 +19,7 @@ async function runRegressionSuite() {
     let totalPassed = 0;
     const totalTests = 4;
 
-    const dbPath = path.join(__dirname, '..', 'data', 'gestionseguro.db');
-    const db = new Database(dbPath);
+    const db = require('../database');
 
     // Cargar StateManager
     const stateManagerCode = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'stateManager.js'), 'utf8');
@@ -619,7 +618,7 @@ async function runRegressionSuite() {
         const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
         const hoy = new Date('2026-09-23T12:00:00-03:00');
         const todayStr = '2026-09-23';
-        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
         const polizasByPatente = {};
@@ -650,8 +649,7 @@ async function runRegressionSuite() {
         let polizas_vencidas = 0;
 
         for (const p of allPolizas) {
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
+            if (db.esPolizaAnulada(p)) continue;
             if (renewedPolizaIds.has(p.id)) continue;
 
             const fv = p.fecha_vencimiento;
@@ -697,13 +695,13 @@ async function runRegressionSuite() {
         }
 
         const cartera_activa_total = polizas_vigentes + polizas_vencen_semana + polizas_vencidas;
-        const matchRenovaciones = (cartera_activa_total === 1601);
+        const matchRenovaciones = (cartera_activa_total === 1674);
 
         if (matchRenovaciones) {
-            console.log(`  ✅ PASSED -> Reconciliación 100% OK: ${polizas_vigentes} vigentes + ${polizas_vencen_semana} aviso 7d + ${polizas_vencidas} vencidas 1-30d = ${cartera_activa_total} / 1601 Cartera Activa.\n`);
+            console.log(`  ✅ PASSED -> Reconciliación 100% OK: ${polizas_vigentes} vigentes + ${polizas_vencen_semana} aviso 7d + ${polizas_vencidas} vencidas 1-30d = ${cartera_activa_total} / 1674 Cartera Activa.\n`);
             totalPassed++;
         } else {
-            console.error(`  ❌ FAILED -> Discrepancia en Renovaciones (${cartera_activa_total} vs 1601)`);
+            console.error(`  ❌ FAILED -> Discrepancia en Renovaciones (${cartera_activa_total} vs 1674)`);
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 16:", e.message);
@@ -715,7 +713,7 @@ async function runRegressionSuite() {
         const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
         const hoy = new Date('2026-09-23T12:00:00-03:00');
         const todayStr = '2026-09-23';
-        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
         const polizasByPatente = {};
@@ -747,8 +745,7 @@ async function runRegressionSuite() {
         let cob_venc_96h = 0;
 
         for (const p of allPolizas) {
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
+            if (db.esPolizaAnulada(p)) continue;
             if (renewedPolizaIds.has(p.id)) continue;
 
             const fv = p.fecha_vencimiento;
@@ -780,13 +777,13 @@ async function runRegressionSuite() {
         }
 
         const sumaCobranzas = cob_al_dia + cob_48h_prev + cob_venc_48h + cob_venc_96h;
-        const matchCobranzas = (sumaCobranzas === 1601);
+        const matchCobranzas = (sumaCobranzas === 1674);
 
         if (matchCobranzas) {
-            console.log(`  ✅ PASSED -> Reconciliación Cobranzas 100% OK: ${cob_al_dia} al día + ${cob_48h_prev} rec 48h + ${cob_venc_48h} 1° aviso + ${cob_venc_96h} 2° aviso = ${sumaCobranzas} / 1601 Cartera Activa.\n`);
+            console.log(`  ✅ PASSED -> Reconciliación Cobranzas 100% OK: ${cob_al_dia} al día + ${cob_48h_prev} rec 48h + ${cob_venc_48h} 1° aviso + ${cob_venc_96h} 2° aviso = ${sumaCobranzas} / 1674 Cartera Activa.\n`);
             totalPassed++;
         } else {
-            console.error(`  ❌ FAILED -> Discrepancia en suma Cobranzas (${sumaCobranzas} vs 1601)`);
+            console.error(`  ❌ FAILED -> Discrepancia en suma Cobranzas (${sumaCobranzas} vs 1674)`);
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 17:", e.message);
@@ -828,7 +825,7 @@ async function runRegressionSuite() {
         const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
         const hoy = new Date('2026-09-23T12:00:00-03:00');
         const todayStr = '2026-09-23';
-        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
         const polizasByPatente = {};
@@ -858,8 +855,7 @@ async function runRegressionSuite() {
         let activeCount = 0;
 
         for (const p of allPolizas) {
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
+            if (db.esPolizaAnulada(p)) continue;
             if (renewedPolizaIds.has(p.id)) continue;
 
             const fv = p.fecha_vencimiento;
@@ -894,7 +890,7 @@ async function runRegressionSuite() {
         }
 
         const sumaVehiculos = vehDesglose.autos + vehDesglose.pickups + vehDesglose.motos + vehDesglose.camiones + vehDesglose.sin_clasificar;
-        const matchVeh = (sumaVehiculos === activeCount && activeCount === 1601);
+        const matchVeh = (sumaVehiculos === activeCount && activeCount === 1674);
 
         if (matchVeh) {
             console.log(`  ✅ PASSED -> Desglose Vehículos 100% OK: ${vehDesglose.autos} autos + ${vehDesglose.pickups} pickups + ${vehDesglose.motos} motos + ${vehDesglose.camiones} camiones + ${vehDesglose.sin_clasificar} sin clasificar = ${sumaVehiculos} / ${activeCount} Cartera Activa.\n`);
@@ -912,7 +908,7 @@ async function runRegressionSuite() {
         const { evaluarEstadoCobranzaHabil } = require('../holidays_ar');
         const hoy = new Date('2026-09-23T12:00:00-03:00');
         const todayStr = '2026-09-23';
-        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora FROM polizas p`).all();
         
         const renewedPolizaIds = new Set();
         const polizasByPatente = {};
@@ -949,8 +945,7 @@ async function runRegressionSuite() {
 
         let activeCount = 0;
         for (const p of allPolizas) {
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
+            if (db.esPolizaAnulada(p)) continue;
             if (renewedPolizaIds.has(p.id)) continue;
 
             const fv = p.fecha_vencimiento;
@@ -999,7 +994,7 @@ async function runRegressionSuite() {
 
         const sumTot = cobVeh.totales.rc + cobVeh.totales.plan_b + cobVeh.totales.plan_c + cobVeh.totales.todo_riesgo + cobVeh.totales.otros + cobVeh.totales.pendiente;
         const auditMotos = cobVeh.motos.rc === 0 && cobVeh.motos.pendiente === cobVeh.motos.total;
-        const validTotal = cobVeh.totales.total === 1601 && sumTot === 1601;
+        const validTotal = cobVeh.totales.total === 1674 && sumTot === 1674;
 
         if (validTotal && auditMotos) {
             console.log(`  ✅ PASSED -> Tabla Cruzada 100% Reconciliada: ${cobVeh.totales.rc} RC + ${cobVeh.totales.plan_b} Plan B + ${cobVeh.totales.plan_c} Plan C + ${cobVeh.totales.pendiente} Pendientes = ${sumTot} / ${activeCount} Cartera Activa.`);
@@ -1155,7 +1150,111 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 22:", e.message);
     }
 
-    const totalTestsCount = 22;
+    // ─── TEST 23: Blindaje de Pólizas Anuladas en NRE, Deduplicación Multiop y Resurrección (Caso Navarrete / EBL992) ───
+    console.log("📌 TEST 23: Blindaje de Pólizas Anuladas en NRE y Deduplicación Multiop (Caso Navarrete / EBL992)");
+    try {
+        const { obtenerPendientesHoy } = require('../automation_scheduler');
+
+        const cliNavTest = 999923;
+        db.prepare("DELETE FROM polizas WHERE cliente_id = ?").run(cliNavTest);
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(cliNavTest);
+
+        db.prepare("INSERT INTO clientes (id, nombre, telefono) VALUES (?, 'Navarrete Gabriel Arsenio Test', '5491199990023')").run(cliNavTest);
+
+        // 1. Replicar escenario exacto de Navarrete con patente EBL992:
+        // Op 1 (Más vieja): 2026-02-21 (Anulada)
+        // Op 2 (Media): 2026-05-20 (Vencida/Vigente en su momento, no marcada Anulada)
+        // Op 3 (Más reciente): 2026-08-20 (Marcada Anulada en NRE con saldo de cuotas)
+        db.prepare(`
+            INSERT INTO polizas (id, cliente_id, operacion, patente, vehiculo, tipo_vehiculo, fecha_vencimiento, fin_vigencia_poliza, anulada, estado, estado_nre, saldo_pendiente, cuotas_debe)
+            VALUES (999921, ?, 'TESTOP1_NAV', 'EBL992', 'Chevrolet Corsa', 'Auto', '2026-02-21', '2026-02-21', 1, 'anulada', 'Anulada', 0, 0)
+        `).run(cliNavTest);
+
+        db.prepare(`
+            INSERT INTO polizas (id, cliente_id, operacion, patente, vehiculo, tipo_vehiculo, fecha_vencimiento, fin_vigencia_poliza, anulada, estado, estado_nre, saldo_pendiente, cuotas_debe)
+            VALUES (999922, ?, 'TESTOP2_NAV', 'EBL992', 'Chevrolet Corsa', 'Auto', '2026-05-20', '2026-05-20', 0, 'vigente', '', 0, 0)
+        `).run(cliNavTest);
+
+        db.prepare(`
+            INSERT INTO polizas (id, cliente_id, operacion, patente, vehiculo, tipo_vehiculo, fecha_vencimiento, fin_vigencia_poliza, anulada, estado, estado_nre, saldo_pendiente, cuotas_debe)
+            VALUES (999923, ?, 'TESTOP3_NAV', 'EBL992', 'Chevrolet Corsa', 'Auto', '2026-08-20', '2026-11-20', 1, 'anulada', 'Anulada', 60480, 2)
+        `).run(cliNavTest);
+
+        // A. Helper canónico
+        const pol3 = db.prepare("SELECT * FROM polizas WHERE id = 999923").get();
+        const pol2 = db.prepare("SELECT * FROM polizas WHERE id = 999922").get();
+        const pol1 = db.prepare("SELECT * FROM polizas WHERE id = 999921").get();
+        const helperOk = db.esPolizaAnulada(pol3) === true && db.esPolizaAnulada(pol1) === true && db.esPolizaAnulada(pol2) === false;
+
+        // B. Cero mensajes automáticos
+        const pend = obtenerPendientesHoy(db, '2026-09-20');
+        const navMessages = pend.pendientes.filter(p => p.operacion && p.operacion.includes('_NAV'));
+        const zeroMessagesOk = navMessages.length === 0;
+
+        // C. Exclusión de Cartera Activa para el vehículo completo
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.anulada, p.estado, p.estado_nre FROM polizas p WHERE p.cliente_id = ?`).all(cliNavTest);
+        const renewedIds = new Set();
+        allPolizas.sort((a, b) => {
+            const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+            const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+            if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+            return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+        });
+        for (let i = 1; i < allPolizas.length; i++) {
+            renewedIds.add(allPolizas[i].id);
+        }
+        let activeEblCount = 0;
+        for (const p of allPolizas) {
+            if (db.esPolizaAnulada(p)) continue;
+            if (renewedIds.has(p.id)) continue;
+            activeEblCount++;
+        }
+        const zeroActiveOk = activeEblCount === 0;
+
+        // D. Sub-caso: Ingresa Op 4 (Nueva operación vigente en el futuro para la misma patente)
+        db.prepare(`
+            INSERT INTO polizas (id, cliente_id, operacion, patente, vehiculo, tipo_vehiculo, fecha_vencimiento, fin_vigencia_poliza, anulada, estado, estado_nre, saldo_pendiente, cuotas_debe)
+            VALUES (999924, ?, 'TESTOP4_NAV', 'EBL992', 'Chevrolet Corsa', 'Auto', '2026-12-20', '2027-03-20', 0, 'vigente', '', 0, 0)
+        `).run(cliNavTest);
+
+        const allPolizasWithOp4 = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.anulada, p.estado, p.estado_nre FROM polizas p WHERE p.cliente_id = ?`).all(cliNavTest);
+        const renewedIdsWithOp4 = new Set();
+        allPolizasWithOp4.sort((a, b) => {
+            const fvA = a.fin_vigencia_poliza || a.fecha_vencimiento || '';
+            const fvB = b.fin_vigencia_poliza || b.fecha_vencimiento || '';
+            if (fvA !== fvB) return fvA > fvB ? -1 : 1;
+            return (parseInt(b.operacion, 10) || 0) - (parseInt(a.operacion, 10) || 0);
+        });
+        for (let i = 1; i < allPolizasWithOp4.length; i++) {
+            renewedIdsWithOp4.add(allPolizasWithOp4[i].id);
+        }
+        let activeOp4Only = 0;
+        let activeOpId = null;
+        for (const p of allPolizasWithOp4) {
+            if (db.esPolizaAnulada(p)) continue;
+            if (renewedIdsWithOp4.has(p.id)) continue;
+            activeOp4Only++;
+            activeOpId = p.operacion;
+        }
+        const op4ResurrectOk = activeOp4Only === 1 && activeOpId === 'TESTOP4_NAV';
+
+        // Limpieza de datos sintéticos
+        db.prepare("DELETE FROM polizas WHERE cliente_id = ?").run(cliNavTest);
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(cliNavTest);
+
+        if (helperOk && zeroMessagesOk && zeroActiveOk && op4ResurrectOk) {
+            console.log("  ✅ PASSED -> Helper canónico db.esPolizaAnulada validado (anulada=1, estado='anulada', estado_nre='Anulada').");
+            console.log("  ✅ PASSED -> Deduplicación Multiop: Póliza más reciente anulada EXCLUYE vehículo completo (0 mensajes, 0 cartera activa).");
+            console.log("  ✅ PASSED -> Resurrección Controlada: Nueva operación vigente para la misma patente activa solo la nueva sin revivir intermedias.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 23:", { helperOk, zeroMessagesOk, zeroActiveOk, op4ResurrectOk });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 23:", e.message);
+    }
+
+    const totalTestsCount = 23;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

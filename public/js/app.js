@@ -1176,6 +1176,16 @@ async function fetchTemplates() {
   }
 }
 
+function isPolizaAnuladaClient(p) {
+  if (!p) return false;
+  if (p.anulada === 1 || p.anulada === true || p.anulada === '1') return true;
+  const est = (p.estado || '').toLowerCase().trim();
+  if (est === 'anulada' || est === 'baja') return true;
+  const estNre = (p.estado_nre || '').toLowerCase().trim();
+  if (estNre.includes('anulad') || estNre.includes('baja')) return true;
+  return false;
+}
+
 function getSaldoExigible(poliza) {
   if (!poliza) return 0;
   if (poliza.saldo_exigible !== undefined && poliza.saldo_exigible !== null) {
@@ -1506,6 +1516,7 @@ function createClientRow(client, poliza, isSecondary = false) {
   const isRenovaciones = state.activeView === 'renovaciones';
 
   const targetDateRen = poliza ? (poliza.fin_vigencia_poliza || poliza.fecha_vencimiento) : null;
+  const isAnulada = isPolizaAnuladaClient(poliza);
   const estado = poliza 
     ? (isRenovaciones ? calculateEstado(targetDateRen) : calculateEstado(poliza.fecha_vencimiento)) 
     : { text: '-', class: '' };
@@ -1524,8 +1535,12 @@ function createClientRow(client, poliza, isSecondary = false) {
     ? `<span>📱 ${escapeHtml(client.telefono)}</span>` 
     : `<span class="text-muted">📵 Sin teléfono</span>`;
 
-  const resCobranza = poliza ? calcularAccionCobranza(poliza) : { accion: '🟢 Al día', tagClass: 'tag-green' };
-  const resPoliza = poliza ? calcularAccionPoliza(poliza) : { accion: '🟢 Contrato vigente', tagClass: 'tag-green' };
+  const resCobranza = isAnulada
+    ? { accion: '🔴 Anulada en NRE', tagClass: 'tag-red' }
+    : (poliza ? calcularAccionCobranza(poliza) : { accion: '🟢 Al día', tagClass: 'tag-green' });
+  const resPoliza = isAnulada
+    ? { accion: '🔴 Anulada en NRE', tagClass: 'tag-red' }
+    : (poliza ? calcularAccionPoliza(poliza) : { accion: '🟢 Contrato vigente', tagClass: 'tag-green' });
 
   const actionCobranzaTagHtml = `<span class="action-tag ${resCobranza.tagClass}">${escapeHtml(resCobranza.accion)}</span>`;
   const actionPolizaTagHtml = `<span class="action-tag ${resPoliza.tagClass}">${escapeHtml(resPoliza.accion)}</span>`;
@@ -1565,7 +1580,9 @@ function createClientRow(client, poliza, isSecondary = false) {
       : '$ 0,00';
 
     let diasMoraHtml = '-';
-    if (estaAlDia) {
+    if (isAnulada) {
+      diasMoraHtml = `<span class="badge" style="background:rgba(235,77,75,0.18); color:#ff4757; border:1px solid rgba(235,77,75,0.35);">Anulada</span>`;
+    } else if (estaAlDia) {
       diasMoraHtml = `<span class="badge" style="background:rgba(46,213,115,0.15); color:#2ed573; border:1px solid rgba(46,213,115,0.3);">🟢 Al día</span>`;
     } else if (poliza && poliza.fecha_vencimiento && typeof SeguroStateManager !== 'undefined') {
       const clean = String(poliza.fecha_vencimiento).split('T')[0].split(' ')[0];
@@ -1597,7 +1614,7 @@ function createClientRow(client, poliza, isSecondary = false) {
     if (cols.accion_cobranza) cells += `<td>${actionCobranzaTagHtml}</td>`;
   } else {
     if (cols.venc_cuota) cells += `<td>${fechaStr}</td>`;
-    if (cols.estado_poliza) cells += `<td>${estado.class ? `<span class="badge badge-${estado.class}">${estado.text}</span>` : '-'}</td>`;
+    if (cols.estado_poliza) cells += `<td>${isAnulada ? `<span class="badge" style="background:rgba(235,77,75,0.18); color:#ff4757; border:1px solid rgba(235,77,75,0.35); font-weight:700;">🔴 Anulada en NRE</span>` : (estado.class ? `<span class="badge badge-${estado.class}">${estado.text}</span>` : '-')}</td>`;
     if (cols.accion_poliza) cells += `<td>${actionPolizaTagHtml}</td>`;
   }
 
@@ -1609,7 +1626,11 @@ function createClientRow(client, poliza, isSecondary = false) {
             🧾 Cuotas
           </button>
         ` : ''}
-        ${client.sin_whatsapp ? `
+        ${isAnulada ? `
+          <button type="button" class="btn btn-sm" disabled style="padding: 6px 14px; font-weight: 700; font-size: 0.8rem; background: rgba(235,77,75,0.12); color: #ff7675; border: 1px solid rgba(235,77,75,0.35); cursor: not-allowed; opacity: 0.8; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;" title="Póliza ANULADA en NRE — Envíos automáticos y manuales bloqueados">
+            🚫 <span>Anulada NRE</span>
+          </button>
+        ` : client.sin_whatsapp ? `
           <button type="button" class="btn btn-sm" disabled style="padding: 6px 14px; font-weight: 700; font-size: 0.8rem; background: rgba(255,71,87,0.1); color: #ff7675; border: 1px solid rgba(255,71,87,0.3); cursor: not-allowed; opacity: 0.7; border-radius: 8px; display: inline-flex; align-items: center; gap: 6px;" title="Este cliente fue marcado como Sin WhatsApp">
             📵 <span>Sin WA</span>
           </button>
@@ -2116,6 +2137,12 @@ async function triggerSmartWhatsApp(clientId, operacion) {
 
   if (!poliza) {
     showToast('El cliente no tiene pólizas registradas', 'error');
+    return;
+  }
+
+  if (isPolizaAnuladaClient(poliza)) {
+    showToast(`🚫 La póliza ${poliza.operacion || ''} figura como ANULADA en NRE. Envíos bloqueados.`, 'warning');
+    alert(`🚫 No se puede enviar el mensaje:\n\nLa póliza ${poliza.operacion || ''} (${poliza.patente || ''}) figura como ANULADA en NRE.\nNo se permite el envío de mensajes a pólizas anuladas.`);
     return;
   }
 

@@ -113,13 +113,12 @@ function obtenerPendientesHoy(db, fechaRef = null) {
     const allPolizas = db.prepare(`
         SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento,
                p.fin_vigencia_poliza, p.cuotas_debe, p.saldo_pendiente,
+               p.estado, p.anulada, p.estado_nre,
                c.nombre, c.telefono, c.id as cliente_id, p.aseguradora
         FROM polizas p
         JOIN clientes c ON p.cliente_id = c.id
         WHERE c.telefono IS NOT NULL 
           AND length(c.telefono) >= 10
-          AND LOWER(COALESCE(p.estado, '')) != 'anulada'
-          AND LOWER(COALESCE(p.estado, '')) != 'baja'
         ORDER BY p.id ASC
     `).all();
 
@@ -152,6 +151,7 @@ function obtenerPendientesHoy(db, fechaRef = null) {
 
     for (const p of allPolizas) {
         if (renewedPolizaIds.has(p.id)) continue;
+        if (db.esPolizaAnulada && db.esPolizaAnulada(p)) continue;
         if (!p.fecha_vencimiento || !p.telefono) continue;
 
         const cuotasDebe = parseInt(p.cuotas_debe || 0, 10);

@@ -653,7 +653,7 @@ function calcularDashboardStatsData() {
     const esDiaNoHabil = esNoHabil(hoy);
 
     const allPolizas = db.prepare(`
-        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
         FROM polizas p 
         LEFT JOIN clientes c ON p.cliente_id = c.id
     `).all();
@@ -716,8 +716,7 @@ function calcularDashboardStatsData() {
     };
 
     for (const p of allPolizas) {
-        const est = (p.estado || '').toLowerCase();
-        if (est === 'anulada' || est === 'baja') continue;
+        if (db.esPolizaAnulada(p)) continue;
         const isRenewed = renewedPolizaIds.has(p.id);
         if (isRenewed) continue;
 
@@ -836,7 +835,7 @@ function calcularDashboardStatsData() {
 
     const cartera_activa_total = al_dia_estricto + vence_48h + vencio_48h + vencio_96h;
     const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
-    const polizas_anuladas_db = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").get().count;
+    const polizas_anuladas_db = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja') OR COALESCE(anulada, 0) = 1").get().count;
     const polizas_historicas_total = polizas_historicas_db + polizas_anuladas_db + bajas_por_mora_96h + bajas_vencidas_mas_30d;
     const cobranza_avisos_total = vence_48h + vencio_48h + vencio_96h;
 
@@ -1605,6 +1604,7 @@ app.get('/api/clientes', (req, res) => {
         )`;
 
         const notBajaClauseBase = ` AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')
+            AND COALESCE(p.anulada, 0) = 0
             AND CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) >= -30
             AND NOT (p.saldo_pendiente > 2500 AND CAST(julianday(date('now', 'localtime')) - julianday(p.fecha_vencimiento) AS INTEGER) > 4)`;
 
@@ -1632,7 +1632,7 @@ app.get('/api/clientes', (req, res) => {
                 orderOverride = `COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento) DESC`;
             } else if (isHistoricoFilter) {
                 // Históricas / Bajas (incluye anuladas/bajas fijas, vencidas >30d y cuotas con mora > 96hs)
-                where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja')`
+                where += ` AND (LOWER(COALESCE(p.estado, '')) IN ('anulada', 'baja') OR COALESCE(p.anulada, 0) = 1`
                        + ` OR CAST(julianday(COALESCE(p.fin_vigencia_poliza, p.fecha_vencimiento)) - julianday(date('now', 'localtime')) AS INTEGER) < -30`
                        + ` OR (p.saldo_pendiente > 2500 AND CAST(julianday(date('now', 'localtime')) - julianday(p.fecha_vencimiento) AS INTEGER) > 4))`
                        + notRenewedClause;
@@ -2443,6 +2443,43 @@ app.delete('/api/polizas/:id', (req, res) => {
     }
 });
 
+app.post('/api/polizas/:id/toggle-anulada', (req, res) => {
+    try {
+        const idParam = req.params.id;
+        const pol = db.prepare('SELECT id, operacion, patente, estado, anulada, saldo_pendiente, cuotas_debe FROM polizas WHERE id = ? OR operacion = ?').get(idParam, idParam);
+        if (!pol) return res.status(404).json({ ok: false, error: 'Póliza no encontrada' });
+
+        const nuevoAnulada = pol.anulada === 1 ? 0 : 1;
+        const nuevoEstado = nuevoAnulada === 1 ? 'anulada' : 'vigente';
+
+        db.prepare(`
+            UPDATE polizas 
+            SET anulada = ?,
+                estado = ?,
+                saldo_pendiente = CASE WHEN ? = 1 THEN 0 ELSE saldo_pendiente END,
+                cuotas_debe = CASE WHEN ? = 1 THEN 0 ELSE cuotas_debe END,
+                observaciones = CASE 
+                    WHEN ? = 1 AND (observaciones IS NULL OR observaciones = '') THEN 'Anulada en NRE'
+                    WHEN ? = 1 AND observaciones NOT LIKE '%Anulada en NRE%' THEN observaciones || ' | Anulada en NRE'
+                    ELSE observaciones 
+                END
+            WHERE id = ?
+        `).run(nuevoAnulada, nuevoEstado, nuevoAnulada, nuevoAnulada, nuevoAnulada, nuevoAnulada, pol.id);
+
+        res.json({
+            ok: true,
+            operacion: pol.operacion,
+            anulada: nuevoAnulada,
+            estado: nuevoEstado,
+            message: nuevoAnulada === 1 
+                ? `Póliza ${pol.operacion} (${pol.patente}) marcada como ANULADA (excluida de envíos y cartera activa)` 
+                : `Póliza ${pol.operacion} (${pol.patente}) reactivada como VIGENTE`
+        });
+    } catch (error) {
+        res.status(500).json({ ok: false, error: error.message });
+    }
+});
+
 // ═══════════════════════════════════════════════════════════════════════════
 //  IMPORTAR EXCEL (adaptado al formato real del Excel de vencimientos)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -2935,11 +2972,10 @@ app.post('/api/whatsapp/preflight', (req, res) => {
             if (!poliza) return res.json({ ok: false, razon: `Póliza ${poliza_operacion} no encontrada en la base de datos` });
 
             // ✅ CHECK 3: No está anulada ni dada de baja
-            const estadoPol = (poliza.estado || '').toLowerCase();
-            if (estadoPol === 'anulada' || estadoPol === 'baja') {
+            if (db.esPolizaAnulada(poliza)) {
                 return res.json({
                     ok: false,
-                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) está ${estadoPol.toUpperCase()} en el sistema. No se debe notificar al cliente.`
+                    razon: `La póliza ${poliza_operacion} (${poliza.patente}) figura como ANULADA en NRE. No se permite el envío de mensajes a pólizas anuladas.`
                 });
             }
 
@@ -3063,12 +3099,19 @@ app.post('/api/whatsapp/enviar', async (req, res) => {
         const tipoNorm = String(tipo_plantilla || '').toLowerCase();
         let polCheck = null;
         if (poliza_operacion) {
-            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento FROM polizas WHERE operacion = ?').get(poliza_operacion);
+            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento, estado, anulada, estado_nre FROM polizas WHERE operacion = ?').get(poliza_operacion);
         } else if (cliente_id) {
-            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento FROM polizas WHERE cliente_id = ? ORDER BY id DESC LIMIT 1').get(cliente_id);
+            polCheck = db.prepare('SELECT saldo_pendiente, cuotas_debe, patente, fecha_vencimiento, estado, anulada, estado_nre FROM polizas WHERE cliente_id = ? ORDER BY id DESC LIMIT 1').get(cliente_id);
         }
 
         if (polCheck) {
+            if (db.esPolizaAnulada(polCheck)) {
+                console.warn(`[WA Enviar] 🛑 Bloqueado envío de WhatsApp a póliza ANULADA (${polCheck.patente || poliza_operacion})`);
+                return res.status(400).json({
+                    ok: false,
+                    error: `Protección Comercial: La póliza (${polCheck.patente || poliza_operacion}) figura como ANULADA en NRE. No se permite el envío de mensajes a pólizas anuladas.`
+                });
+            }
             const s = parseFloat(polCheck.saldo_pendiente || 0);
             const cd = parseInt(polCheck.cuotas_debe || 0, 10);
             if (tipoNorm.includes('renovacion_7_dias') || tipoNorm.includes('aviso_renovacion')) {
@@ -4364,7 +4407,7 @@ app.get('/api/metricas/audiencia-upsell', (req, res) => {
 
         const allPolizas = db.prepare(`
             SELECT p.id, p.operacion, p.patente, p.vehiculo, p.seccion, p.fecha_vencimiento, p.fin_vigencia_poliza,
-                   p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.saldo_pendiente, p.aseguradora,
+                   p.tipo_vehiculo, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora,
                    c.id as cliente_id, c.nombre as cliente_nombre, c.telefono as cliente_telefono
             FROM polizas p
             JOIN clientes c ON p.cliente_id = c.id
@@ -4433,8 +4476,7 @@ app.get('/api/metricas/audiencia-upsell', (req, res) => {
 
         for (const p of allPolizas) {
             // A. Cartera Activa viva
-            const est = (p.estado || '').toLowerCase();
-            if (est === 'anulada' || est === 'baja') continue;
+            if (db.esPolizaAnulada(p)) continue;
             if (renewedPolizaIds.has(p.id)) continue;
 
             const fv = p.fecha_vencimiento;

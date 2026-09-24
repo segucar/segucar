@@ -330,11 +330,14 @@ addColumn('cuotas_historial', 'TEXT');
 addColumn('fecha_vencimiento_grucar', 'DATE');
 addColumn('grucar_activo', 'INTEGER DEFAULT 1');
 addColumn('aseguradora', "TEXT DEFAULT 'SEGUCar / Triunvirato'");
+addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 addColumn('cobertura', 'TEXT');
 addColumn('anulada', 'INTEGER DEFAULT 0');
+addColumn('estado_nre', "TEXT DEFAULT ''");
 
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_polizas_anulada ON polizas(anulada)"); } catch(e) {}
-try { db.prepare("UPDATE polizas SET anulada = 1 WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja')").run(); } catch(e) {}
+try { db.exec("CREATE INDEX IF NOT EXISTS idx_polizas_estado_nre ON polizas(estado_nre)"); } catch(e) {}
+try { db.prepare("UPDATE polizas SET anulada = 1, estado_nre = 'Anulada', cuotas_debe = 0, saldo_pendiente = 0 WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja') OR anulada = 1").run(); } catch(e) {}
 
 // ─── Migraciones de Columnas para Clientes ──────────────────────────────────
 addColumnClientes('sin_whatsapp', 'INTEGER DEFAULT 0');
@@ -588,7 +591,7 @@ db.evaluarAtribucionMetricas = () => {
 
 db.sincronizarSaldosCuotasHistorial = () => {
     try {
-        const polizas = db.prepare('SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial FROM polizas').all();
+        const polizas = db.prepare("SELECT id, cuotas_debe, saldo_pendiente, cuotas_historial FROM polizas WHERE LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja') AND COALESCE(anulada, 0) = 0").all();
         const updateStmt = db.prepare('UPDATE polizas SET cuotas_debe = ?, saldo_pendiente = ? WHERE id = ?');
         db.transaction(() => {
             for (const p of polizas) {
@@ -1029,6 +1032,43 @@ db.inicializarCuotasAdmin();
 db.inicializarSiniestros();
 db.unificarPlantillasMetricas();
 db.restaurarTelefonosMaestros();
+
+db.marcarPolizaAnulada = function(operacionOId, motivo = 'Anulada en NRE') {
+    return db.prepare(`
+        UPDATE polizas 
+        SET anulada = 1,
+            estado = 'anulada',
+            estado_nre = 'Anulada',
+            cuotas_debe = 0,
+            saldo_pendiente = 0,
+            observaciones = CASE 
+                WHEN observaciones IS NULL OR observaciones = '' THEN ?
+                WHEN observaciones NOT LIKE '%' || ? || '%' THEN observaciones || ' | ' || ?
+                ELSE observaciones 
+            END
+        WHERE operacion = ? OR id = ?
+    `).run(motivo, motivo, motivo, String(operacionOId), String(operacionOId));
+};
+
+db.desmarcarPolizaAnulada = function(operacionOId) {
+    return db.prepare(`
+        UPDATE polizas 
+        SET anulada = 0,
+            estado = 'vigente',
+            estado_nre = ''
+        WHERE operacion = ? OR id = ?
+    `).run(String(operacionOId), String(operacionOId));
+};
+
+db.esPolizaAnulada = function(poliza) {
+    if (!poliza) return false;
+    if (poliza.anulada === 1) return true;
+    const est = (poliza.estado || '').toLowerCase().trim();
+    if (est === 'anulada' || est === 'baja') return true;
+    const estNre = (poliza.estado_nre || '').toLowerCase().trim();
+    if (estNre.includes('anulad') || estNre.includes('baja')) return true;
+    return false;
+};
 
 module.exports = db;
 

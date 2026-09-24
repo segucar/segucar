@@ -71,11 +71,18 @@ function renderWhatsAppButtons(client, polizas, plantillas) {
     }
 
     const activeTemplates = plantillas.filter(p => p.activa);
+    const polizasActivas = polizas.filter(p => !esPolizaAnuladaUI(p));
+
+    if (polizasActivas.length === 0) {
+        container.innerHTML = '<span class="empty-state" style="color:#ff7675; font-weight:700; background:rgba(255,71,87,0.1); border:1px solid rgba(255,71,87,0.3); border-radius:8px; padding:10px 14px; display:inline-block;">🚫 Pólizas ANULADAS en NRE: Este cliente no posee pólizas vigentes activas. Los envíos de WhatsApp se encuentran bloqueados por protección comercial.</span>';
+        return;
+    }
+
     activeTemplates.forEach(template => {
         const btn = document.createElement('button');
         btn.className = 'btn btn-whatsapp';
         btn.innerHTML = `📱 Enviar ${template.nombre}`;
-        btn.onclick = () => showPreview(client, polizas[0], template);
+        btn.onclick = () => showPreview(client, polizasActivas[0], template);
         container.appendChild(btn);
     });
 
@@ -320,8 +327,8 @@ function renderPolizas(polizas) {
         const suma = p.suma_asegurada || `$ ${parseFloat(p.monto || 0).toLocaleString('es-AR')}`;
         const estadoVal = p.estado || 'vigente';
 
-        // Detectar si esta póliza fue reemplazada por una más nueva para la misma patente
-        const isAnulada = estadoVal === 'anulada' || estadoVal === 'baja';
+        // Detectar si esta póliza fue reemplazada por una más nueva para la misma patente o figura anulada
+        const isAnulada = esPolizaAnuladaUI(p);
         const patenteMatch = p.patente && polizas.filter(x =>
             x.patente && x.patente.trim().toUpperCase() === p.patente.trim().toUpperCase() &&
             parseInt(x.operacion) > parseInt(p.operacion)
@@ -337,14 +344,19 @@ function renderPolizas(polizas) {
             ? `<span style="margin-left:6px; font-size:0.75rem; background:rgba(0,180,216,0.15); color:#48cae4; border:1px solid rgba(0,180,216,0.3); border-radius:4px; padding:2px 6px; font-weight:600;">↪ Op. ${polizaNueva.operacion}</span>`
             : '';
 
+        const estadoBadge = isAnulada
+            ? `<span class="badge" style="background:rgba(235,77,75,0.18); color:#eb4d4b; border:1px solid rgba(235,77,75,0.35); font-weight:700;">🔴 ANULADA EN NRE</span>`
+            : `<span class="badge badge-${estadoVal}">${estadoVal.toUpperCase()}</span>`;
+
         tr.innerHTML = `
             <td><strong>${p.operacion}</strong>${renovadaBadge}</td>
             <td>${tipoStr}</td>
             <td>${formatDate(fVenc)}</td>
             <td><strong>${suma}</strong></td>
-            <td><span class="badge badge-${estadoVal}">${estadoVal.toUpperCase()}</span></td>
+            <td>${estadoBadge}</td>
             <td>
                 <button class="btn btn-ghost" onclick="showCuotasModal(${cuotasTarget.id}, '${cuotasTarget.operacion}')" style="color:#00b4d8; font-weight:700; border: 1px solid rgba(0, 180, 216, 0.3); padding: 4px 8px;" title="${fueRenovada ? 'Ver cuotas de la póliza renovada ' + polizaNueva.operacion : 'Ver cuotas'}">🧾 Cuotas${fueRenovada ? ' ↪' : ''}</button>
+                <button class="btn btn-ghost" onclick="toggleAnulada(${p.id}, '${escapeQuotes(p.operacion)}')" style="color:${isAnulada ? '#2ed573' : '#eb4d4b'}; font-weight:600; border:1px solid ${isAnulada ? 'rgba(46,213,115,0.3)' : 'rgba(235,77,75,0.3)'}; padding: 4px 8px;" title="${isAnulada ? 'Reactivar póliza como vigente' : 'Marcar póliza como anulada en NRE'}">${isAnulada ? '🔄 Reactivar' : '🚫 Anular'}</button>
                 <button class="btn btn-ghost" onclick="openPolizaModal(${p.id})">Editar</button>
                 <button class="btn btn-danger" onclick="deletePoliza(${p.id})">Eliminar</button>
             </td>
@@ -630,4 +642,39 @@ function escapeHtml(unsafe) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function escapeQuotes(str) {
+    if (!str) return '';
+    return String(str).replace(/'/g, "\\'").replace(/"/g, '&quot;');
+}
+
+function esPolizaAnuladaUI(p) {
+    if (!p) return false;
+    if (p.anulada === 1 || p.anulada === true || p.anulada === '1') return true;
+    const est = (p.estado || '').toLowerCase().trim();
+    if (est === 'anulada' || est === 'baja') return true;
+    const estNre = (p.estado_nre || '').toLowerCase().trim();
+    if (estNre.includes('anulad') || estNre.includes('baja')) return true;
+    return false;
+}
+
+async function toggleAnulada(polizaId, operacion) {
+    if (!confirm(`¿Desea cambiar el estado de anulación de la póliza ${operacion}?`)) return;
+    try {
+        const res = await fetch(`/api/polizas/${polizaId}/toggle-anulada`, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+            alert(data.message);
+            if (typeof loadClientData === 'function') {
+                loadClientData();
+            } else {
+                window.location.reload();
+            }
+        } else {
+            alert('Error: ' + (data.error || 'No se pudo actualizar'));
+        }
+    } catch (e) {
+        alert('Error de conexión: ' + e.message);
+    }
 }

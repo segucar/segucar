@@ -177,16 +177,16 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
     `);
     const findPoliza = db.prepare('SELECT id FROM polizas WHERE operacion = ?');
     const insertPoliza = db.prepare(`
-        INSERT INTO polizas (cliente_id, operacion, seccion, tipo_vehiculo, patente, vehiculo, suma_asegurada, cod_prod, cuenta, fecha_vencimiento, fin_vigencia_poliza, renovada, cuotas_debe, estado)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO polizas (cliente_id, operacion, seccion, tipo_vehiculo, patente, vehiculo, suma_asegurada, cod_prod, cuenta, fecha_vencimiento, fin_vigencia_poliza, renovada, cuotas_debe, estado, anulada)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updatePoliza = db.prepare(`
-        UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, cuotas_debe = ?, estado = ?
+        UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, cuotas_debe = ?, estado = ?, anulada = ?
         WHERE operacion = ?
     `);
     const anularAnterioresPorPatente = db.prepare(`
         UPDATE polizas 
-        SET estado = 'anulada', saldo_pendiente = 0, cuotas_debe = 0 
+        SET anulada = 1, estado = 'anulada', saldo_pendiente = 0, cuotas_debe = 0 
         WHERE UPPER(TRIM(patente)) = UPPER(TRIM(?)) 
           AND CAST(operacion AS INTEGER) < CAST(? AS INTEGER)
     `);
@@ -220,11 +220,14 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             const finVig = parseFechaArg(item.finVig);
             let estado = 'vigente';
+            let anulada = 0;
             const renStr = String(item.renovada || '').toLowerCase();
             if (renStr.includes('anulad')) {
                 estado = 'anulada';
+                anulada = 1;
             } else if (renStr.includes('baja')) {
                 estado = 'baja';
+                anulada = 1;
             } else if (finVig) {
                 const hoy = new Date();
                 const venc = new Date(finVig);
@@ -287,14 +290,14 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             const existingPoliza = findPoliza.get(item.operacion);
             if (existingPoliza) {
-                updatePoliza.run(item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, item.cuoDebe, estado, item.operacion);
+                updatePoliza.run(item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, item.cuoDebe, estado, anulada, item.operacion);
                 actualizados++;
             } else {
                 // Shield main active portfolio: Only insert new active/vigente policies into polizas. Old historical records go to polizas_historicas!
                 const hoy = new Date();
                 const venc = finVig ? new Date(finVig) : null;
                 if (venc && venc >= hoy) {
-                    insertPoliza.run(cliente_id, item.operacion, item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, item.codProd, item.cuenta, finVig, finVig, item.renovada, item.cuoDebe, estado);
+                    insertPoliza.run(cliente_id, item.operacion, item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, item.codProd, item.cuenta, finVig, finVig, item.renovada, item.cuoDebe, estado, anulada);
                     importados++;
                 } else {
                     db.prepare(`
@@ -562,10 +565,35 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                 });
                 const html = await infoRes.text();
                 const $ = cheerio.load(html);
+                const bodyText = $.text();
+
+                // 🚫 DETECCIÓN DE PÓLIZA ANULADA EN NRE (Árbitro supremo de verdad)
+                const isAnuladaNRE = html.includes('ANULADA') || 
+                                     /ANULADA\s+el\s+\d{2}\/\d{2}\/\d{4}/i.test(bodyText) ||
+                                     $('#anulada').length > 0 ||
+                                     html.includes('id="anulada"');
+                if (isAnuladaNRE) {
+                    db.prepare(`
+                        UPDATE polizas 
+                        SET anulada = 1,
+                            estado = 'anulada',
+                            estado_nre = 'Anulada',
+                            cuotas_debe = 0,
+                            saldo_pendiente = 0,
+                            observaciones = CASE 
+                                WHEN observaciones IS NULL OR observaciones = '' THEN 'Anulada en NRE'
+                                WHEN observaciones NOT LIKE '%Anulada en NRE%' THEN observaciones || ' | Anulada en NRE'
+                                ELSE observaciones 
+                            END
+                        WHERE operacion = ?
+                    `).run(pol.operacion);
+                    console.log(`🚫 [syncPagosNRE] Póliza Op. ${pol.operacion} detectada como ANULADA en NRE. Marcada como baja/anulada.`);
+                    saldadas++;
+                    return;
+                }
 
                 // Extraer Cobertura si está presente en la ficha (ej. "Cobertura: A" o celda con "Cobertura:")
                 let coberturaFicha = null;
-                const bodyText = $.text();
                 const cobMatch = bodyText.match(/Cobertura:\s*([A-Za-z0-9_\-\+]+)/i);
                 if (cobMatch && cobMatch[1]) {
                     coberturaFicha = cobMatch[1].trim();
@@ -689,22 +717,41 @@ async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
             SELECT DISTINCT patente 
             FROM polizas 
             WHERE patente IS NOT NULL AND patente != '' 
-              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+              AND (LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja') OR COALESCE(anulada, 0) = 0)
               AND (
-                  patente IN (SELECT patente FROM polizas GROUP BY patente HAVING COUNT(*) > 1)
+                  saldo_pendiente > 0
+                  OR cuotas_debe > 0
+                  OR patente IN (SELECT patente FROM polizas GROUP BY patente HAVING COUNT(*) > 1)
                   OR fecha_vencimiento >= date('now', 'localtime', '-45 days')
               )
-            ORDER BY id DESC
-            LIMIT 60
+            ORDER BY 
+              CASE WHEN saldo_pendiente > 0 OR cuotas_debe > 0 THEN 0 ELSE 1 END,
+              id DESC
+            LIMIT 300
         `).all();
 
         const markAnulada = db.prepare(`
             UPDATE polizas 
-            SET estado = 'anulada', cuotas_debe = 0, saldo_pendiente = 0 
+            SET anulada = 1,
+                estado = 'anulada',
+                estado_nre = ?,
+                cuotas_debe = 0,
+                saldo_pendiente = 0,
+                observaciones = CASE 
+                    WHEN observaciones IS NULL OR observaciones = '' THEN 'Anulada en NRE'
+                    WHEN observaciones NOT LIKE '%Anulada en NRE%' THEN observaciones || ' | Anulada en NRE'
+                    ELSE observaciones 
+                END
             WHERE operacion = ?
         `);
 
-        const batchSize = 10;
+        const updateEstadoNRE = db.prepare(`
+            UPDATE polizas 
+            SET estado_nre = ?
+            WHERE operacion = ? AND (estado_nre IS NULL OR estado_nre = '')
+        `);
+
+        const batchSize = 15;
         for (let i = 0; i < rowsPat.length; i += batchSize) {
             const chunk = rowsPat.slice(i, i + batchSize);
             await Promise.all(chunk.map(async (rowPat) => {
@@ -734,10 +781,13 @@ async function syncAnuladasNRE(usuario = 'SUA', password = 'sua') {
                             const cols = $(tr).find('td').map((k, td) => $(td).text().trim()).get();
                             if (cols.length >= 7) {
                                 const op = cols[0];
-                                const estadoStr = (cols[6] || '').toLowerCase();
-                                if (op && (estadoStr.includes('anulad') || estadoStr.includes('baja'))) {
-                                    const info = markAnulada.run(op);
+                                const estadoRaw = cols[6] ? cols[6].trim() : '';
+                                const estadoLower = estadoRaw.toLowerCase();
+                                if (op && (estadoLower.includes('anulad') || estadoLower.includes('baja'))) {
+                                    const info = markAnulada.run(estadoRaw || 'Anulada', op);
                                     if (info.changes > 0) anuladasEncontradas++;
+                                } else if (op && estadoRaw) {
+                                    updateEstadoNRE.run(estadoRaw, op);
                                 }
                             }
                         });
