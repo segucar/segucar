@@ -3987,7 +3987,7 @@ async function generarReporteEjecutivoMetricasExcel(req, res) {
         const rKpi1 = ws1.addRow([
             'Dinero Recuperado Total',
             metrics.dinero_recuperado_total || 0,
-            metrics.comparativa?.prev_dinero !== undefined ? `vs ${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_dinero_pct >= 0 ? '+' : ''}${metrics.comparativa.var_dinero_pct}%` : 'Atribuido a gestiones de cobranza y renovación'
+            metrics.comparativa?.prev_dinero !== undefined ? `${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_dinero_pct >= 0 ? '+' : ''}${metrics.comparativa.var_dinero_pct}%` : 'Atribuido a gestiones de cobranza y renovación'
         ]);
         rKpi1.getCell(2).numFmt = '"$"#,##0.00';
         applyRowBorders(rKpi1);
@@ -3995,7 +3995,7 @@ async function generarReporteEjecutivoMetricasExcel(req, res) {
         const rKpi2 = ws1.addRow([
             'Tasa de Conversión Global',
             parseFloat(metrics.tasa_conversion_global || 0) / 100,
-            metrics.comparativa?.var_conversion_pts !== undefined ? `vs ${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_conversion_pts >= 0 ? '+' : ''}${metrics.comparativa.var_conversion_pts} pts` : 'Calculada sobre contactos válidos (únicos)'
+            metrics.comparativa?.var_conversion_pts !== undefined ? `${metrics.comparativa.prev_mes_label}: ${metrics.comparativa.var_conversion_pts >= 0 ? '+' : ''}${metrics.comparativa.var_conversion_pts} pts` : 'Calculada sobre contactos válidos (únicos)'
         ]);
         rKpi2.getCell(2).numFmt = '0.0%';
         applyRowBorders(rKpi2);
@@ -4294,7 +4294,7 @@ async function generarReporteEjecutivoMetricasExcel(req, res) {
                 s.label,
                 s.envios || 0,
                 s.envios_unicos || 0,
-                `${(s.reenvios_ratio || 1).toFixed(2)}x`,
+                (s.envios > 0 && s.reenvios_ratio !== undefined) ? `${s.reenvios_ratio.toFixed(2)}x` : '0.00x',
                 s.exitosos || 0,
                 parseFloat(s.tasa_conversion || 0) / 100,
                 s.dinero_recuperado || 0
