@@ -725,9 +725,9 @@ function calcularDashboardStatsData() {
         const saldoVal = parseFloat(p.saldo_pendiente || 0);
         const hasPhone = p.cliente_telefono && String(p.cliente_telefono).replace(/\D/g, '').length >= 10;
 
-        // 1. Evaluar Cobranza (días hábiles con feriados)
+        // 1. Evaluar Cobranza
         let estadoCob = 'al_dia';
-        if (saldoVal > 0 && !esDiaNoHabil) {
+        if (saldoVal > 0) {
             estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
         }
 
@@ -1644,43 +1644,31 @@ app.get('/api/clientes', (req, res) => {
 
             // ── COBRANZA (Business days & Monday Sync check) ────────────────
             } else if (estadoNorm === 'vence_48h' || estadoNorm === 'cuota_vence_48h' || estadoNorm === 'recordatorio_48hs' || estadoNorm.includes('vence_48h') || estadoNorm.includes('recordatorio')) {
-                if (esDiaNoHabilClientes) {
-                    where += ` AND 1=0`;
+                const vtos = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
+                if (vtos.length > 0) {
+                    const placeholders = vtos.map(() => '?').join(',');
+                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
+                    params.push(...vtos);
                 } else {
-                    const vtos = getFechasTargetCobranza('recordatorio_48hs', hoyClientes);
-                    if (vtos.length > 0) {
-                        const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
-                        params.push(...vtos);
-                    } else {
-                        where += ` AND 1=0`;
-                    }
+                    where += ` AND 1=0`;
                 }
             } else if (estadoNorm === 'vencio_48h' || estadoNorm === 'primer_aviso' || estadoNorm.includes('vencio_48h') || estadoNorm.includes('primer')) {
-                if (esDiaNoHabilClientes) {
-                    where += ` AND 1=0`;
+                const vtos = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
+                if (vtos.length > 0) {
+                    const placeholders = vtos.map(() => '?').join(',');
+                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
+                    params.push(...vtos);
                 } else {
-                    const vtos = getFechasTargetCobranza('cuota_vencida_0_48hs', hoyClientes);
-                    if (vtos.length > 0) {
-                        const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
-                        params.push(...vtos);
-                    } else {
-                        where += ` AND 1=0`;
-                    }
+                    where += ` AND 1=0`;
                 }
             } else if (estadoNorm === 'vencio_96h' || estadoNorm === 'segundo_aviso' || estadoNorm.includes('vencio_96h') || estadoNorm.includes('segundo')) {
-                if (esDiaNoHabilClientes) {
-                    where += ` AND 1=0`;
+                const vtos = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
+                if (vtos.length > 0) {
+                    const placeholders = vtos.map(() => '?').join(',');
+                    where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
+                    params.push(...vtos);
                 } else {
-                    const vtos = getFechasTargetCobranza('cuota_vencida_48_96hs', hoyClientes);
-                    if (vtos.length > 0) {
-                        const placeholders = vtos.map(() => '?').join(',');
-                        where += ` AND p.saldo_pendiente > 0 AND p.fecha_vencimiento IN (${placeholders})` + notRenewedClause;
-                        params.push(...vtos);
-                    } else {
-                        where += ` AND 1=0`;
-                    }
+                    where += ` AND 1=0`;
                 }
             } else if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia' || estadoNorm.includes('al_dia')) {
                 // Al día estricto = saldo <= 2500 o sin cuotas vencidas en mora
@@ -1924,17 +1912,7 @@ app.get('/api/clientes', (req, res) => {
 
                     const saldoVal = parseFloat(p.saldo_pendiente || 0);
 
-                    // ⚡ Días hábiles — si hoy es no hábil, suprimir todo excepto al_dia
-                    if (esDiaNoHabilClientes) {
-                        if (estadoNorm === 'cuota_deuda' || estadoNorm === 'deuda' || estadoNorm === 'deudores' || estadoNorm === 'mora_critica') {
-                            // Mora Crítica eliminada del flujo (Opción A) — no mostrar nunca
-                            return false;
-                        }
-                        if (estadoNorm === 'cuota_aldia' || estadoNorm === 'al_dia') return saldoVal <= 0;
-                        return false; // Suprimir recordatorio/primer/segundo aviso en días no hábiles
-                    }
-
-                    // ⚡ Días hábiles — filtro con evaluarEstadoCobranzaHabil
+                    // ⚡ Cobranza — filtro con evaluarEstadoCobranzaHabil
                     const saldoExigibleP = getSaldoExigible(p);
                     const estadoHabilP = evaluarEstadoCobranzaHabil(fv, saldoExigibleP, hoyClientes);
 
@@ -4507,7 +4485,7 @@ app.get('/api/metricas/audiencia-upsell', (req, res) => {
             const saldoVal = parseFloat(p.saldo_pendiente || 0);
             const cuotasDebe = parseInt(p.cuotas_debe || 0, 10);
             let estadoCob = 'al_dia';
-            if (saldoVal > 0 && !esDiaNoHabil) {
+            if (saldoVal > 0) {
                 estadoCob = evaluarEstadoCobranzaHabil(fv, saldoVal, hoy);
             }
             // Si tiene cualquier saldo pendiente (>0) o cuotas adeudadas o no está al día, se descarta

@@ -163,10 +163,6 @@ function evaluarEstadoCobranzaHabil(fechaVencimiento, saldoPendiente, fechaHoy =
     if (parseFloat(saldoPendiente || 0) <= 2500) return 'al_dia';
 
     const hoy = _normalizarFecha(fechaHoy);
-
-    // Si hoy no es hábil → no se notifica nada
-    if (esNoHabil(hoy)) return 'al_dia';
-
     const vtoNominal = _normalizarFecha(fechaVencimiento);
 
     // Días calendario respecto al vencimiento nominal impreso en la póliza

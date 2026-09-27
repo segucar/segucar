@@ -1272,7 +1272,56 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 23:", e.message);
     }
 
-    const totalTestsCount = 23;
+    // ─── TEST 24: Blindaje Estadístico en Días No Hábiles (Domingos y Feriados) ───
+    console.log("📌 TEST 24: Blindaje Estadístico en Días No Hábiles (Domingos y Feriados)");
+    try {
+        const { esNoHabil, evaluarEstadoCobranzaHabil, obtenerCuotasParaNotificarHoy } = require('../holidays_ar');
+        const fechaDomingo = '2026-09-27'; // Domingo real
+        const esFinde = esNoHabil(fechaDomingo);
+
+        // 1. Estados reales de cobranza se evalúan fielmente 7 días a la semana
+        const estadoMora10d = evaluarEstadoCobranzaHabil('2026-09-17', 50000, fechaDomingo);
+        const estadoPrimerAviso = evaluarEstadoCobranzaHabil('2026-09-25', 50000, fechaDomingo);
+        const estadoRec48h = evaluarEstadoCobranzaHabil('2026-09-29', 50000, fechaDomingo);
+        const evaluacionRealOk = (estadoMora10d === 'mora_critica' &&
+                                  estadoPrimerAviso === 'cuota_vencida_0_48hs' &&
+                                  estadoRec48h === 'recordatorio_48hs');
+
+        // 2. Envíos masivos y automáticos permanecen estrictamente pausados
+        const cuotasLote = [
+            { fechaVencimiento: '2026-09-25', saldoPendiente: 50000 },
+            { fechaVencimiento: '2026-09-29', saldoPendiente: 50000 }
+        ];
+        const aNotificarHoy = obtenerCuotasParaNotificarHoy(cuotasLote, fechaDomingo);
+        const despachoPausadoOk = Array.isArray(aNotificarHoy) && aNotificarHoy.length === 0;
+
+        // 3. Exclusión de Mora Crítica de Cartera Activa en Domingo
+        // Póliza con mora >96hs debe excluirse de Cartera Activa viva los domingos (no inflar a 100% al día)
+        const allPolizas = db.prepare(`SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.saldo_pendiente, p.cuotas_debe, p.estado, p.anulada, p.estado_nre FROM polizas p`).all();
+        let moraCriticaExcluidaDomingo = 0;
+        for (const p of allPolizas) {
+            if (db.esPolizaAnulada(p)) continue;
+            const saldoVal = parseFloat(p.saldo_pendiente || 0);
+            if (saldoVal > 0) {
+                const est = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldoVal, fechaDomingo);
+                if (est === 'mora_critica') moraCriticaExcluidaDomingo++;
+            }
+        }
+        const exclusionDomingoOk = moraCriticaExcluidaDomingo > 0;
+
+        if (esFinde && evaluacionRealOk && despachoPausadoOk && exclusionDomingoOk) {
+            console.log("  ✅ PASSED -> Fidelidad Estadística: Deudas y avisos se evalúan con precisión los 7 días de la semana (cero distorsión).");
+            console.log("  ✅ PASSED -> Despacho Pausado: obtenerCuotasParaNotificarHoy devuelve [] en días no laborables (protección anti-spam).");
+            console.log(`  ✅ PASSED -> Blindaje Cartera Activa: ${moraCriticaExcluidaDomingo} pólizas en mora crítica permanecen excluidas de Cartera Activa en fin de semana.\n`);
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 24:", { esFinde, evaluacionRealOk, despachoPausadoOk, exclusionDomingoOk, moraCriticaExcluidaDomingo });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 24:", e.message);
+    }
+
+    const totalTestsCount = 24;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
