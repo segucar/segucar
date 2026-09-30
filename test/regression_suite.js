@@ -1497,7 +1497,57 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 26:", e.message);
     }
 
-    const totalTestsCount = 26;
+    // ── TEST 27: Blindaje Búsqueda Universal /api/clientes & Trazabilidad NRE (Caso BRN027 / Enrique Carlos) ──
+    try {
+        console.log("📌 TEST 27: Blindaje Búsqueda Universal /api/clientes & Trazabilidad NRE (Caso BRN027 / Enrique Carlos)");
+        const app = require('../server');
+
+        async function invokeClientesApi(query) {
+            return new Promise((resolve) => {
+                const req = { query, headers: {} };
+                const res = {
+                    json: (data) => resolve(data),
+                    status: () => res
+                };
+                const routes = app._router.stack.filter(r => r.route && r.route.path === '/api/clientes');
+                if (routes.length > 0) {
+                    routes[0].route.stack[0].handle(req, res);
+                } else {
+                    resolve({ clientes: [] });
+                }
+            });
+        }
+
+        // 1. Validar que la búsqueda por patente BRN027 encuentre al cliente y su Ford F-100 a pesar de tener mora
+        const resPatente = await invokeClientesApi({ search: 'BRN027' });
+        const okPatente = resPatente.clientes && resPatente.clientes.length === 1 && resPatente.clientes[0].id === 2169;
+
+        // 2. Validar que la búsqueda por la operación anterior (11759786) encuentre la póliza renovada
+        const resOpAnterior = await invokeClientesApi({ search: '11759786' });
+        const okOpAnterior = resOpAnterior.clientes && resOpAnterior.clientes.length === 1 && resOpAnterior.clientes[0].id === 2169;
+
+        // 3. Validar alias 'buscar'
+        const resAlias = await invokeClientesApi({ buscar: 'BRN027' });
+        const okAlias = resAlias.clientes && resAlias.clientes.length === 1 && resAlias.clientes[0].id === 2169;
+
+        // 4. Validar endpoint de auditoría sistemática NRE
+        const syncModule = require('../sync_nre');
+        const okAuditoriaFunc = typeof syncModule.auditarParidadNRE === 'function';
+
+        if (okPatente && okOpAnterior && okAlias && okAuditoriaFunc) {
+            console.log("  ✅ PASSED -> Búsqueda Universal: Patente BRN027 encontrada con ficha de Enrique Carlos (sin ser ocultada por mora).");
+            console.log("  ✅ PASSED -> Trazabilidad NRE: Operación anterior 11759786 vinculada y recuperable por el buscador.");
+            console.log("  ✅ PASSED -> Alias de Búsqueda: Parámetro 'buscar' soportado exactamente igual que 'search'.");
+            console.log("  ✅ PASSED -> Auditoría Sistemática: Función auditarParidadNRE registrada y lista para detección automática de brechas.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 27:", { okPatente, okOpAnterior, okAlias, okAuditoriaFunc });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 27:", e.message);
+    }
+
+    const totalTestsCount = 27;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

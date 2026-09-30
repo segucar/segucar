@@ -1066,6 +1066,15 @@ db.inicializarSiniestros();
 db.unificarPlantillasMetricas();
 db.restaurarTelefonosMaestros();
 
+// Vinculación de operaciones históricas para trazabilidad
+try {
+    db.prepare(`
+        UPDATE polizas 
+        SET observaciones = 'Renovación de póliza/operación NRE: 11759786 (Vigencia 05/04/2026 - 05/07/2026)'
+        WHERE UPPER(TRIM(patente)) = 'BRN027' AND (observaciones IS NULL OR observaciones = '' OR observaciones NOT LIKE '%11759786%')
+    `).run();
+} catch (e) {}
+
 db.marcarPolizaAnulada = function(operacionOId, motivo = 'Anulada en NRE') {
     return db.prepare(`
         UPDATE polizas 

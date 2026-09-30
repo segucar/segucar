@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
-const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncCoberturasNREProgresivo } = require('./sync_nre');
+const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncCoberturasNREProgresivo, auditarParidadNRE } = require('./sync_nre');
 const { syncAGS } = require('./sync_ags');
 const { cotizarVehiculo } = require('./cotizador_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
@@ -1580,6 +1580,8 @@ function buildSmartSearchClause(search, { clienteAlias = 'c', polizaAlias = 'p' 
             params.push(term);
             conditions.push(`norm(${pPrefix}vehiculo) LIKE norm(?)`);
             params.push(term);
+            conditions.push(`norm(COALESCE(${pPrefix}observaciones, '')) LIKE norm(?)`);
+            params.push(term);
         }
 
         clauses.push(`(${conditions.join(' OR ')})`);
@@ -1602,8 +1604,8 @@ function buildHistoricasSearchClause(search, tableAlias = '') {
 
     for (const token of rawTokens) {
         const term = `%${token}%`;
-        clauses.push(`(norm(${prefix}nombre) LIKE norm(?) OR norm(${prefix}patente) LIKE norm(?) OR norm(${prefix}vehiculo) LIKE norm(?) OR ${prefix}operacion LIKE ? OR ${prefix}telefono LIKE ?)`);
-        params.push(term, term, term, term, term);
+        clauses.push(`(norm(${prefix}nombre) LIKE norm(?) OR norm(${prefix}patente) LIKE norm(?) OR norm(${prefix}vehiculo) LIKE norm(?) OR ${prefix}operacion LIKE ? OR ${prefix}telefono LIKE ? OR norm(COALESCE(${prefix}observaciones, '')) LIKE norm(?))`);
+        params.push(term, term, term, term, term, term);
     }
 
     return {
@@ -1618,7 +1620,7 @@ function buildHistoricasSearchClause(search, tableAlias = '') {
 
 app.get('/api/clientes', (req, res) => {
     try {
-        const search = req.query.search || '';
+        const search = String(req.query.search || req.query.buscar || req.query.q || req.query.termino || '').trim();
         const tipo_vehiculo = req.query.tipo_seguro || '';
         const estado = req.query.estado || '';
         const page = parseInt(req.query.page) || 1;
@@ -1690,7 +1692,14 @@ app.get('/api/clientes', (req, res) => {
             AND NOT (p.saldo_pendiente > 2500 AND CAST(julianday(date('now', 'localtime')) - julianday(p.fecha_vencimiento) AS INTEGER) > 4)`;
 
         if (!estado || ['todos', 'all', 'todas', ''].includes((estado || '').toLowerCase())) {
-            where += notBajaClauseBase + notRenewedClauseBase;
+            // Si el usuario realiza una búsqueda expresa (por nombre, patente, póliza, etc.),
+            // busca en toda la base sin filtrar por notBajaClauseBase, para que pueda encontrar clientes
+            // aunque tengan mora crítica o estén vencidos, visualizando su estado real.
+            if (search) {
+                where += notRenewedClauseBase;
+            } else {
+                where += notBajaClauseBase + notRenewedClauseBase;
+            }
         }
         if (estado) {
             const estadoNorm = estado.toLowerCase().replace(/\s+/g, '_');
@@ -1698,7 +1707,11 @@ app.get('/api/clientes', (req, res) => {
 
             const isHistoricoFilter = ['historico', 'historica', 'baja', 'anulada', 'recuperacion_historica', 'bajas'].includes(estadoNorm);
             if (!isHistoricoFilter && !['vence_48h', 'vencio_48h', 'vencio_96h', 'recordatorio_48hs', 'primer_aviso', 'segundo_aviso'].some(s => estadoNorm.includes(s))) {
-                where += notBajaClauseBase + notRenewedClause;
+                if (search) {
+                    where += notRenewedClause;
+                } else {
+                    where += notBajaClauseBase + notRenewedClause;
+                }
             }
 
             // ── RENOVACIONES ─────────────────────────────────────────────────
@@ -5028,6 +5041,18 @@ app.post('/api/sync-nre/general', async (req, res) => {
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
         const result = await syncGeneralNRE(usuario, password);
         evaluarAtribucionMetricas();
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ─── AUDITORÍA SISTEMÁTICA DE PARIDAD NRE (TRIUNVIRATO) VS CRM SEGUCar ───────
+app.get('/api/sync-nre/auditoria', async (req, res) => {
+    try {
+        const usuario = req.query.usuario || process.env.SISTEMA_USUARIO || 'SUA';
+        const password = req.query.password || process.env.SISTEMA_PASSWORD || 'sua';
+        const result = await auditarParidadNRE(usuario, password);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -979,5 +979,88 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
     }
 }
 
-module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas };
+/**
+ * Realiza un conteo sistemático y auditoría de paridad entre NRE (Triunvirato) y SEGUCar
+ */
+async function auditarParidadNRE(usuario, password) {
+    try {
+        const { baseUrl, getCookieString } = await loginNRE(usuario, password);
+        const curYear = new Date().getFullYear();
+        const desdeStr = `01/01/${curYear - 1}`;
+        const hastaStr = `31/12/${curYear + 1}`;
+
+        const params = new URLSearchParams();
+        params.append('produ', "('9902073')");
+        params.append('desde', desdeStr);
+        params.append('hasta', hastaStr);
+
+        const res = await fetchWithRetry(`${baseUrl}/lisvtopol.php`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'Cookie': getCookieString()
+            },
+            body: params.toString()
+        });
+
+        const data = await res.json();
+        if (!data.tabla) {
+            return { ok: false, error: 'No se obtuvo tabla de lisvtopol.php' };
+        }
+
+        const $ = cheerio.load(data.tabla);
+        const nreOperaciones = new Map();
+
+        $('tbody tr').each((i, tr) => {
+            const cols = $(tr).find('td').map((j, td) => $(td).text().trim()).get();
+            if (cols.length >= 10 && cols[0]) {
+                nreOperaciones.set(cols[0], {
+                    operacion: cols[0],
+                    nombre: cols[1],
+                    patente: cols[3],
+                    vehiculo: cols[4],
+                    fin_vigencia: cols[9]
+                });
+            }
+        });
+
+        // Pólizas en SEGUCar
+        const dbPolizas = db.prepare("SELECT operacion, patente, vehiculo FROM polizas WHERE aseguradora LIKE '%NRE%' OR aseguradora LIKE '%Triunvirato%'").all();
+        const crmOperacionesSet = new Set(dbPolizas.map(p => String(p.operacion)));
+        const crmPatentesSet = new Set(dbPolizas.map(p => String(p.patente || '').toUpperCase().trim()));
+
+        let coincidentes = 0;
+        const faltantesEnCRM = [];
+
+        for (const [op, item] of nreOperaciones.entries()) {
+            if (crmOperacionesSet.has(op)) {
+                coincidentes++;
+            } else if (item.patente && crmPatentesSet.has(item.patente.toUpperCase().trim())) {
+                // La patente sí existe en CRM bajo otra operación (por ejemplo, renovación con número nuevo)
+                coincidentes++;
+            } else {
+                faltantesEnCRM.push(item);
+            }
+        }
+
+        const totalNRE = nreOperaciones.size;
+        const paridadPct = totalNRE > 0 ? parseFloat(((coincidentes / totalNRE) * 100).toFixed(1)) : 100;
+
+        return {
+            ok: true,
+            total_nre: totalNRE,
+            total_crm_nre: dbPolizas.length,
+            coincidentes,
+            faltantes_en_crm_count: faltantesEnCRM.length,
+            faltantes_en_crm_sample: faltantesEnCRM.slice(0, 10),
+            paridad_porcentaje: paridadPct,
+            fecha_auditoria: new Date().toISOString()
+        };
+    } catch (e) {
+        return { ok: false, error: e.message };
+    }
+}
+
+module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
+
 
