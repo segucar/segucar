@@ -412,6 +412,12 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
         </span>
       </div>
 
+      <!-- NOTA ACLARATORIA DE DOS DIMENSIONES ORTOGONALES DE CARTERA -->
+      <div style="background: rgba(0, 180, 216, 0.05); border: 1px solid rgba(0, 180, 216, 0.2); border-left: 4px solid #00b4d8; border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45;">
+        <strong style="color: #48cae4;">💡 Dos dimensiones independientes de la misma cartera activa:</strong> 
+        <span style="color: var(--text-primary); font-weight: 600;">Salud de Cobranza</span> evalúa el estado financiero (si el cliente adeuda cuotas o está al día), mientras que <span style="color: var(--text-primary); font-weight: 600;">Ciclo Contractual</span> evalúa la vigencia de la póliza (si está en curso, por renovar o recién vencida). Son dos ejes ortogonales: un cliente con póliza por vencer o vencida puede estar al día con sus pagos, por lo que ambas clasificaciones suman el 100% de la cartera de forma separada.
+      </div>
+
       <!-- BARRAS APILADAS DE PROPORCIONES (100% CARTERA ACTIVA) -->
       <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px;">
         
@@ -419,7 +425,7 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
         <div style="margin-bottom: 14px;">
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
             <span style="font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-              <span>💳</span> Distribución por Cobranza (100% Cartera Activa)
+              <span>💳</span> Eje Financiero: Salud de Cobranza (100% Cartera por pago de cuotas)
             </span>
             <span>
               <strong style="color: #2ed573;">${pctAlDia}%</strong> Al Día (${alDia.toLocaleString('es-AR')}) &bull; <strong style="color: #e67e22;">${pctAvisos}%</strong> Avisos (${avisosCobranza.toLocaleString('es-AR')})
@@ -435,7 +441,7 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
         <div>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
             <span style="font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
-              <span>🛡️</span> Distribución Contractual &amp; Renovaciones (100% Cartera Activa)
+              <span>🛡️</span> Eje Contractual: Ciclo de Vigencia (100% Cartera por vencimiento de póliza)
             </span>
             <span>
               <strong style="color: #2ed573;">${pctVigentes}%</strong> Vigentes (${vigentes.toLocaleString('es-AR')}) &bull; <strong style="color: #00b4d8;">${pctAviso7d}%</strong> Ventana 7d (${aviso7d.toLocaleString('es-AR')}) &bull; <strong style="color: #e74c3c;">${pctVencidas}%</strong> Vencidas (${vencidas.toLocaleString('es-AR')})
@@ -459,7 +465,7 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
             <span style="font-size: 0.8rem; font-weight: 800; color: #2ed573; text-transform: uppercase; letter-spacing: 0.5px;">
               💳 Salud de Cobranza
             </span>
-            <span style="font-size: 0.72rem; color: #2ed573; font-weight: 700;">100% Cartera</span>
+            <span style="font-size: 0.7rem; color: #2ed573; font-weight: 700; background: rgba(46, 213, 115, 0.1); padding: 2px 7px; border-radius: 8px; border: 1px solid rgba(46, 213, 115, 0.25);">Eje Financiero &bull; 100% Cartera</span>
           </div>
 
           <!-- Al Día -->
@@ -502,7 +508,7 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
             <span style="font-size: 0.8rem; font-weight: 800; color: #00b4d8; text-transform: uppercase; letter-spacing: 0.5px;">
               🛡️ Ciclo Contractual &amp; Renovación
             </span>
-            <span style="font-size: 0.72rem; color: #00b4d8; font-weight: 700;">100% Cartera</span>
+            <span style="font-size: 0.7rem; color: #00b4d8; font-weight: 700; background: rgba(0, 180, 216, 0.1); padding: 2px 7px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.25);">Eje Vigencia &bull; 100% Cartera</span>
           </div>
 
           <!-- Contrato Vigente -->
@@ -986,7 +992,7 @@ function renderHistoricoRecuperacionChart(data, modo = 'semanal') {
 }
 
 // ─── COMPONENTE: DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA ───────────────
-function renderCobrosPorDiaSemana(cobrosPorDia, diaPico) {
+function renderCobrosPorDiaSemana(cobrosPorDia, diaPico, activeRango = 'este_mes') {
   if (!cobrosPorDia || cobrosPorDia.length === 0) return '';
   const sortedDias = [...cobrosPorDia].filter(d => (d.cobros || 0) > 0).sort((a, b) => (b.cobros || 0) - (a.cobros || 0));
   const top1 = sortedDias[0] || (diaPico?.dia ? { dia: diaPico.dia, cobros: diaPico.cobros || 0, pct_cobros: diaPico.pct_cobros || 0, dinero_recuperado: diaPico.dinero_recuperado || 0 } : { dia: 'Lunes', cobros: 0, pct_cobros: 0, dinero_recuperado: 0 });
@@ -994,6 +1000,18 @@ function renderCobrosPorDiaSemana(cobrosPorDia, diaPico) {
   const diaPicoCobros = top1.cobros || 0;
   const diaPicoPct = top1.pct_cobros || 0;
   const diaPicoDinero = (top1.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+  const RANGO_LABELS = {
+    hoy: '☀️ Hoy (Día Actual)',
+    esta_semana: '📆 Esta Semana',
+    este_mes: '📅 Este Mes',
+    mes_anterior: '🗓️ Mes Anterior',
+    '30_dias': '🗓️ Últimos 30 días',
+    anio_actual: '📆 Año Actual',
+    custom: '📅 Rango Personalizado',
+    todo: '🌐 Todo el Historial'
+  };
+  const labelPeriodo = RANGO_LABELS[activeRango] || (activeRango === 'custom' && currentCustomDesde && currentCustomHasta ? `📅 ${currentCustomDesde} a ${currentCustomHasta}` : '📅 Período Seleccionado');
 
   const top2 = sortedDias[1] || null;
   const topSumaPct = top2 ? ((top1.pct_cobros || 0) + (top2.pct_cobros || 0)).toFixed(1) : top1.pct_cobros;
@@ -1064,7 +1082,10 @@ Dinero recuperado: ${dineroFmt} (${d.pct_dinero}% del total)`;
             Días en que los clientes realizan efectivamente el pago (evaluado por fecha de resolución real, no fecha de envío)
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span class="badge" style="background: rgba(0, 180, 216, 0.14); color: #48cae4; font-weight: 700; border: 1px solid rgba(0, 180, 216, 0.35); font-size: 0.78rem; padding: 4px 10px; border-radius: 8px;" title="Período temporal aplicado según el filtro superior">
+            ⏳ Período: <strong>${labelPeriodo}</strong>
+          </span>
           <span class="badge" style="background: rgba(46, 213, 115, 0.18); color: #2ed573; font-weight: 800; border: 1px solid rgba(46, 213, 115, 0.35); font-size: 0.78rem;">
             🔥 Día Pico: ${diaPicoNombre} (${diaPicoPct}% de cobros)
           </span>
@@ -1413,7 +1434,7 @@ function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
     </div>
 
     <!-- 📅 DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO CON DÍA PICO) -->
-    ${renderCobrosPorDiaSemana(data.cobros_por_dia_semana, data.dia_pico_cobranza)}
+    ${renderCobrosPorDiaSemana(data.cobros_por_dia_semana, data.dia_pico_cobranza, activeRango)}
 
     <!-- 🔄 CONVERSIÓN POR ETAPA DE COBRANZA -->
     ${renderEtapasCobranza(data.etapas_cobranza)}
