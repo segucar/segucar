@@ -653,7 +653,7 @@ function calcularDashboardStatsData() {
     const esDiaNoHabil = esNoHabil(hoy);
 
     const allPolizas = db.prepare(`
-        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora, c.telefono as cliente_telefono 
+        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora, p.suma_asegurada, p.cuotas_historial, c.telefono as cliente_telefono 
         FROM polizas p 
         LEFT JOIN clientes c ON p.cliente_id = c.id
     `).all();
@@ -697,6 +697,15 @@ function calcularDashboardStatsData() {
 
     let renovaciones_sin_telefono = 0;
     let cobranzas_sin_telefono = 0;
+
+    // Facturación y Cuotas Reales sobre Cartera Activa Viva (Fuente Única de Verdad)
+    let conSumaGlobal = 0;
+    let nreTotalAudit = 0;
+    let nreConSuma = 0;
+    let agsTotalAudit = 0;
+    let agsConSuma = 0;
+    let sumaCuotasReales = 0;
+    let countCuotasReales = 0;
 
     const vehiculos_desglose = {
         autos: 0,
@@ -831,9 +840,57 @@ function calcularDashboardStatsData() {
         } else if (calDiffRen >= -30) {
             polizas_vencidas++;
         }
+
+        // 3. Auditoría de facturación y cuotas reales sobre Cartera Activa Viva (Fuente Única)
+        const asegAudit = (p.aseguradora || '').toUpperCase();
+        const numSuma = parseFloat(String(p.suma_asegurada || '0').replace(/[^0-9.-]+/g, ''));
+        const tieneSuma = !isNaN(numSuma) && numSuma > 0;
+
+        if (tieneSuma) conSumaGlobal++;
+
+        if (asegAudit.includes('NRE') || asegAudit.includes('TRIUNVIRATO')) {
+            nreTotalAudit++;
+            if (tieneSuma) nreConSuma++;
+        } else if (asegAudit.includes('AGS') || asegAudit.includes('AGROSALTA')) {
+            agsTotalAudit++;
+            if (tieneSuma) agsConSuma++;
+        }
+
+        if (p.cuotas_historial) {
+            try {
+                const list = JSON.parse(p.cuotas_historial);
+                if (Array.isArray(list)) {
+                    for (const c of list) {
+                        const imp = parseFloat(c.importe || c.monto || c.saldo || 0);
+                        if (imp > 0) {
+                            sumaCuotasReales += imp;
+                            countCuotasReales++;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
     }
 
     const cartera_activa_total = al_dia_estricto + vence_48h + vencio_48h + vencio_96h;
+
+    const pctConSumaGlobal = cartera_activa_total > 0 ? parseFloat(((conSumaGlobal / cartera_activa_total) * 100).toFixed(1)) : 0;
+    const pctConSumaNre = nreTotalAudit > 0 ? parseFloat(((nreConSuma / nreTotalAudit) * 100).toFixed(1)) : 0;
+    const pctConSumaAgs = agsTotalAudit > 0 ? parseFloat(((agsConSuma / agsTotalAudit) * 100).toFixed(1)) : 0;
+    const ticketPromedioCuotaReal = countCuotasReales > 0 ? Math.round(sumaCuotasReales / countCuotasReales) : 33452;
+    const volumenEstimadoMensual = Math.round(cartera_activa_total * ticketPromedioCuotaReal);
+
+    const auditoria_facturacion_base = {
+        total_polizas_activas: cartera_activa_total,
+        polizas_con_suma: conSumaGlobal,
+        pct_con_suma_global: pctConSumaGlobal,
+        pct_con_suma_nre: pctConSumaNre,
+        pct_con_suma_ags: pctConSumaAgs,
+        total_cuotas_analizadas: countCuotasReales,
+        ticket_promedio_cuota: ticketPromedioCuotaReal,
+        volumen_estimado_mensual: volumenEstimadoMensual
+    };
+
     const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
     const polizas_anuladas_db = db.prepare("SELECT COUNT(*) as count FROM polizas WHERE LOWER(COALESCE(estado, '')) IN ('anulada', 'baja') OR COALESCE(anulada, 0) = 1").get().count;
     const polizas_historicas_total = polizas_historicas_db + polizas_anuladas_db + bajas_por_mora_96h + bajas_vencidas_mas_30d;
@@ -905,7 +962,9 @@ function calcularDashboardStatsData() {
         last_sync_ags: syncInfo.last_sync_ags || null,
         last_sync_nre_status: syncInfo.last_sync_nre_status || 'ok',
         last_sync_ags_status: syncInfo.last_sync_ags_status || 'ok',
-        es_dia_no_habil: esDiaNoHabil
+        es_dia_no_habil: esDiaNoHabil,
+        auditoria_facturacion_base,
+        auditoria_facturacion: auditoria_facturacion_base
     };
 }
 
@@ -4103,78 +4162,25 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             if (d.cobros > diaPico.cobros) diaPico = d;
         }
 
-        // ── COBERTURA DE CONTACTO ──
-        const totalClientes = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
-        const conTel = db.prepare("SELECT COUNT(*) as c FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().c;
+        // ── COBERTURA DE CONTACTO & AUDITORÍA FACTURACIÓN (BASE UNIFICADA CON DASHBOARD) ──
+        const dashStats = calcularDashboardStatsData();
         const cobertura_contacto = {
-            total_clientes: totalClientes,
-            con_telefono: conTel,
-            sin_telefono: totalClientes - conTel,
-            porcentaje: totalClientes > 0 ? parseFloat(((conTel / totalClientes) * 100).toFixed(1)) : 0
+            total_clientes: dashStats.total_clientes,
+            con_telefono: dashStats.clientes_con_telefono,
+            sin_telefono: dashStats.clientes_sin_telefono,
+            porcentaje: parseFloat(dashStats.cobertura_porcentaje || 0)
         };
 
-        // ── AUDITORÍA DE FACTURACIÓN (PASO 0 DINÁMICO) ──
-        const polsActivasAudit = db.prepare(`
-            SELECT aseguradora, suma_asegurada, cuotas_historial 
-            FROM polizas 
-            WHERE anulada = 0 AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
-        `).all();
-
-        const totalActivasAudit = polsActivasAudit.length;
-        let conSumaGlobal = 0;
-        let nreTotalAudit = 0;
-        let nreConSuma = 0;
-        let agsTotalAudit = 0;
-        let agsConSuma = 0;
-        let sumaCuotasReales = 0;
-        let countCuotasReales = 0;
-
-        for (const p of polsActivasAudit) {
-            const aseg = (p.aseguradora || '').toUpperCase();
-            const numSuma = parseFloat(String(p.suma_asegurada || '0').replace(/[^0-9.-]+/g, ''));
-            const tieneSuma = !isNaN(numSuma) && numSuma > 0;
-
-            if (tieneSuma) conSumaGlobal++;
-
-            if (aseg.includes('NRE') || aseg.includes('TRIUNVIRATO')) {
-                nreTotalAudit++;
-                if (tieneSuma) nreConSuma++;
-            } else if (aseg.includes('AGS') || aseg.includes('AGROSALTA')) {
-                agsTotalAudit++;
-                if (tieneSuma) agsConSuma++;
-            }
-
-            if (p.cuotas_historial) {
-                try {
-                    const list = JSON.parse(p.cuotas_historial);
-                    if (Array.isArray(list)) {
-                        for (const c of list) {
-                            const imp = parseFloat(c.importe || c.monto || c.saldo || 0);
-                            if (imp > 0) {
-                                sumaCuotasReales += imp;
-                                countCuotasReales++;
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
-        }
-
-        const pctConSumaGlobal = totalActivasAudit > 0 ? parseFloat(((conSumaGlobal / totalActivasAudit) * 100).toFixed(1)) : 0;
-        const pctConSumaNre = nreTotalAudit > 0 ? parseFloat(((nreConSuma / nreTotalAudit) * 100).toFixed(1)) : 0;
-        const pctConSumaAgs = agsTotalAudit > 0 ? parseFloat(((agsConSuma / agsTotalAudit) * 100).toFixed(1)) : 0;
-        const ticketPromedioCuotaReal = countCuotasReales > 0 ? Math.round(sumaCuotasReales / countCuotasReales) : 33452;
-        const volumenEstimadoMensual = Math.round(totalActivasAudit * ticketPromedioCuotaReal);
-
+        const baseAudit = dashStats.auditoria_facturacion_base || {};
         const auditoria_facturacion = {
-            total_polizas_activas: totalActivasAudit,
-            polizas_con_suma: conSumaGlobal,
-            pct_con_suma_global: pctConSumaGlobal,
-            pct_con_suma_nre: pctConSumaNre,
-            pct_con_suma_ags: pctConSumaAgs,
-            total_cuotas_analizadas: countCuotasReales,
-            ticket_promedio_cuota: ticketPromedioCuotaReal,
-            volumen_estimado_mensual: volumenEstimadoMensual,
+            total_polizas_activas: dashStats.cartera_activa_total,
+            polizas_con_suma: baseAudit.polizas_con_suma || 0,
+            pct_con_suma_global: baseAudit.pct_con_suma_global || 0,
+            pct_con_suma_nre: baseAudit.pct_con_suma_nre || 0,
+            pct_con_suma_ags: baseAudit.pct_con_suma_ags || 0,
+            total_cuotas_analizadas: baseAudit.total_cuotas_analizadas || 0,
+            ticket_promedio_cuota: baseAudit.ticket_promedio_cuota || 33452,
+            volumen_estimado_mensual: baseAudit.volumen_estimado_mensual || Math.round(dashStats.cartera_activa_total * (baseAudit.ticket_promedio_cuota || 33452)),
             cobranza_efectiva_periodo: dinero_recuperado_total
         };
 

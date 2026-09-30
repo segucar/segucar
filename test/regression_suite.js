@@ -1547,7 +1547,50 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 27:", e.message);
     }
 
-    const totalTestsCount = 27;
+    // ── TEST 28: Paridad Estricta de Cartera Activa: Dashboard (/api/dashboard/stats) vs Métricas (/api/metricas/resumen) ──
+    try {
+        console.log("📌 TEST 28: Paridad Estricta de Cartera Activa: Dashboard (/api/dashboard/stats) vs Métricas (/api/metricas/resumen)");
+        const app = require('../server');
+
+        const dashStats = app.calcularDashboardStatsData();
+        const metricasMes = app.calcularMetricasResumenData('este_mes');
+        const metricasTodo = app.calcularMetricasResumenData('todo');
+
+        const carteraActivaDash = dashStats.cartera_activa_total;
+        const totalPolizasMes = metricasMes.auditoria_facturacion?.total_polizas_activas;
+        const totalPolizasTodo = metricasTodo.auditoria_facturacion?.total_polizas_activas;
+
+        const okParidadMes = (carteraActivaDash > 0) && (totalPolizasMes === carteraActivaDash);
+        const okParidadTodo = (totalPolizasTodo === carteraActivaDash);
+
+        const ticketCuota = metricasMes.auditoria_facturacion?.ticket_promedio_cuota;
+        const volEstimado = metricasMes.auditoria_facturacion?.volumen_estimado_mensual;
+        const volEsperado = Math.round(carteraActivaDash * ticketCuota);
+        const okCalculoVolumen = (volEstimado === volEsperado);
+
+        const okPolizasConSuma = metricasMes.auditoria_facturacion?.polizas_con_suma <= carteraActivaDash;
+
+        if (okParidadMes && okParidadTodo && okCalculoVolumen && okPolizasConSuma) {
+            console.log(`  ✅ PASSED -> Paridad Exacta: Dashboard (${carteraActivaDash}) === Métricas este_mes (${totalPolizasMes}) === Métricas todo (${totalPolizasTodo}).`);
+            console.log(`  ✅ PASSED -> Opción B Recalculada: ${carteraActivaDash} pólizas activas × $${ticketCuota.toLocaleString('es-AR')} = $${volEstimado.toLocaleString('es-AR')} mensual.`);
+            console.log("  ✅ PASSED -> Fuente Única de Verdad: auditoria_facturacion deriva directamente de calcularDashboardStatsData sin queries desincronizadas.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 28:", {
+                carteraActivaDash,
+                totalPolizasMes,
+                totalPolizasTodo,
+                okParidadMes,
+                okParidadTodo,
+                okCalculoVolumen,
+                okPolizasConSuma
+            });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 28:", e.message);
+    }
+
+    const totalTestsCount = 28;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);
