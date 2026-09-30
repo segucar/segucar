@@ -1017,43 +1017,111 @@ async function auditarParidadNRE(usuario, password) {
                 nreOperaciones.set(cols[0], {
                     operacion: cols[0],
                     nombre: cols[1],
+                    seccion: cols[2],
                     patente: cols[3],
                     vehiculo: cols[4],
-                    fin_vigencia: cols[9]
+                    telefono: cols[5],
+                    cuenta: cols[8],
+                    fin_vigencia: cols[9],
+                    renovada: cols[10] || ''
                 });
             }
         });
 
-        // Pólizas en SEGUCar
-        const dbPolizas = db.prepare("SELECT operacion, patente, vehiculo FROM polizas WHERE aseguradora LIKE '%NRE%' OR aseguradora LIKE '%Triunvirato%'").all();
+        // Pólizas en SEGUCar (activas/en gestión y archivo histórico)
+        const normPat = (p) => String(p || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+        const dbPolizas = db.prepare("SELECT operacion, patente, vehiculo FROM polizas").all();
+        const dbHistoricas = db.prepare("SELECT operacion, patente, vehiculo FROM polizas_historicas").all();
+
         const crmOperacionesSet = new Set(dbPolizas.map(p => String(p.operacion)));
-        const crmPatentesSet = new Set(dbPolizas.map(p => String(p.patente || '').toUpperCase().trim()));
+        const crmPatentesSet = new Set(dbPolizas.map(p => normPat(p.patente)).filter(Boolean));
+
+        const histOperacionesSet = new Set(dbHistoricas.map(p => String(p.operacion)));
+        const histPatentesSet = new Set(dbHistoricas.map(p => normPat(p.patente)).filter(Boolean));
 
         let coincidentes = 0;
+        let coincidentesEnHistoricas = 0;
         const faltantesEnCRM = [];
 
+        const totalPorAnio = {};
+        const coincidentesPorAnio = {};
+        const faltantesPorAnio = {};
+        const faltantes2026 = [];
+
+        const hoy = new Date();
+        hoy.setHours(0, 0, 0, 0);
+
         for (const [op, item] of nreOperaciones.entries()) {
-            if (crmOperacionesSet.has(op)) {
+            const parts = (item.fin_vigencia || '').split('/');
+            let anio = 'desconocido';
+            let fechaVto = null;
+            if (parts.length === 3) {
+                anio = parts[2];
+                fechaVto = new Date(parseInt(parts[2], 10), parseInt(parts[1], 10) - 1, parseInt(parts[0], 10));
+            }
+
+            totalPorAnio[anio] = (totalPorAnio[anio] || 0) + 1;
+
+            const patClean = normPat(item.patente);
+            const inPolizas = crmOperacionesSet.has(op) || (patClean && crmPatentesSet.has(patClean));
+            const inHistoricas = histOperacionesSet.has(op) || (patClean && histPatentesSet.has(patClean));
+
+            if (inPolizas) {
                 coincidentes++;
-            } else if (item.patente && crmPatentesSet.has(item.patente.toUpperCase().trim())) {
-                // La patente sí existe en CRM bajo otra operación (por ejemplo, renovación con número nuevo)
+                coincidentesPorAnio[anio] = (coincidentesPorAnio[anio] || 0) + 1;
+            } else if (inHistoricas) {
                 coincidentes++;
+                coincidentesEnHistoricas++;
+                coincidentesPorAnio[anio] = (coincidentesPorAnio[anio] || 0) + 1;
             } else {
+                faltantesPorAnio[anio] = (faltantesPorAnio[anio] || 0) + 1;
                 faltantesEnCRM.push(item);
+                if (anio === '2026') {
+                    const esVigenteHoy = fechaVto ? (fechaVto >= hoy) : false;
+                    faltantes2026.push({
+                        ...item,
+                        es_vigente_hoy: esVigenteHoy
+                    });
+                }
             }
         }
 
         const totalNRE = nreOperaciones.size;
         const paridadPct = totalNRE > 0 ? parseFloat(((coincidentes / totalNRE) * 100).toFixed(1)) : 100;
 
+        const total2026 = totalPorAnio['2026'] || 0;
+        const coincidentes2026 = coincidentesPorAnio['2026'] || 0;
+        const paridad2026Pct = total2026 > 0 ? parseFloat(((coincidentes2026 / total2026) * 100).toFixed(1)) : 100;
+
+        const faltantes2026Vigentes = faltantes2026.filter(f => f.es_vigente_hoy);
+        const faltantes2026Caducas = faltantes2026.filter(f => !f.es_vigente_hoy);
+
         return {
             ok: true,
             total_nre: totalNRE,
-            total_crm_nre: dbPolizas.length,
-            coincidentes,
+            total_crm_polizas: dbPolizas.length,
+            total_crm_historicas: dbHistoricas.length,
+            coincidentes_totales: coincidentes,
+            coincidentes_en_historicas: coincidentesEnHistoricas,
+            paridad_porcentaje_global: paridadPct,
+            desglose_por_anio: {
+                total_nre: totalPorAnio,
+                coincidentes: coincidentesPorAnio,
+                faltantes: faltantesPorAnio
+            },
+            analisis_2026: {
+                total_nre_2026: total2026,
+                coincidentes_2026: coincidentes2026,
+                paridad_2026_porcentaje: paridad2026Pct,
+                faltantes_2026_total: faltantes2026.length,
+                faltantes_2026_vigentes_hoy: faltantes2026Vigentes.length,
+                faltantes_2026_caducas_anteriores: faltantes2026Caducas.length,
+                sample_vigentes_hoy: faltantes2026Vigentes.slice(0, 10),
+                sample_caducas: faltantes2026Caducas.slice(0, 10)
+            },
             faltantes_en_crm_count: faltantesEnCRM.length,
             faltantes_en_crm_sample: faltantesEnCRM.slice(0, 10),
-            paridad_porcentaje: paridadPct,
             fecha_auditoria: new Date().toISOString()
         };
     } catch (e) {
@@ -1061,6 +1129,6 @@ async function auditarParidadNRE(usuario, password) {
     }
 }
 
-module.exports = { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
+module.exports = { loginNRE, syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
 
 
