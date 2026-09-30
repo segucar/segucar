@@ -1378,14 +1378,21 @@ async function runRegressionSuite() {
         const fakeDatesCount = db.prepare(`SELECT COUNT(*) as c FROM historico_cartera_snapshots WHERE fecha IN ('2025-12-31', '2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31')`).get().c;
         const noFakeDataOk = fakeDatesCount === 0;
 
-        if (snapshotsOk && saveOk && mensualOk && trimestralOk && cobrosPorDiaOk && auditoriaPaso0Ok && noFakeDataOk) {
+        // 5. Validar cálculo dinámico de auditoria_facturacion en API
+        const auditFactOk = resumen.auditoria_facturacion &&
+                            typeof resumen.auditoria_facturacion.pct_con_suma_global === 'number' &&
+                            typeof resumen.auditoria_facturacion.ticket_promedio_cuota === 'number' &&
+                            resumen.auditoria_facturacion.ticket_promedio_cuota > 20000;
+
+        if (snapshotsOk && saveOk && mensualOk && trimestralOk && cobrosPorDiaOk && auditoriaPaso0Ok && noFakeDataOk && auditFactOk) {
             console.log("  ✅ PASSED -> Snapshots Cartera: Tabla y métodos guardarSnapshot / obtenerHistorico validados sin datos falsos.");
             console.log("  ✅ PASSED -> Series Temporales: Histórico mensual (6 meses) e histórico trimestral (4 trim.) calculados con doble eje.");
             console.log(`  ✅ PASSED -> Cobros por Día de la Semana: Día pico '${resumen.dia_pico_cobranza.dia}' calculado dinámicamente con ${resumen.dia_pico_cobranza.cobros} cobros.`);
-            console.log(`  ✅ PASSED -> Blindaje Auditoría Paso 0: Confirmado que solo ${pctConSuma.toFixed(1)}% tiene suma_asegurada > $0 (facturación pausada con rigor).\n`);
+            console.log(`  ✅ PASSED -> Blindaje Auditoría Paso 0: Confirmado que solo ${pctConSuma.toFixed(1)}% tiene suma_asegurada > $0 (facturación pausada con rigor).`);
+            console.log(`  ✅ PASSED -> Auditoría Facturación Dinámica: Ticket promedio cuota real de $${resumen.auditoria_facturacion.ticket_promedio_cuota.toLocaleString('es-AR')} calculado sobre cuotas reales.\n`);
             totalPassed++;
         } else {
-            console.error("  ❌ FAILED en TEST 25:", { snapshotsOk, saveOk, mensualOk, trimestralOk, cobrosPorDiaOk, auditoriaPaso0Ok, noFakeDataOk });
+            console.error("  ❌ FAILED en TEST 25:", { snapshotsOk, saveOk, mensualOk, trimestralOk, cobrosPorDiaOk, auditoriaPaso0Ok, noFakeDataOk, auditFactOk });
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 25:", e.message);

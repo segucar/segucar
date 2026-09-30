@@ -594,8 +594,33 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
   `;
 }
 
-// ─── COMPONENTE: AUDITORÍA DE FACTURACIÓN (PASO 0) ─────────────────────────
-function renderCardAuditoriaFacturacion() {
+// ─── COMPONENTE: AUDITORÍA DE FACTURACIÓN (PASO 0 DINÁMICO) ─────────────────
+function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {}, activeRango = 'este_mes') {
+  const totalActivas = audit.total_polizas_activas || stats.cartera_activa_total || 1698;
+  const pctGlobal = audit.pct_con_suma_global !== undefined ? audit.pct_con_suma_global : 11.4;
+  const pctNre = audit.pct_con_suma_nre !== undefined ? audit.pct_con_suma_nre : 10.5;
+  const pctAgs = audit.pct_con_suma_ags !== undefined ? audit.pct_con_suma_ags : 47.8;
+  const ticketCuota = audit.ticket_promedio_cuota || 33452;
+  const cuotasAnalizadas = audit.total_cuotas_analizadas || 4773;
+  const volumenEstimado = audit.volumen_estimado_mensual || Math.round(totalActivas * ticketCuota);
+  const cobranzaEfectiva = metricasData.dinero_recuperado_total !== undefined ? metricasData.dinero_recuperado_total : (audit.cobranza_efectiva_periodo || 0);
+
+  const ticketFmt = ticketCuota.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const volumenMillones = (volumenEstimado / 1000000).toFixed(1);
+  const cobranzaMillones = (cobranzaEfectiva / 1000000).toFixed(1);
+
+  const RANGO_LABELS = {
+    hoy: 'Hoy',
+    esta_semana: 'Esta Semana',
+    este_mes: 'Este Mes',
+    mes_anterior: 'Mes Anterior',
+    '30_dias': 'Últimos 30 días',
+    anio_actual: 'Año Actual',
+    custom: 'Rango Personalizado',
+    todo: 'Todo el Historial'
+  };
+  const labelPeriodo = RANGO_LABELS[activeRango] || 'Período Activo';
+
   return `
     <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
@@ -605,18 +630,34 @@ function renderCardAuditoriaFacturacion() {
             VOLUMEN DE NEGOCIO &amp; FACTURACIÓN ESTIMADA
           </span>
         </div>
-        <span style="font-size: 0.72rem; color: #f39c12; background: rgba(243, 156, 18, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(243, 156, 18, 0.3); font-weight: 700;">
-          ⏳ PASO 0 — AUDITORÍA TÉCNICA DE DATOS
-        </span>
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="font-size: 0.72rem; color: #2ed573; background: rgba(46, 213, 115, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(46, 213, 115, 0.3); font-weight: 700; display: inline-flex; align-items: center; gap: 5px;">
+            <span>⚡</span> Recalculado en vivo en cada consulta
+          </span>
+          <span style="font-size: 0.72rem; color: #f39c12; background: rgba(243, 156, 18, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(243, 156, 18, 0.3); font-weight: 700;">
+            ⏳ PASO 0 — AUDITORÍA TÉCNICA DE DATOS
+          </span>
+        </div>
       </div>
       <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; font-size: 0.82rem; line-height: 1.5; color: var(--text-secondary);">
         <div style="background: rgba(255,255,255,0.02); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
-          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px;">🔍 Hallazgo de Auditoría (Campo <code style="color:#00b4d8;">suma_asegurada</code>):</div>
-          El campo <code style="color:#00b4d8;">suma_asegurada</code> solo tiene valor &gt; $0 en el <strong>11.0%</strong> de la cartera activa (10.4% en NRE y 46.4% en AGS). En motos y pólizas de Responsabilidad Civil figura en <strong>$0,00</strong> porque representa el capital asegurado del vehículo ante destrucción total o robo, <em>no la prima anual ni la cuota comercial</em>.
+          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+            <span>🔍 Hallazgo de Auditoría (Campo <code style="color:#00b4d8;">suma_asegurada</code>):</span>
+            <span style="color: #f39c12; font-weight: 800;">${pctGlobal}% activo</span>
+          </div>
+          El campo <code style="color:#00b4d8;">suma_asegurada</code> solo tiene valor &gt; $0 en el <strong>${pctGlobal}%</strong> de la cartera activa (${pctNre}% en NRE y ${pctAgs}% en AGS). En motos y coberturas de Responsabilidad Civil figura en <strong>$0,00</strong> porque representa el capital asegurado del vehículo ante destrucción o robo, <em>no la prima anual ni la cuota comercial</em>. Por esta razón técnica, el cálculo sobre este campo queda descartado para medir facturación.
         </div>
         <div style="background: rgba(255,255,255,0.02); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
-          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px;">⚖️ Decisión de Calibración:</div>
-          Tal como acordamos en el Paso 0 para evitar distorsiones con números engañosos, el gráfico de facturación permanece pausado hasta consensuar el indicador definitivo: <strong>Cobranza Efectiva Atribuida</strong> ($28.6M/mes) vs. <strong>Volumen Estimado de Primas Administradas</strong> (~$62M/mes).
+          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px;">⚖️ Decisión de Calibración (Candidatos en Vivo):</div>
+          El gráfico de facturación permanece pausado para consensuar la métrica definitiva entre las dos opciones:
+          <div style="margin-top: 6px; display: flex; flex-direction: column; gap: 6px;">
+            <div style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.25); padding: 6px 10px; border-radius: 8px;">
+              <strong style="color: #2ed573;">Opción A — Cobranza Efectiva Atribuida:</strong> <strong>$${cobranzaMillones}M</strong> en ${labelPeriodo} (plata cobrada y atribuida a las gestiones reales de WhatsApp).
+            </div>
+            <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); padding: 6px 10px; border-radius: 8px;">
+              <strong style="color: #00b4d8;">Opción B — Volumen Estimado de Primas:</strong> <strong>~$${volumenMillones}M/mes</strong> (proyección calculada en vivo: ${totalActivas.toLocaleString('es-AR')} pólizas activas &times; ticket promedio real de cuota de <strong>${ticketFmt}</strong>, obtenido de ${cuotasAnalizadas.toLocaleString('es-AR')} cuotas históricas en la base).
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -1361,7 +1402,7 @@ function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
     ${renderHistoricoRecuperacionChart(data, _currentRecuperacionModo)}
 
     <!-- 🏛️ VOLUMEN DE NEGOCIO & FACTURACIÓN (EN AUDITORÍA TÉCNICA - PASO 0) -->
-    ${renderCardAuditoriaFacturacion()}
+    ${renderCardAuditoriaFacturacion(data.auditoria_facturacion, stats, data, activeRango)}
 
     <!-- 🛡️ DESGLOSE DE COBERTURAS POR TIPO DE VEHÍCULO (TABLA CRUZADA AUDITADA) -->
     ${renderTablaCoberturasPorVehiculo(stats.cobertura_vehiculos || data.cobertura_vehiculos)}

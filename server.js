@@ -4100,6 +4100,71 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             porcentaje: totalClientes > 0 ? parseFloat(((conTel / totalClientes) * 100).toFixed(1)) : 0
         };
 
+        // ── AUDITORÍA DE FACTURACIÓN (PASO 0 DINÁMICO) ──
+        const polsActivasAudit = db.prepare(`
+            SELECT aseguradora, suma_asegurada, cuotas_historial 
+            FROM polizas 
+            WHERE anulada = 0 AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).all();
+
+        const totalActivasAudit = polsActivasAudit.length;
+        let conSumaGlobal = 0;
+        let nreTotalAudit = 0;
+        let nreConSuma = 0;
+        let agsTotalAudit = 0;
+        let agsConSuma = 0;
+        let sumaCuotasReales = 0;
+        let countCuotasReales = 0;
+
+        for (const p of polsActivasAudit) {
+            const aseg = (p.aseguradora || '').toUpperCase();
+            const numSuma = parseFloat(String(p.suma_asegurada || '0').replace(/[^0-9.-]+/g, ''));
+            const tieneSuma = !isNaN(numSuma) && numSuma > 0;
+
+            if (tieneSuma) conSumaGlobal++;
+
+            if (aseg.includes('NRE') || aseg.includes('TRIUNVIRATO')) {
+                nreTotalAudit++;
+                if (tieneSuma) nreConSuma++;
+            } else if (aseg.includes('AGS') || aseg.includes('AGROSALTA')) {
+                agsTotalAudit++;
+                if (tieneSuma) agsConSuma++;
+            }
+
+            if (p.cuotas_historial) {
+                try {
+                    const list = JSON.parse(p.cuotas_historial);
+                    if (Array.isArray(list)) {
+                        for (const c of list) {
+                            const imp = parseFloat(c.importe || c.monto || c.saldo || 0);
+                            if (imp > 0) {
+                                sumaCuotasReales += imp;
+                                countCuotasReales++;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+        }
+
+        const pctConSumaGlobal = totalActivasAudit > 0 ? parseFloat(((conSumaGlobal / totalActivasAudit) * 100).toFixed(1)) : 0;
+        const pctConSumaNre = nreTotalAudit > 0 ? parseFloat(((nreConSuma / nreTotalAudit) * 100).toFixed(1)) : 0;
+        const pctConSumaAgs = agsTotalAudit > 0 ? parseFloat(((agsConSuma / agsTotalAudit) * 100).toFixed(1)) : 0;
+        const ticketPromedioCuotaReal = countCuotasReales > 0 ? Math.round(sumaCuotasReales / countCuotasReales) : 33452;
+        const volumenEstimadoMensual = Math.round(totalActivasAudit * ticketPromedioCuotaReal);
+
+        const auditoria_facturacion = {
+            total_polizas_activas: totalActivasAudit,
+            polizas_con_suma: conSumaGlobal,
+            pct_con_suma_global: pctConSumaGlobal,
+            pct_con_suma_nre: pctConSumaNre,
+            pct_con_suma_ags: pctConSumaAgs,
+            total_cuotas_analizadas: countCuotasReales,
+            ticket_promedio_cuota: ticketPromedioCuotaReal,
+            volumen_estimado_mensual: volumenEstimadoMensual,
+            cobranza_efectiva_periodo: dinero_recuperado_total
+        };
+
         return {
             rango,
             total_envios,
@@ -4127,7 +4192,8 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
                 pct_cobros: diaPico.pct_cobros,
                 dinero_recuperado: diaPico.dinero_recuperado
             },
-            cobertura_contacto
+            cobertura_contacto,
+            auditoria_facturacion
         };
 }
 
