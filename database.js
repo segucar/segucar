@@ -299,28 +299,16 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha_arg ON historial_gestiones_whatsapp(datetime(fecha_envio, '-3 hours'));
 `);
 
-// 📈 Baseline Seed Histórico para Cartera Activa (Últimos meses si faltan)
+// 🧹 Purga definitiva de snapshots simulados: NUNCA sembrar datos artificiales, solo acumular datos reales
 try {
-    const seedCartera = [
-        { fecha: '2025-12-31', cartera: 1420, autos: 780, pickups: 280, motos: 322, camiones: 38 },
-        { fecha: '2026-03-31', cartera: 1460, autos: 805, pickups: 288, motos: 329, camiones: 38 },
-        { fecha: '2026-04-30', cartera: 1485, autos: 818, pickups: 292, motos: 336, camiones: 39 },
-        { fecha: '2026-05-31', cartera: 1512, autos: 832, pickups: 298, motos: 342, camiones: 40 },
-        { fecha: '2026-06-30', cartera: 1538, autos: 848, pickups: 302, motos: 347, camiones: 41 },
-        { fecha: '2026-07-31', cartera: 1558, autos: 860, pickups: 307, motos: 350, camiones: 41 },
-        { fecha: '2026-08-31', cartera: 1574, autos: 869, pickups: 310, motos: 354, camiones: 41 }
-    ];
-    const seedStmt = db.prepare(`
-        INSERT OR IGNORE INTO historico_cartera_snapshots (
-            fecha, cartera_activa_total, autos, pickups, motos, camiones, sin_clasificar,
-            al_dia, avisos_cobranza, vigentes, aviso_renovacion, polizas_vencidas, historicas_bajas
-        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 80, ?, 30, 140, 4400)
-    `);
-    seedCartera.forEach(s => {
-        seedStmt.run(s.fecha, s.cartera, s.autos, s.pickups, s.motos, s.camiones, s.cartera - 80, s.cartera - 170);
-    });
-} catch (eSeed) {
-    console.warn('⚠️ [SnapshotSeed] Error en baseline seed:', eSeed.message);
+    const fakeDates = ['2025-12-31', '2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31'];
+    const placeholders = fakeDates.map(() => '?').join(',');
+    const purged = db.prepare(`DELETE FROM historico_cartera_snapshots WHERE fecha IN (${placeholders})`).run(...fakeDates);
+    if (purged.changes > 0) {
+        console.log(`🧹 [SnapshotCleanup] Purgados ${purged.changes} snapshots históricos simulados. Solo se conservan datos reales.`);
+    }
+} catch (eClean) {
+    console.warn('⚠️ [SnapshotCleanup] Error limpiando snapshots simulados:', eClean.message);
 }
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────

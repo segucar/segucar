@@ -1328,8 +1328,8 @@ async function runRegressionSuite() {
 
         // 1. Validar tabla y métodos de snapshots de cartera
         const snapshots = db.obtenerHistoricoCarteraSnapshots(365);
-        const snapshotsOk = Array.isArray(snapshots) && snapshots.length >= 5;
-        const testSnapshotFecha = '2026-03-31';
+        const snapshotsOk = Array.isArray(snapshots) && snapshots.length >= 1;
+        const testSnapshotFecha = '2099-01-01';
         db.guardarSnapshotCarteraActiva({
             fecha: testSnapshotFecha,
             cartera_activa_total: 1450,
@@ -1356,9 +1356,10 @@ async function runRegressionSuite() {
                           resumen.historico_mensual.every(m => m.mes && m.label && typeof m.dinero_recuperado === 'number');
         const trimestralOk = Array.isArray(resumen.historico_trimestral) && resumen.historico_trimestral.length === 4 &&
                             resumen.historico_trimestral.every(q => q.trimestre && q.label && typeof m === 'undefined');
+        const maxCobrosDia = Math.max(...resumen.cobros_por_dia_semana.map(d => d.cobros || 0));
         const cobrosPorDiaOk = Array.isArray(resumen.cobros_por_dia_semana) && resumen.cobros_por_dia_semana.length === 7 &&
-                               resumen.dia_pico_cobranza && resumen.dia_pico_cobranza.dia === 'Miércoles' &&
-                               resumen.dia_pico_cobranza.cobros === 46;
+                               resumen.dia_pico_cobranza && typeof resumen.dia_pico_cobranza.dia === 'string' &&
+                               resumen.dia_pico_cobranza.cobros === maxCobrosDia;
 
         // 3. Validar fidelidad de auditoría Paso 0 (suma_asegurada)
         const polizasActivas = db.prepare(`
@@ -1373,14 +1374,18 @@ async function runRegressionSuite() {
         const pctConSuma = (conSumaPositiva / totalPols) * 100;
         const auditoriaPaso0Ok = pctConSuma < 20; // Corrobora que ~89% está en $0 y suma_asegurada no es prima
 
-        if (snapshotsOk && saveOk && mensualOk && trimestralOk && cobrosPorDiaOk && auditoriaPaso0Ok) {
-            console.log("  ✅ PASSED -> Snapshots Cartera: Tabla y métodos guardarSnapshot / obtenerHistorico validados.");
+        // 4. Validar purga de snapshots artificiales
+        const fakeDatesCount = db.prepare(`SELECT COUNT(*) as c FROM historico_cartera_snapshots WHERE fecha IN ('2025-12-31', '2026-03-31', '2026-04-30', '2026-05-31', '2026-06-30', '2026-07-31', '2026-08-31')`).get().c;
+        const noFakeDataOk = fakeDatesCount === 0;
+
+        if (snapshotsOk && saveOk && mensualOk && trimestralOk && cobrosPorDiaOk && auditoriaPaso0Ok && noFakeDataOk) {
+            console.log("  ✅ PASSED -> Snapshots Cartera: Tabla y métodos guardarSnapshot / obtenerHistorico validados sin datos falsos.");
             console.log("  ✅ PASSED -> Series Temporales: Histórico mensual (6 meses) e histórico trimestral (4 trim.) calculados con doble eje.");
-            console.log("  ✅ PASSED -> Cobros por Día de la Semana: Miércoles identificado como día pico (46 cobros, 33.8% y $2.39M).");
+            console.log(`  ✅ PASSED -> Cobros por Día de la Semana: Día pico '${resumen.dia_pico_cobranza.dia}' calculado dinámicamente con ${resumen.dia_pico_cobranza.cobros} cobros.`);
             console.log(`  ✅ PASSED -> Blindaje Auditoría Paso 0: Confirmado que solo ${pctConSuma.toFixed(1)}% tiene suma_asegurada > $0 (facturación pausada con rigor).\n`);
             totalPassed++;
         } else {
-            console.error("  ❌ FAILED en TEST 25:", { snapshotsOk, saveOk, mensualOk, trimestralOk, cobrosPorDiaOk, auditoriaPaso0Ok });
+            console.error("  ❌ FAILED en TEST 25:", { snapshotsOk, saveOk, mensualOk, trimestralOk, cobrosPorDiaOk, auditoriaPaso0Ok, noFakeDataOk });
         }
     } catch (e) {
         console.error("  ❌ ERROR en TEST 25:", e.message);
@@ -1400,24 +1405,25 @@ async function runRegressionSuite() {
         let evalOk = false;
         let htmlMensual = '';
         let htmlTrimestral = '';
+        let htmlSingle = '';
 
         if (funcMatch) {
             eval(funcMatch[0]);
             const mockStats = {
-                cartera_activa_total: 1586,
-                al_dia_estricto: 1502,
-                cobranza_avisos_total: 84,
-                vence_48h: 24,
-                vencio_48h: 38,
-                vencio_96h: 22,
-                polizas_vigentes_puras: 1404,
-                polizas_vencen_semana: 34,
-                polizas_vencidas_limpias: 148,
-                polizas_historicas_total: 4501,
+                cartera_activa_total: 1697,
+                al_dia_estricto: 1670,
+                cobranza_avisos_total: 27,
+                vence_48h: 10,
+                vencio_48h: 12,
+                vencio_96h: 5,
+                polizas_vigentes_puras: 1585,
+                polizas_vencen_semana: 21,
+                polizas_vencidas_limpias: 91,
+                polizas_historicas_total: 4563,
                 bajas_por_mora_96h: 120,
-                bajas_vencidas_mas_30d: 4381
+                bajas_vencidas_mas_30d: 4443
             };
-            const mockHistorico = {
+            const mockHistoricoMulti = {
                 serie_mensual: [
                     { label: 'Abr 2026', periodo: '2026-04', cartera_activa_total: 1485 },
                     { label: 'Sep 2026', periodo: '2026-09', cartera_activa_total: 1586 }
@@ -1427,14 +1433,24 @@ async function runRegressionSuite() {
                     { label: '2026-Q3', periodo: '2026-Q3', cartera_activa_total: 1586 }
                 ]
             };
+            const mockHistoricoSingle = {
+                serie_mensual: [
+                    { label: 'Sep 2026', periodo: '2026-09', cartera_activa_total: 1697 }
+                ],
+                serie_trimestral: [
+                    { label: '2026-Q3', periodo: '2026-Q3', cartera_activa_total: 1697 }
+                ]
+            };
 
-            htmlMensual = renderCuadroCrecimientoYComposicionCartera(mockHistorico, mockStats, 'mensual');
-            htmlTrimestral = renderCuadroCrecimientoYComposicionCartera(mockHistorico, mockStats, 'trimestral');
+            htmlMensual = renderCuadroCrecimientoYComposicionCartera(mockHistoricoMulti, mockStats, 'mensual');
+            htmlTrimestral = renderCuadroCrecimientoYComposicionCartera(mockHistoricoMulti, mockStats, 'trimestral');
+            htmlSingle = renderCuadroCrecimientoYComposicionCartera(mockHistoricoSingle, mockStats, 'mensual');
             evalOk = true;
         }
 
-        const contieneSvgLinea = htmlMensual.includes('<svg') && htmlMensual.includes('stroke="#00b4d8"') && htmlMensual.includes('1.586');
+        const contieneSvgLinea = htmlMensual.includes('<svg') && htmlMensual.includes('stroke="#00b4d8"');
         const contieneBadgeCrecimiento = htmlMensual.includes('Crecimiento Neto: +101 pólizas (+6.8%)');
+        const contieneBadgeLineaBase = htmlSingle.includes('Línea Base Inicial: 1.697 pólizas');
         const contieneBarrasProporcionales = htmlMensual.includes('Salud de Cobranza') && htmlMensual.includes('Ciclo Contractual');
         const contieneFiltrosCRM = htmlMensual.includes("openViewWithFilter('cobranza', 'al_dia')") &&
                                    htmlMensual.includes("openViewWithFilter('renovaciones', 'vigente')") &&
@@ -1449,10 +1465,10 @@ async function runRegressionSuite() {
                                  appJs.includes('fetchStats');
 
         if (!tieneBloqueViejoDuplicado && tieneNuevoComponenteInvocado && evalOk &&
-            contieneSvgLinea && contieneBadgeCrecimiento && contieneBarrasProporcionales &&
+            contieneSvgLinea && contieneBadgeCrecimiento && contieneBadgeLineaBase && contieneBarrasProporcionales &&
             contieneFiltrosCRM && switchTrimestralOk && dashboardIntacto) {
             console.log("  ✅ PASSED -> Bloque duplicado de 7 tarjetas sustituido por vista de Crecimiento & Composición.");
-            console.log("  ✅ PASSED -> Gráfico de Línea de Cartera Activa Total: SVG, badge de crecimiento (+101 / +6.8%) y selector mensual/trimestral validados.");
+            console.log("  ✅ PASSED -> Línea base inicial real (1.697) y crecimiento acumulativo validados sin datos falsos.");
             console.log("  ✅ PASSED -> Desglose Proporcional Estructural: Barras 100% y 3 paneles con navegación directa al CRM validados.");
             console.log("  ✅ PASSED -> Dashboard de Inicio: Permanece 100% intacto para la operativa diaria.\n");
             totalPassed++;
@@ -1463,6 +1479,7 @@ async function runRegressionSuite() {
                 evalOk,
                 contieneSvgLinea,
                 contieneBadgeCrecimiento,
+                contieneBadgeLineaBase,
                 contieneBarrasProporcionales,
                 contieneFiltrosCRM,
                 switchTrimestralOk,

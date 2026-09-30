@@ -245,6 +245,10 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
     growthSubtitle = isPos
       ? `Expansión sostenida de <strong>${firstVal.toLocaleString('es-AR')}</strong> a <strong>${lastVal.toLocaleString('es-AR')}</strong> pólizas activas.`
       : `Evolución neta registrada en el período de seguimiento.`;
+  } else {
+    const singleVal = series[0]?.cartera_activa_total || carteraTotal || 0;
+    growthBadge = `<span style="font-size: 0.78rem; font-weight: 800; color: #48cae4; background: rgba(0, 180, 216, 0.12); padding: 4px 12px; border-radius: 20px; border: 1px solid rgba(0, 180, 216, 0.35); display: inline-flex; align-items: center; gap: 6px;">🌱 Línea Base Inicial: ${singleVal.toLocaleString('es-AR')} pólizas</span>`;
+    growthSubtitle = `Punto de partida registrado con datos 100% reales. El gráfico acumulará puntos reales automáticamente en cada sincronización diaria sin sembrar datos históricos artificiales.`;
   }
 
   // 2. Gráfico de Línea SVG
@@ -268,18 +272,20 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
   const valRange = Math.max(1, valTop - valBottom);
 
   const n = series.length;
+  const isSinglePoint = n === 1;
+
   const points = series.map((item, idx) => {
-    const cx = n === 1 ? padL + plotW / 2 : padL + (idx / (n - 1)) * plotW;
-    const cy = padT + plotH - (((item.cartera_activa_total || 0) - valBottom) / valRange) * plotH;
-    return { x: cx, y: cy, item, val: item.cartera_activa_total || 0, label: item.label || item.periodo };
+    const cx = isSinglePoint ? padL + plotW / 2 : padL + (idx / (n - 1)) * plotW;
+    const cy = isSinglePoint ? padT + plotH * 0.45 : padT + plotH - (((item.cartera_activa_total || 0) - valBottom) / valRange) * plotH;
+    return { x: cx, y: cy, item, val: item.cartera_activa_total || 0, label: item.label || item.periodo || 'Hoy' };
   });
 
-  const areaD = points.length === 1
-    ? `M ${points[0].x - 20},${points[0].y} L ${points[0].x + 20},${points[0].y} L ${points[0].x + 20},${baseBottom} L ${points[0].x - 20},${baseBottom} Z`
+  const areaD = isSinglePoint
+    ? `M ${padL},${points[0].y} L ${padL + plotW},${points[0].y} L ${padL + plotW},${baseBottom} L ${padL},${baseBottom} Z`
     : `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)} ` + points.slice(1).map(p => `L ${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + ` L ${points[points.length-1].x.toFixed(1)},${baseBottom} L ${points[0].x.toFixed(1)},${baseBottom} Z`;
 
-  const lineD = points.length === 1
-    ? `M ${points[0].x - 20},${points[0].y} L ${points[0].x + 20},${points[0].y}`
+  const lineD = isSinglePoint
+    ? `M ${padL},${points[0].y} L ${padL + plotW},${points[0].y}`
     : `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)} ` + points.slice(1).map(p => `L ${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
 
   const yTicks = [valBottom, Math.round(valBottom + valRange * 0.5), valTop].map(tv => {
@@ -381,13 +387,13 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
           ${yTicks}
 
           <!-- Área bajo la curva -->
-          <path d="${areaD}" fill="url(#growthAreaGrad)"></path>
-
           <!-- Línea continua de trayectoria -->
-          <path d="${lineD}" fill="none" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#lineGlow)"></path>
+          <path d="${lineD}" fill="none" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" ${isSinglePoint ? 'stroke-dasharray="6,4" opacity="0.65"' : ''} filter="url(#lineGlow)"></path>
 
           <!-- Puntos interactivos y valores -->
           ${pointsSvg}
+
+          ${isSinglePoint ? `<text x="${(padL + plotW / 2).toFixed(1)}" y="${(points[0].y + 26).toFixed(1)}" fill="#48cae4" font-size="10.5" font-weight="600" text-anchor="middle">🌱 Línea base actual registrada — acumulando historial real diario</text>` : ''}
         </svg>
       </div>
 
@@ -982,10 +988,23 @@ function renderHistoricoRecuperacionChart(data, modo = 'semanal') {
 // ─── COMPONENTE: DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA ───────────────
 function renderCobrosPorDiaSemana(cobrosPorDia, diaPico) {
   if (!cobrosPorDia || cobrosPorDia.length === 0) return '';
-  const diaPicoNombre = diaPico?.dia || 'Miércoles';
-  const diaPicoCobros = diaPico?.cobros || 0;
-  const diaPicoPct = diaPico?.pct_cobros || 0;
-  const diaPicoDinero = (diaPico?.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const sortedDias = [...cobrosPorDia].filter(d => (d.cobros || 0) > 0).sort((a, b) => (b.cobros || 0) - (a.cobros || 0));
+  const top1 = sortedDias[0] || (diaPico?.dia ? { dia: diaPico.dia, cobros: diaPico.cobros || 0, pct_cobros: diaPico.pct_cobros || 0, dinero_recuperado: diaPico.dinero_recuperado || 0 } : { dia: 'Lunes', cobros: 0, pct_cobros: 0, dinero_recuperado: 0 });
+  const diaPicoNombre = top1.dia || 'Lunes';
+  const diaPicoCobros = top1.cobros || 0;
+  const diaPicoPct = top1.pct_cobros || 0;
+  const diaPicoDinero = (top1.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+  const top2 = sortedDias[1] || null;
+  const topSumaPct = top2 ? ((top1.pct_cobros || 0) + (top2.pct_cobros || 0)).toFixed(1) : top1.pct_cobros;
+  const top2Texto = top2 ? ` y <strong>${top2.dia}</strong> (${top2.pct_cobros}%)` : '';
+
+  let recomendacionTexto = '';
+  if (top1.pct_cobros >= 30) {
+    recomendacionTexto = `Fuerte concentración el <strong>${top1.dia}</strong> (${top1.pct_cobros}% de los pagos). Reforzar las gestiones preventivas 48 hs antes optimiza la tasa de cobranza efectiva.`;
+  } else {
+    recomendacionTexto = `Los pagos se distribuyen de forma pareja a lo largo de los días hábiles (el día con mayor volumen es el <strong>${top1.dia}</strong> con <strong>${top1.pct_cobros}%</strong>, seguido de${top2Texto}, acumulando el <strong>${topSumaPct}%</strong>). La recomendación operativa es mantener los despachos regulares a las 8:00 AM cada jornada laboral para sostener el flujo constante de ingresos sin concentrar envíos en un solo día.`;
+  }
 
   const maxCobros = Math.max(1, ...cobrosPorDia.map(d => d.cobros || 0));
 
@@ -1094,7 +1113,7 @@ Dinero recuperado: ${dineroFmt} (${d.pct_dinero}% del total)`;
               <span>💡</span> RECOMENDACIÓN OPERATIVA
             </div>
             <div style="font-size: 0.74rem; color: var(--text-secondary); line-height: 1.4;">
-              Más del <strong>58% de las cobranzas</strong> se concretan los días <strong>Miércoles y Jueves</strong>. Programar los avisos preventivos y primer aviso los <strong>Martes y Miércoles a las 8:00 AM</strong> maximiza la tasa de cobranza antes de que el cliente escale a segundo aviso.
+              ${recomendacionTexto}
             </div>
           </div>
         </div>
