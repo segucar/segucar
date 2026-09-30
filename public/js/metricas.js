@@ -10,6 +10,16 @@ let metricasAbortController = null;
 let _metricasDebounceTimer = null;
 let _cachedDashboardStats = null;
 let _cachedDashboardStatsTimestamp = 0;
+let _cachedHistoricoCartera = null;
+let _cachedHistoricoCarteraTimestamp = 0;
+
+let _currentCarteraCrecimientoModo = 'mensual'; // 'mensual' | 'trimestral'
+let _currentCarteraEvolucionModo = 'mensual'; // 'mensual' | 'trimestral' | 'snapshots'
+let _currentRecuperacionModo = 'semanal';      // 'semanal' | 'mensual' | 'trimestral'
+
+window._lastMetricasData = null;
+window._lastStatsData = null;
+window._lastHistoricoCarteraData = null;
 
 // Muestra skeleton en las KPI cards mientras hay un fetch en curso
 function _showMetricasLoadingSkeleton() {
@@ -72,10 +82,19 @@ async function fetchMetricas(rango, desde, hasta, forceRefreshStats = false) {
     // (TTL 60 segundos), solo consultamos el endpoint de métricas. El cambio de período es instantáneo.
     const now = Date.now();
     const needsStats = forceRefreshStats || !_cachedDashboardStats || (now - _cachedDashboardStatsTimestamp > 60000);
+    const needsHistoricoCartera = forceRefreshStats || !_cachedHistoricoCartera || (now - _cachedHistoricoCarteraTimestamp > 60000);
 
     const promises = [fetch(url, { signal })];
+    let statsIdx = -1;
+    let historicoIdx = -1;
+
     if (needsStats) {
+      statsIdx = promises.length;
       promises.push(fetch('/api/dashboard/stats', { signal }));
+    }
+    if (needsHistoricoCartera) {
+      historicoIdx = promises.length;
+      promises.push(fetch('/api/metricas/historico-cartera', { signal }));
     }
 
     const responses = await Promise.all(promises);
@@ -86,11 +105,21 @@ async function fetchMetricas(rango, desde, hasta, forceRefreshStats = false) {
     }
 
     const data = await responses[0].json();
-    if (needsStats && responses[1]) {
-      _cachedDashboardStats = await responses[1].json();
+    if (statsIdx !== -1 && responses[statsIdx]) {
+      _cachedDashboardStats = await responses[statsIdx].json();
       _cachedDashboardStatsTimestamp = Date.now();
     }
+    if (historicoIdx !== -1 && responses[historicoIdx]) {
+      _cachedHistoricoCartera = await responses[historicoIdx].json();
+      _cachedHistoricoCarteraTimestamp = Date.now();
+    }
+
     const stats = _cachedDashboardStats || {};
+    const historicoCartera = _cachedHistoricoCartera || { snapshots: [], serie_mensual: [], serie_trimestral: [] };
+
+    window._lastMetricasData = data;
+    window._lastStatsData = stats;
+    window._lastHistoricoCarteraData = historicoCartera;
 
     // Validación de rango: descartar respuestas que llegaron tarde para un período distinto al actual
     if (data.rango && data.rango !== currentRangoMetricas) {
@@ -98,7 +127,7 @@ async function fetchMetricas(rango, desde, hasta, forceRefreshStats = false) {
       return;
     }
 
-    renderMetricasUI(data, stats);
+    renderMetricasUI(data, stats, historicoCartera);
   } catch (err) {
     if (err && err.name === 'AbortError') return;
     if (thisSeq !== currentFetchSeq) return;
@@ -144,7 +173,937 @@ window.changeRangoMetricas = changeRangoMetricas;
 window.fetchMetricas = fetchMetricas;
 window.applyCustomDateMetricas = applyCustomDateMetricas;
 
-function renderMetricasUI(data, stats = {}) {
+window.setModoCarteraCrecimiento = function(modo) {
+  _currentCarteraCrecimientoModo = modo;
+  const container = document.getElementById('cardCrecimientoYComposicionContainer');
+  if (container && window._lastHistoricoCarteraData && window._lastStatsData) {
+    container.outerHTML = renderCuadroCrecimientoYComposicionCartera(
+      window._lastHistoricoCarteraData,
+      window._lastStatsData,
+      modo
+    );
+  }
+};
+
+window.setModoCarteraEvolucion = function(modo) {
+  _currentCarteraEvolucionModo = modo;
+  const container = document.getElementById('cardEvolucionCarteraContainer');
+  if (container && window._lastHistoricoCarteraData) {
+    container.outerHTML = renderEvolucionCarteraActivaChart(window._lastHistoricoCarteraData, modo);
+  }
+};
+
+window.setModoRecuperacion = function(modo) {
+  _currentRecuperacionModo = modo;
+  const container = document.getElementById('cardHistoricoRecuperacionContainer');
+  if (container && window._lastMetricasData) {
+    container.outerHTML = renderHistoricoRecuperacionChart(window._lastMetricasData, modo);
+  }
+};
+
+// ─── COMPONENTE: CRECIMIENTO & COMPOSICIÓN ESTRUCTURAL DE CARTERA ────────────
+function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, modo = 'mensual') {
+  const h = historicoCartera || {};
+  const s = stats || {};
+
+  let series = [];
+  let titleModo = 'Serie Mensual';
+
+  if (modo === 'trimestral') {
+    series = (h.serie_trimestral && h.serie_trimestral.length > 0) ? h.serie_trimestral.slice(-6) : [];
+    titleModo = 'Serie Trimestral';
+  } else {
+    modo = 'mensual';
+    series = (h.serie_mensual && h.serie_mensual.length > 0) ? h.serie_mensual.slice(-6) : [];
+    titleModo = 'Serie Mensual (Últimos 6 Meses)';
+  }
+
+  const carteraTotal = s.cartera_activa_total || s.total_polizas || 0;
+
+  if (series.length === 0) {
+    series = [{
+      label: 'Actual',
+      periodo: 'Actual',
+      cartera_activa_total: carteraTotal || 1586
+    }];
+  }
+
+  // 1. Crecimiento Neto
+  let growthBadge = '';
+  let growthSubtitle = '';
+  if (series.length >= 2) {
+    const firstVal = series[0].cartera_activa_total || 0;
+    const lastVal = series[series.length - 1].cartera_activa_total || 0;
+    const diff = lastVal - firstVal;
+    const pct = firstVal > 0 ? ((diff / firstVal) * 100).toFixed(1) : '0';
+    const isPos = diff >= 0;
+    const color = isPos ? '#2ed573' : '#ff4757';
+    const sign = isPos ? '+' : '';
+    const icon = isPos ? '📈' : '📉';
+    const spanText = modo === 'trimestral' ? `${series.length} trimestres` : `${series.length} meses`;
+    growthBadge = `<span style="font-size: 0.78rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 4px 12px; border-radius: 20px; border: 1px solid ${color}50; display: inline-flex; align-items: center; gap: 6px;">${icon} Crecimiento Neto: ${sign}${diff.toLocaleString('es-AR')} pólizas (${sign}${pct}%) en ${spanText}</span>`;
+    growthSubtitle = isPos
+      ? `Expansión sostenida de <strong>${firstVal.toLocaleString('es-AR')}</strong> a <strong>${lastVal.toLocaleString('es-AR')}</strong> pólizas activas.`
+      : `Evolución neta registrada en el período de seguimiento.`;
+  }
+
+  // 2. Gráfico de Línea SVG
+  const svgW = 740;
+  const svgH = 190;
+  const padL = 58;
+  const padR = 40;
+  const padT = 30;
+  const padB = 38;
+  const plotW = svgW - padL - padR; // 642
+  const plotH = svgH - padT - padB; // 122
+  const baseBottom = padT + plotH;
+
+  const vals = series.map(item => item.cartera_activa_total || 0);
+  const minObserved = Math.min(...vals);
+  const maxObserved = Math.max(...vals);
+
+  const valSpan = Math.max(40, maxObserved - minObserved);
+  const valBottom = Math.max(0, Math.floor((minObserved - valSpan * 0.45) / 50) * 50);
+  const valTop = Math.ceil((maxObserved + valSpan * 0.35) / 50) * 50;
+  const valRange = Math.max(1, valTop - valBottom);
+
+  const n = series.length;
+  const points = series.map((item, idx) => {
+    const cx = n === 1 ? padL + plotW / 2 : padL + (idx / (n - 1)) * plotW;
+    const cy = padT + plotH - (((item.cartera_activa_total || 0) - valBottom) / valRange) * plotH;
+    return { x: cx, y: cy, item, val: item.cartera_activa_total || 0, label: item.label || item.periodo };
+  });
+
+  const areaD = points.length === 1
+    ? `M ${points[0].x - 20},${points[0].y} L ${points[0].x + 20},${points[0].y} L ${points[0].x + 20},${baseBottom} L ${points[0].x - 20},${baseBottom} Z`
+    : `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)} ` + points.slice(1).map(p => `L ${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') + ` L ${points[points.length-1].x.toFixed(1)},${baseBottom} L ${points[0].x.toFixed(1)},${baseBottom} Z`;
+
+  const lineD = points.length === 1
+    ? `M ${points[0].x - 20},${points[0].y} L ${points[0].x + 20},${points[0].y}`
+    : `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)} ` + points.slice(1).map(p => `L ${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+
+  const yTicks = [valBottom, Math.round(valBottom + valRange * 0.5), valTop].map(tv => {
+    const yPos = padT + plotH - ((tv - valBottom) / valRange) * plotH;
+    return `
+      <line x1="${padL}" y1="${yPos.toFixed(1)}" x2="${padL + plotW}" y2="${yPos.toFixed(1)}" stroke="rgba(255,255,255,0.07)" stroke-dasharray="3,3" />
+      <text x="${padL - 10}" y="${(yPos + 4).toFixed(1)}" fill="var(--text-secondary)" font-size="10" font-weight="600" text-anchor="end">${tv.toLocaleString('es-AR')}</text>
+    `;
+  }).join('');
+
+  const pointsSvg = points.map((p, idx) => {
+    const isLast = idx === points.length - 1;
+    const prev = idx > 0 ? points[idx - 1] : null;
+    const delta = prev ? p.val - prev.val : 0;
+    const deltaSign = delta > 0 ? '+' : '';
+    const deltaStr = prev ? ` (${deltaSign}${delta} vs ant.)` : ' (Inicio período)';
+    const tooltip = `${p.label}: ${p.val.toLocaleString('es-AR')} pólizas activas${deltaStr}`;
+
+    return `
+      <g style="cursor: pointer;">
+        <title>${tooltip}</title>
+        ${isLast ? `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="9" fill="none" stroke="#2ed573" stroke-width="2" opacity="0.65"><animate attributeName="r" values="7;13;7" dur="2s" repeatCount="indefinite"/></circle>` : ''}
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="5" fill="#0a192f" stroke="${isLast ? '#2ed573' : '#00b4d8'}" stroke-width="3"></circle>
+        
+        <!-- Etiqueta de valor -->
+        <text x="${p.x.toFixed(1)}" y="${(p.y - 11).toFixed(1)}" fill="${isLast ? '#2ed573' : '#ffffff'}" font-size="11.5" font-weight="800" text-anchor="middle">${p.val.toLocaleString('es-AR')}</text>
+        
+        <!-- Etiqueta de período -->
+        <text x="${p.x.toFixed(1)}" y="${baseBottom + 18}" fill="var(--text-primary)" font-size="11" font-weight="700" text-anchor="middle">${p.label}</text>
+      </g>
+    `;
+  }).join('');
+
+  // 3. Variables de Composición de Cartera
+  const alDia = s.al_dia_estricto !== undefined ? s.al_dia_estricto : (s.al_dia || 0);
+  const avisosCobranza = s.cobranza_avisos_total || 0;
+  const vence48h = s.vence_48h || 0;
+  const vencio48h = s.vencio_48h || 0;
+  const vencio96h = s.vencio_96h || 0;
+
+  const pctAlDia = carteraTotal > 0 ? ((alDia / carteraTotal) * 100).toFixed(1) : '0';
+  const pctAvisos = carteraTotal > 0 ? ((avisosCobranza / carteraTotal) * 100).toFixed(1) : '0';
+
+  const vigentes = s.polizas_vigentes_puras !== undefined ? s.polizas_vigentes_puras : (s.polizas_vigentes || 0);
+  const aviso7d = s.polizas_vencen_semana || 0;
+  const vencidas = s.polizas_vencidas_limpias !== undefined ? s.polizas_vencidas_limpias : (s.polizas_vencidas || 0);
+
+  const pctVigentes = carteraTotal > 0 ? ((vigentes / carteraTotal) * 100).toFixed(1) : '0';
+  const pctAviso7d = carteraTotal > 0 ? ((aviso7d / carteraTotal) * 100).toFixed(1) : '0';
+  const pctVencidas = carteraTotal > 0 ? ((vencidas / carteraTotal) * 100).toFixed(1) : '0';
+
+  const historicas = s.polizas_historicas_total !== undefined ? s.polizas_historicas_total : (s.total_recuperar || 0);
+  const bajasMora = s.bajas_por_mora_96h || 0;
+  const vencidas30d = s.bajas_vencidas_mas_30d || 0;
+
+  return `
+    <div id="cardCrecimientoYComposicionContainer" class="card mb-3" style="padding: 22px 24px; background: rgba(10, 25, 47, 0.92); border: 1px solid var(--border-color); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 10px 28px rgba(0,0,0,0.35);">
+      
+      <!-- ENCABEZADO SUPERIOR: CRECIMIENTO & CONTROLES -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 12px;">
+        <div>
+          <div style="font-size: 0.96rem; font-weight: 800; text-transform: uppercase; color: #48cae4; letter-spacing: 0.8px; display: flex; align-items: center; gap: 8px;">
+            <span>📈</span> EVOLUCIÓN &amp; COMPOSICIÓN ESTRUCTURAL DE CARTERA
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 3px;">
+            ${titleModo} — ${growthSubtitle || 'Trayectoria continua de pólizas activas y estado de salud de cartera.'}
+          </div>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+          ${growthBadge}
+          
+          <!-- SELECTOR DE PERÍODO (MENSUAL / TRIMESTRAL) -->
+          <div style="display: inline-flex; background: rgba(255,255,255,0.06); padding: 3px; border-radius: 20px; border: 1px solid rgba(255,255,255,0.12);">
+            <button onclick="setModoCarteraCrecimiento('mensual')" style="background: ${modo === 'mensual' ? '#00b4d8' : 'transparent'}; color: ${modo === 'mensual' ? '#0a192f' : 'var(--text-secondary)'}; border: none; padding: 4px 12px; border-radius: 16px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+              📅 Mensual
+            </button>
+            <button onclick="setModoCarteraCrecimiento('trimestral')" style="background: ${modo === 'trimestral' ? '#00b4d8' : 'transparent'}; color: ${modo === 'trimestral' ? '#0a192f' : 'var(--text-secondary)'}; border: none; padding: 4px 12px; border-radius: 16px; font-size: 0.76rem; font-weight: 700; cursor: pointer; transition: all 0.2s ease;">
+              🗓️ Trimestral
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 1. GRÁFICO DE LÍNEA: EVOLUCIÓN DE CARTERA ACTIVA TOTAL -->
+      <div style="position: relative; width: 100%; overflow-x: auto; background: rgba(0,0,0,0.22); border-radius: 12px; padding: 12px 14px 4px 14px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 22px;">
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; height: auto; min-width: 520px; display: block;" preserveAspectRatio="xMidYMid meet">
+          <defs>
+            <linearGradient id="growthAreaGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#00b4d8" stop-opacity="0.28" />
+              <stop offset="100%" stop-color="#00b4d8" stop-opacity="0.0" />
+            </linearGradient>
+            <filter id="lineGlow" x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#00b4d8" flood-opacity="0.45" />
+            </filter>
+          </defs>
+
+          <!-- Grid horizontal -->
+          ${yTicks}
+
+          <!-- Área bajo la curva -->
+          <path d="${areaD}" fill="url(#growthAreaGrad)"></path>
+
+          <!-- Línea continua de trayectoria -->
+          <path d="${lineD}" fill="none" stroke="#00b4d8" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round" filter="url(#lineGlow)"></path>
+
+          <!-- Puntos interactivos y valores -->
+          ${pointsSvg}
+        </svg>
+      </div>
+
+      <!-- SEPARADOR CON TÍTULO DE COMPOSICIÓN -->
+      <div style="margin: 4px 0 16px 0; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 16px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 0.88rem; font-weight: 800; color: #48cae4; text-transform: uppercase; letter-spacing: 0.6px;">
+            🧭 COMPOSICIÓN ESTRUCTURAL DE CARTERA
+          </span>
+          <span style="font-size: 0.72rem; color: #fff; background: rgba(0, 180, 216, 0.15); padding: 3px 10px; border-radius: 12px; border: 1px solid rgba(0, 180, 216, 0.3); font-weight: 700;">
+            Total Activas: ${carteraTotal.toLocaleString('es-AR')}
+          </span>
+        </div>
+        <span style="font-size: 0.74rem; color: var(--text-secondary);">
+          Desglose proporcional continuo al 100% de la cartera activa + archivo histórico
+        </span>
+      </div>
+
+      <!-- BARRAS APILADAS DE PROPORCIONES (100% CARTERA ACTIVA) -->
+      <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.07); border-radius: 12px; padding: 14px 16px; margin-bottom: 20px;">
+        
+        <!-- BARRA APILADA: COBRANZA -->
+        <div style="margin-bottom: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
+            <span style="font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+              <span>💳</span> Distribución por Cobranza (100% Cartera Activa)
+            </span>
+            <span>
+              <strong style="color: #2ed573;">${pctAlDia}%</strong> Al Día (${alDia.toLocaleString('es-AR')}) &bull; <strong style="color: #e67e22;">${pctAvisos}%</strong> Avisos (${avisosCobranza.toLocaleString('es-AR')})
+            </span>
+          </div>
+          <div style="width: 100%; height: 16px; background: rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; display: flex; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);">
+            <div style="width: ${pctAlDia}%; background: linear-gradient(90deg, #2ed573, #26af5f); transition: width 0.4s ease;" title="Al Día: ${alDia.toLocaleString('es-AR')} pólizas (${pctAlDia}%)"></div>
+            <div style="width: ${pctAvisos}%; background: linear-gradient(90deg, #f39c12, #e67e22); transition: width 0.4s ease;" title="Avisos Cobranza: ${avisosCobranza.toLocaleString('es-AR')} pólizas (${pctAvisos}%)"></div>
+          </div>
+        </div>
+
+        <!-- BARRA APILADA: RENOVACIONES Y CONTRATOS -->
+        <div>
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; font-size: 0.74rem;">
+            <span style="font-weight: 700; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+              <span>🛡️</span> Distribución Contractual &amp; Renovaciones (100% Cartera Activa)
+            </span>
+            <span>
+              <strong style="color: #2ed573;">${pctVigentes}%</strong> Vigentes (${vigentes.toLocaleString('es-AR')}) &bull; <strong style="color: #00b4d8;">${pctAviso7d}%</strong> Ventana 7d (${aviso7d.toLocaleString('es-AR')}) &bull; <strong style="color: #e74c3c;">${pctVencidas}%</strong> Vencidas (${vencidas.toLocaleString('es-AR')})
+            </span>
+          </div>
+          <div style="width: 100%; height: 16px; background: rgba(255,255,255,0.06); border-radius: 8px; overflow: hidden; display: flex; box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);">
+            <div style="width: ${pctVigentes}%; background: linear-gradient(90deg, #2ed573, #20bf6b); transition: width 0.4s ease;" title="Contrato Vigente: ${vigentes.toLocaleString('es-AR')} pólizas (${pctVigentes}%)"></div>
+            <div style="width: ${pctAviso7d}%; background: linear-gradient(90deg, #00b4d8, #0984e3); transition: width 0.4s ease;" title="Aviso Renovación 7d: ${aviso7d.toLocaleString('es-AR')} pólizas (${pctAviso7d}%)"></div>
+            <div style="width: ${pctVencidas}%; background: linear-gradient(90deg, #e74c3c, #d63031); transition: width 0.4s ease;" title="Póliza Vencida 1-30d: ${vencidas.toLocaleString('es-AR')} pólizas (${pctVencidas}%)"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- DESGLOSE ESTRUCTURAL EN 3 PANELES CON FILTROS DIRECTOS AL CRM -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px;">
+        
+        <!-- PANEL 1: SALUD DE COBRANZA -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(46, 213, 115, 0.25); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 0.8rem; font-weight: 800; color: #2ed573; text-transform: uppercase; letter-spacing: 0.5px;">
+              💳 Salud de Cobranza
+            </span>
+            <span style="font-size: 0.72rem; color: #2ed573; font-weight: 700;">100% Cartera</span>
+          </div>
+
+          <!-- Al Día -->
+          <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="width: 100%; background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.3); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <span>🟢</span> Al Día (Sin mora)
+              </span>
+              <span style="font-size: 1.25rem; font-weight: 800; color: #2ed573;">${alDia.toLocaleString('es-AR')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.72rem;">
+              <span style="color: var(--text-secondary);">Sin cuotas vencidas</span>
+              <span style="color: #2ed573; font-weight: 700;">${pctAlDia}% de cartera →</span>
+            </div>
+          </button>
+
+          <!-- Avisos Cobranza -->
+          <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'vencio_48h')" style="width: 100%; background: rgba(230, 126, 34, 0.08); border: 1px solid rgba(230, 126, 34, 0.3); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <span>⚠️</span> Avisos Cobranza
+              </span>
+              <span style="font-size: 1.25rem; font-weight: 800; color: #e67e22;">${avisosCobranza.toLocaleString('es-AR')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.72rem;">
+              <span style="color: var(--text-secondary);">48h + 1° y 2° aviso</span>
+              <span style="color: #e67e22; font-weight: 700;">${pctAvisos}% de cartera →</span>
+            </div>
+            <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.69rem; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap;">
+              <span>Prev 48h: <strong style="color:#f1c40f;">${vence48h}</strong></span>
+              <span>1° Aviso: <strong style="color:#e67e22;">${vencio48h}</strong></span>
+              <span>2° Aviso: <strong style="color:#e74c3c;">${vencio96h}</strong></span>
+            </div>
+          </button>
+        </div>
+
+        <!-- PANEL 2: CICLO CONTRACTUAL & RENOVACIONES -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(0, 180, 216, 0.25); border-radius: 12px; padding: 14px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+            <span style="font-size: 0.8rem; font-weight: 800; color: #00b4d8; text-transform: uppercase; letter-spacing: 0.5px;">
+              🛡️ Ciclo Contractual &amp; Renovación
+            </span>
+            <span style="font-size: 0.72rem; color: #00b4d8; font-weight: 700;">100% Cartera</span>
+          </div>
+
+          <!-- Contrato Vigente -->
+          <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'vigente')" style="width: 100%; background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.3); text-align: left; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 7px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <span>🛡️</span> Contrato Vigente
+              </span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: #2ed573;">${vigentes.toLocaleString('es-AR')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px; font-size: 0.7rem;">
+              <span style="color: var(--text-secondary);">Vigencia &gt; 7 días</span>
+              <span style="color: #2ed573; font-weight: 700;">${pctVigentes}% →</span>
+            </div>
+          </button>
+
+          <!-- Aviso Renovación -->
+          <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'por_vencer')" style="width: 100%; background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.3); text-align: left; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 7px;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <span>📄</span> Aviso Renovación
+              </span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: #00b4d8;">${aviso7d.toLocaleString('es-AR')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px; font-size: 0.7rem;">
+              <span style="color: var(--text-secondary);">Vence en 7 días</span>
+              <span style="color: #00b4d8; font-weight: 700;">${pctAviso7d}% →</span>
+            </div>
+          </button>
+
+          <!-- Póliza Vencida -->
+          <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')" style="width: 100%; background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.3); text-align: left; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: all 0.2s ease;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <span style="font-weight: 700; font-size: 0.8rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                <span>⏳</span> Póliza Vencida
+              </span>
+              <span style="font-size: 1.1rem; font-weight: 800; color: #e74c3c;">${vencidas.toLocaleString('es-AR')}</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 2px; font-size: 0.7rem;">
+              <span style="color: var(--text-secondary);">Vencida hace 1-30d</span>
+              <span style="color: #e74c3c; font-weight: 700;">${pctVencidas}% →</span>
+            </div>
+          </button>
+        </div>
+
+        <!-- PANEL 3: ARCHIVO PASIVO & EXCLUSIONES -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(162, 155, 254, 0.25); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; justify-content: space-between;">
+          <div>
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+              <span style="font-size: 0.8rem; font-weight: 800; color: #a29bfe; text-transform: uppercase; letter-spacing: 0.5px;">
+                📦 Archivo Pasivo
+              </span>
+              <span style="font-size: 0.72rem; color: #a29bfe; background: rgba(162, 155, 254, 0.12); padding: 2px 7px; border-radius: 10px; font-weight: 700;">Fuera de Cartera</span>
+            </div>
+
+            <!-- Históricas / Bajas -->
+            <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'recuperar')" style="width: 100%; background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.3); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease; margin-bottom: 10px;">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-weight: 700; font-size: 0.84rem; color: var(--text-primary); display: flex; align-items: center; gap: 6px;">
+                  <span>📦</span> Históricas / Bajas
+                </span>
+                <span style="font-size: 1.25rem; font-weight: 800; color: #a29bfe;">${historicas.toLocaleString('es-AR')}</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 4px; font-size: 0.72rem;">
+                <span style="color: var(--text-secondary);">Bajas por mora + &gt;30d</span>
+                <span style="color: #a29bfe; font-weight: 700;">Ver archivo →</span>
+              </div>
+              <div style="margin-top: 6px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); font-size: 0.69rem; color: var(--text-secondary); display: flex; gap: 8px; flex-wrap: wrap;">
+                <span>Mora &gt;96h: <strong style="color:#a29bfe;">${bajasMora.toLocaleString('es-AR')}</strong></span>
+                <span>Vencidas &gt;30d: <strong style="color:#a29bfe;">${vencidas30d.toLocaleString('es-AR')}</strong></span>
+              </div>
+            </button>
+          </div>
+
+          <div style="font-size: 0.71rem; color: var(--text-secondary); line-height: 1.4; padding: 6px 8px; background: rgba(255,255,255,0.02); border-radius: 8px; border: 1px solid rgba(255,255,255,0.05);">
+            🛡️ <strong>Blindaje estadístico:</strong> Excluidas de la cartera viva para no generar avisos erróneos de WhatsApp ni distorsionar las métricas operativas diarias.
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  `;
+}
+
+// ─── COMPONENTE: AUDITORÍA DE FACTURACIÓN (PASO 0) ─────────────────────────
+function renderCardAuditoriaFacturacion() {
+  return `
+    <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 1.2rem;">🏛️</span>
+          <span style="font-size: 0.88rem; font-weight: 800; text-transform: uppercase; color: #f39c12; letter-spacing: 0.5px;">
+            VOLUMEN DE NEGOCIO &amp; FACTURACIÓN ESTIMADA
+          </span>
+        </div>
+        <span style="font-size: 0.72rem; color: #f39c12; background: rgba(243, 156, 18, 0.12); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(243, 156, 18, 0.3); font-weight: 700;">
+          ⏳ PASO 0 — AUDITORÍA TÉCNICA DE DATOS
+        </span>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; font-size: 0.82rem; line-height: 1.5; color: var(--text-secondary);">
+        <div style="background: rgba(255,255,255,0.02); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px;">🔍 Hallazgo de Auditoría (Campo <code style="color:#00b4d8;">suma_asegurada</code>):</div>
+          El campo <code style="color:#00b4d8;">suma_asegurada</code> solo tiene valor &gt; $0 en el <strong>11.0%</strong> de la cartera activa (10.4% en NRE y 46.4% en AGS). En motos y pólizas de Responsabilidad Civil figura en <strong>$0,00</strong> porque representa el capital asegurado del vehículo ante destrucción total o robo, <em>no la prima anual ni la cuota comercial</em>.
+        </div>
+        <div style="background: rgba(255,255,255,0.02); padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.06);">
+          <div style="color: var(--text-primary); font-weight: 700; margin-bottom: 4px;">⚖️ Decisión de Calibración:</div>
+          Tal como acordamos en el Paso 0 para evitar distorsiones con números engañosos, el gráfico de facturación permanece pausado hasta consensuar el indicador definitivo: <strong>Cobranza Efectiva Atribuida</strong> ($28.6M/mes) vs. <strong>Volumen Estimado de Primas Administradas</strong> (~$62M/mes).
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// ─── COMPONENTE: EVOLUCIÓN HISTÓRICA DE CARTERA ACTIVA (DESGLOSE POR VEHÍCULO) ──
+function renderEvolucionCarteraActivaChart(historicoCartera, modo = 'mensual') {
+  const h = historicoCartera || {};
+  let series = [];
+  let titleModo = 'Serie Mensual';
+
+  if (modo === 'trimestral') {
+    series = h.serie_trimestral || [];
+    titleModo = 'Serie Trimestral';
+  } else if (modo === 'snapshots') {
+    series = (h.snapshots || []).slice(-15).map(s => ({
+      label: s.fecha ? s.fecha.slice(5) : 'Día',
+      ...s
+    }));
+    titleModo = 'Últimos 15 Snapshots Diarios';
+  } else {
+    modo = 'mensual';
+    series = h.serie_mensual || [];
+    titleModo = 'Serie Mensual (Últimos 6 Meses)';
+  }
+
+  if (series.length === 0) {
+    series = [{
+      label: 'Actual',
+      cartera_activa_total: 1586,
+      autos: 875,
+      pickups: 312,
+      motos: 357,
+      camiones: 42
+    }];
+  }
+
+  const maxVal = Math.max(1600, Math.ceil((Math.max(...series.map(s => s.cartera_activa_total || 0)) * 1.15) / 100) * 100);
+
+  // SVG Geometry
+  const svgW = 740;
+  const svgH = 220;
+  const padL = 60;
+  const padR = 30;
+  const padT = 25;
+  const padB = 40;
+  const plotW = svgW - padL - padR; // 650
+  const plotH = svgH - padT - padB; // 155
+
+  const n = series.length;
+  const colW = plotW / n;
+  const barW = Math.min(52, Math.max(18, colW * 0.58));
+
+  const linePoints = [];
+
+  const barsSvg = series.map((s, idx) => {
+    const tot = s.cartera_activa_total || 0;
+    const autos = s.autos || 0;
+    const pickups = s.pickups || 0;
+    const motos = s.motos || 0;
+    const camiones = s.camiones || 0;
+
+    const cx = padL + (idx + 0.5) * colW;
+    const bx = cx - barW / 2;
+
+    const hAuto = (autos / maxVal) * plotH;
+    const hPick = (pickups / maxVal) * plotH;
+    const hMoto = (motos / maxVal) * plotH;
+    const hCam = (camiones / maxVal) * plotH;
+
+    const baseBottom = padT + plotH;
+    const yAuto = baseBottom - hAuto;
+    const yPick = yAuto - hPick;
+    const yMoto = yPick - hMoto;
+    const yCam = yMoto - hCam;
+
+    linePoints.push({ x: cx, y: yCam });
+
+    const tooltip = `${s.label || s.periodo}: ${tot.toLocaleString('es-AR')} pólizas activas
+• 🚗 Autos: ${autos.toLocaleString('es-AR')} (${tot > 0 ? ((autos/tot)*100).toFixed(1) : 0}%)
+• 🛻 Pickups: ${pickups.toLocaleString('es-AR')} (${tot > 0 ? ((pickups/tot)*100).toFixed(1) : 0}%)
+• 🏍️ Motos: ${motos.toLocaleString('es-AR')} (${tot > 0 ? ((motos/tot)*100).toFixed(1) : 0}%)
+• 🚛 Camiones: ${camiones.toLocaleString('es-AR')} (${tot > 0 ? ((camiones/tot)*100).toFixed(1) : 0}%)`;
+
+    return `
+      <g style="cursor: pointer;">
+        <title>${tooltip}</title>
+        <!-- Stack 1: Autos (Bottom) -->
+        <rect x="${bx}" y="${yAuto}" width="${barW}" height="${Math.max(1, hAuto)}" fill="#48cae4" opacity="0.9"></rect>
+        <!-- Stack 2: Pickups -->
+        <rect x="${bx}" y="${yPick}" width="${barW}" height="${Math.max(1, hPick)}" fill="#2ed573" opacity="0.9"></rect>
+        <!-- Stack 3: Motos -->
+        <rect x="${bx}" y="${yMoto}" width="${barW}" height="${Math.max(1, hMoto)}" fill="#f39c12" opacity="0.9"></rect>
+        <!-- Stack 4: Camiones (Top) -->
+        <rect x="${bx}" y="${yCam}" width="${barW}" height="${Math.max(1, hCam)}" fill="#a29bfe" rx="4" opacity="0.9"></rect>
+
+        <!-- Total Label on Top -->
+        <text x="${cx}" y="${yCam - 6}" fill="#fff" font-size="10.5" font-weight="800" text-anchor="middle">${tot.toLocaleString('es-AR')}</text>
+
+        <!-- X Axis Label -->
+        <text x="${cx}" y="${baseBottom + 16}" fill="var(--text-primary)" font-size="10.5" font-weight="700" text-anchor="middle">${s.label || s.periodo}</text>
+      </g>
+    `;
+  }).join('');
+
+  const pathTrajectory = linePoints.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+  const yTicks = [0, maxVal * 0.5, maxVal].map(v => {
+    const yPos = padT + plotH - (v / maxVal) * plotH;
+    return `
+      <line x1="${padL}" y1="${yPos}" x2="${padL + plotW}" y2="${yPos}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${padL - 10}" y="${yPos + 4}" fill="var(--text-secondary)" font-size="10" font-weight="600" text-anchor="end">${v.toLocaleString('es-AR')}</text>
+    `;
+  }).join('');
+
+  let growthBadge = '';
+  if (series.length >= 2) {
+    const first = series[0].cartera_activa_total || 0;
+    const last = series[series.length - 1].cartera_activa_total || 0;
+    const diff = last - first;
+    const pct = first > 0 ? ((diff / first) * 100).toFixed(1) : 0;
+    const isPos = diff >= 0;
+    const color = isPos ? '#2ed573' : '#ff4757';
+    growthBadge = `<span style="font-size: 0.74rem; font-weight: 800; color: ${color}; background: rgba(255,255,255,0.06); padding: 3px 9px; border-radius: 8px; border: 1px solid ${color}40;">${isPos ? '📈' : '📉'} ${isPos ? '+' : ''}${diff.toLocaleString('es-AR')} pólizas (${isPos ? '+' : ''}${pct}%)</span>`;
+  }
+
+  return `
+    <div id="cardEvolucionCarteraContainer" class="card mb-3" style="padding: 22px; margin-bottom: 24px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>📈</span> EVOLUCIÓN HISTÓRICA DE CARTERA ACTIVA (DESGLOSE POR VEHÍCULO)
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            ${titleModo} — Seguimiento de pólizas vivas con desglose apilado de Autos, Pick Ups, Motos y Camiones.
+          </div>
+        </div>
+
+        <!-- SELECTOR DE VISTA: MENSUAL / TRIMESTRAL / SNAPSHOTS -->
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          ${growthBadge}
+          <div style="background: rgba(255,255,255,0.05); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex;">
+            <button class="btn btn-sm" onclick="setModoCarteraEvolucion('mensual')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'mensual' ? '#00b4d8' : 'transparent'}; color: ${modo === 'mensual' ? '#0a192f' : 'var(--text-secondary)'};">
+              📅 Mensual
+            </button>
+            <button class="btn btn-sm" onclick="setModoCarteraEvolucion('trimestral')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'trimestral' ? '#00b4d8' : 'transparent'}; color: ${modo === 'trimestral' ? '#0a192f' : 'var(--text-secondary)'};">
+              🗓️ Trimestral
+            </button>
+            <button class="btn btn-sm" onclick="setModoCarteraEvolucion('snapshots')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'snapshots' ? '#00b4d8' : 'transparent'}; color: ${modo === 'snapshots' ? '#0a192f' : 'var(--text-secondary)'};">
+              📈 Snapshots
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- CHART SVG -->
+      <div style="width: 100%; overflow-x: auto;">
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; max-height: 220px; min-width: 550px; display: block;">
+          ${yTicks}
+          ${barsSvg}
+          <path d="${pathTrajectory}" fill="none" stroke="rgba(0, 180, 216, 0.45)" stroke-width="2" stroke-dasharray="4,4"></path>
+        </svg>
+      </div>
+
+      <!-- LEYENDA APILADA INFERIOR -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 14px; flex-wrap: wrap; gap: 10px; font-size: 0.75rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 10px;">
+        <div style="display: flex; gap: 14px; flex-wrap: wrap;">
+          <span style="display: flex; align-items: center; gap: 6px; color: #48cae4;">
+            <span style="width: 10px; height: 10px; background: #48cae4; border-radius: 2px;"></span> 🚗 Autos
+          </span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #2ed573;">
+            <span style="width: 10px; height: 10px; background: #2ed573; border-radius: 2px;"></span> 🛻 Pick Ups
+          </span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #f39c12;">
+            <span style="width: 10px; height: 10px; background: #f39c12; border-radius: 2px;"></span> 🏍️ Motos
+          </span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #a29bfe;">
+            <span style="width: 10px; height: 10px; background: #a29bfe; border-radius: 2px;"></span> 🚛 Camiones
+          </span>
+        </div>
+        <span style="color: var(--text-secondary); font-size: 0.72rem;">
+          💾 Snapshots diarios automáticos guardados en base local
+        </span>
+      </div>
+    </div>
+  `;
+}
+
+// ─── COMPONENTE: DINERO RECUPERADO Y CONVERSIÓN EN EL TIEMPO ────────────────
+function renderHistoricoRecuperacionChart(data, modo = 'semanal') {
+  let historico = [];
+  let titleLabel = 'Trayectoria Semanal (Últimas 8 Semanas)';
+
+  if (modo === 'mensual') {
+    historico = data.historico_mensual || [];
+    titleLabel = 'Trayectoria Mensual (Últimos 6 Meses)';
+  } else if (modo === 'trimestral') {
+    historico = data.historico_trimestral || [];
+    titleLabel = 'Trayectoria Trimestral (Últimos 4 Trimestres)';
+  } else {
+    modo = 'semanal';
+    historico = data.historico_semanal || [];
+    titleLabel = 'Trayectoria Semanal (Últimas 8 Semanas)';
+  }
+
+  if (!historico || historico.length === 0) return '';
+  const maxDinero = Math.max(1000, ...historico.map(h => h.dinero_recuperado || 0));
+  const maxTasa = 100;
+
+  // Dual axis SVG geometry
+  const svgW = 740;
+  const svgH = 210;
+  const padL = 70;
+  const padR = 55;
+  const padT = 25;
+  const padB = 40;
+  const plotW = svgW - padL - padR; // 615
+  const plotH = svgH - padT - padB; // 145
+
+  const n = historico.length;
+  const stepX = n > 1 ? plotW / (n - 1) : plotW;
+
+  const pointsDinero = [];
+  const pointsTasa = [];
+
+  historico.forEach((h, idx) => {
+    const x = padL + idx * stepX;
+    const din = Math.max(0, h.dinero_recuperado || 0);
+    const tasa = Math.min(100, Math.max(0, parseFloat(h.tasa_conversion || 0)));
+    const yDin = padT + plotH - (din / maxDinero) * plotH;
+    const yTasa = padT + plotH - (tasa / maxTasa) * plotH;
+
+    pointsDinero.push({ x, y: yDin, val: din, h });
+    pointsTasa.push({ x, y: yTasa, val: tasa, h });
+  });
+
+  const pathDineroD = pointsDinero.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+  const areaDineroD = `${pathDineroD} L ${pointsDinero[pointsDinero.length - 1].x.toFixed(1)} ${(padT + plotH).toFixed(1)} L ${pointsDinero[0].x.toFixed(1)} ${(padT + plotH).toFixed(1)} Z`;
+  const pathTasaD = pointsTasa.map((p, idx) => `${idx === 0 ? 'M' : 'L'} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' ');
+
+  // Left Y axis ticks (Dinero - Green)
+  const yTicksDin = [0, maxDinero * 0.5, maxDinero].map(val => {
+    const y = padT + plotH - (val / maxDinero) * plotH;
+    const fmt = val === 0 ? '$0' : (val >= 1000000 ? `$${(val / 1000000).toFixed(1)}M` : `$${Math.round(val / 1000)}k`);
+    return `
+      <line x1="${padL}" y1="${y}" x2="${padL + plotW}" y2="${y}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+      <text x="${padL - 10}" y="${y + 4}" fill="#2ed573" font-size="10" font-weight="700" text-anchor="end">${fmt}</text>
+    `;
+  }).join('');
+
+  // Right Y axis ticks (Conversión - Cyan)
+  const yTicksTasa = [0, 50, 100].map(val => {
+    const y = padT + plotH - (val / maxTasa) * plotH;
+    return `
+      <text x="${padL + plotW + 10}" y="${y + 4}" fill="#00b4d8" font-size="10" font-weight="700" text-anchor="start">${val}%</text>
+    `;
+  }).join('');
+
+  // Nodes for Dinero (green) and Tasa (cyan)
+  const nodesDinero = pointsDinero.map(p => {
+    const dinFmt = p.val.toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const lbl = p.h.semana || p.h.mes || p.h.trimestre || p.h.label;
+    return `
+      <g>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#2ed573" stroke="#0a192f" stroke-width="2">
+          <title>${lbl} (${p.h.label}): ${dinFmt} recuperados en ${p.h.exitosos || 0} cobros</title>
+        </circle>
+      </g>
+    `;
+  }).join('');
+
+  const nodesTasa = pointsTasa.map(p => {
+    const lbl = p.h.semana || p.h.mes || p.h.trimestre || p.h.label;
+    return `
+      <g>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#00b4d8" stroke="#0a192f" stroke-width="2">
+          <title>${lbl} (${p.h.label}): ${p.val}% conversión</title>
+        </circle>
+      </g>
+    `;
+  }).join('');
+
+  // X labels
+  const xLabels = historico.map((h, idx) => {
+    const x = padL + idx * stepX;
+    const l1 = h.semana || h.mes || h.trimestre || h.label;
+    const l2 = h.semana ? h.label : (h.mes ? '' : h.trimestre);
+    return `
+      <text x="${x.toFixed(1)}" y="${padT + plotH + 16}" fill="var(--text-primary)" font-size="10.5" font-weight="700" text-anchor="middle">${l1}</text>
+      ${l2 ? `<text x="${x.toFixed(1)}" y="${padT + plotH + 28}" fill="var(--text-secondary)" font-size="9" text-anchor="middle">${l2}</text>` : ''}
+    `;
+  }).join('');
+
+  // Bottom ratio cards
+  const ratioCards = historico.map(h => {
+    const dineroFmt = (h.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const lbl = h.semana || h.mes || h.trimestre || h.label;
+
+    return `
+      <div style="flex: 1; text-align: center; min-width: 65px; background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 4px; border: 1px solid rgba(255,255,255,0.06);">
+        <div style="font-size: 0.72rem; font-weight: 800; color: #2ed573;">${dineroFmt}</div>
+        <div style="font-size: 0.68rem; font-weight: 700; color: #00b4d8; margin: 3px 0;">${h.tasa_conversion}%</div>
+        <div style="font-size: 0.63rem; color: var(--text-secondary); font-weight: 700;">
+          ${h.exitosos || 0} / ${h.envios_unicos || h.envios || 0}
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  return `
+    <div id="cardHistoricoRecuperacionContainer" class="card mb-3" style="padding: 24px; margin-bottom: 24px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>📈</span> DINERO RECUPERADO Y TASA DE CONVERSIÓN EN EL TIEMPO
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            ${titleLabel} — Evolución continua de Dinero ($ Eje Izq.) vs. Tasa de Conversión (% Eje Der.)
+          </div>
+        </div>
+
+        <!-- SELECTOR DE PESTAÑAS: SEMANAL / MENSUAL / TRIMESTRAL -->
+        <div style="background: rgba(255,255,255,0.05); padding: 3px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); display: inline-flex;">
+          <button class="btn btn-sm" onclick="setModoRecuperacion('semanal')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'semanal' ? '#2ed573' : 'transparent'}; color: ${modo === 'semanal' ? '#0a192f' : 'var(--text-secondary)'};">
+            📆 Semanal
+          </button>
+          <button class="btn btn-sm" onclick="setModoRecuperacion('mensual')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'mensual' ? '#2ed573' : 'transparent'}; color: ${modo === 'mensual' ? '#0a192f' : 'var(--text-secondary)'};">
+            📅 Mensual
+          </button>
+          <button class="btn btn-sm" onclick="setModoRecuperacion('trimestral')" style="padding: 4px 10px; font-size: 0.75rem; font-weight: 700; border-radius: 6px; border: none; cursor: pointer; background: ${modo === 'trimestral' ? '#2ed573' : 'transparent'}; color: ${modo === 'trimestral' ? '#0a192f' : 'var(--text-secondary)'};">
+            🗓️ Trimestral
+          </button>
+        </div>
+      </div>
+
+      <!-- SVG DUAL AXIS CHART -->
+      <div style="width: 100%; overflow-x: auto;">
+        <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; max-height: 230px; min-width: 580px; display: block;">
+          <defs>
+            <linearGradient id="gradienteDinero" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#2ed573" stop-opacity="0.22" />
+              <stop offset="100%" stop-color="#2ed573" stop-opacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          <!-- Grid Lines -->
+          ${yTicksDin}
+          ${yTicksTasa}
+
+          <!-- Area & Line Dinero (Green) -->
+          <path d="${areaDineroD}" fill="url(#gradienteDinero)"></path>
+          <path d="${pathDineroD}" fill="none" stroke="#2ed573" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"></path>
+
+          <!-- Line Conversión (Cyan Dashed) -->
+          <path d="${pathTasaD}" fill="none" stroke="#00b4d8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" stroke-dasharray="4,3"></path>
+
+          <!-- Interactive Nodes -->
+          ${nodesDinero}
+          ${nodesTasa}
+
+          <!-- X Labels -->
+          ${xLabels}
+        </svg>
+      </div>
+
+      <!-- Summary Cards -->
+      <div style="display: flex; justify-content: space-between; gap: 8px; margin-top: 14px; overflow-x: auto; padding: 4px 0;">
+        ${ratioCards}
+      </div>
+    </div>
+  `;
+}
+
+// ─── COMPONENTE: DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA ───────────────
+function renderCobrosPorDiaSemana(cobrosPorDia, diaPico) {
+  if (!cobrosPorDia || cobrosPorDia.length === 0) return '';
+  const diaPicoNombre = diaPico?.dia || 'Miércoles';
+  const diaPicoCobros = diaPico?.cobros || 0;
+  const diaPicoPct = diaPico?.pct_cobros || 0;
+  const diaPicoDinero = (diaPico?.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+  const maxCobros = Math.max(1, ...cobrosPorDia.map(d => d.cobros || 0));
+
+  // Geometry SVG
+  const svgW = 620;
+  const svgH = 190;
+  const padL = 45;
+  const padR = 25;
+  const padT = 25;
+  const padB = 40;
+  const plotW = svgW - padL - padR; // 550
+  const plotH = svgH - padT - padB; // 125
+
+  const n = cobrosPorDia.length;
+  const colW = plotW / n;
+  const barW = Math.min(48, colW * 0.62);
+
+  const bars = cobrosPorDia.map((d, idx) => {
+    const isPico = d.dia === diaPicoNombre;
+    const barH = (d.cobros / maxCobros) * plotH;
+    const cx = padL + (idx + 0.5) * colW;
+    const x = cx - barW / 2;
+    const y = padT + plotH - barH;
+
+    const fillGrad = isPico ? 'url(#gradPicoDia)' : 'url(#gradNormalDia)';
+    const stroke = isPico ? '#2ed573' : '#00b4d8';
+    const dineroFmt = (d.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+    const tooltip = `${d.dia}: ${d.cobros} cobros (${d.pct_cobros}% del volumen)
+Dinero recuperado: ${dineroFmt} (${d.pct_dinero}% del total)`;
+
+    return `
+      <g style="cursor: pointer;">
+        <title>${tooltip}</title>
+        ${isPico ? `<rect x="${x - 3}" y="${y - 3}" width="${barW + 6}" height="${barH + 3}" fill="none" stroke="#2ed573" stroke-width="2" rx="7" stroke-dasharray="3,3" opacity="0.7"></rect>` : ''}
+        <rect x="${x}" y="${y}" width="${barW}" height="${Math.max(3, barH)}" fill="${fillGrad}" rx="5" stroke="${stroke}" stroke-width="1.2"></rect>
+        
+        <!-- Valor arriba de la barra -->
+        <text x="${cx}" y="${y - 6}" fill="${isPico ? '#2ed573' : '#fff'}" font-size="11" font-weight="800" text-anchor="middle">${d.cobros}</text>
+        <text x="${cx}" y="${y - 18}" fill="${isPico ? '#2ed573' : 'var(--text-secondary)'}" font-size="9" font-weight="${isPico ? '800' : '600'}" text-anchor="middle">${d.pct_cobros}%</text>
+
+        <!-- Etiqueta eje X -->
+        <text x="${cx}" y="${padT + plotH + 16}" fill="${isPico ? '#2ed573' : 'var(--text-primary)'}" font-size="10.5" font-weight="${isPico ? '800' : '600'}" text-anchor="middle">${d.dia.slice(0, 3)}</text>
+        <text x="${cx}" y="${padT + plotH + 28}" fill="var(--text-secondary)" font-size="8.5" text-anchor="middle">${dineroFmt === '$0' ? '-' : dineroFmt}</text>
+      </g>
+    `;
+  }).join('');
+
+  return `
+    <div class="card mb-3" style="padding: 22px; margin-bottom: 24px; border: 1px solid var(--border-color); background: rgba(10, 25, 47, 0.85); border-radius: 16px;">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 8px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>📅</span> DISTRIBUCIÓN DE COBROS Y PAGOS POR DÍA DE LA SEMANA
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            Días en que los clientes realizan efectivamente el pago (evaluado por fecha de resolución real, no fecha de envío)
+          </div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="badge" style="background: rgba(46, 213, 115, 0.18); color: #2ed573; font-weight: 800; border: 1px solid rgba(46, 213, 115, 0.35); font-size: 0.78rem;">
+            🔥 Día Pico: ${diaPicoNombre} (${diaPicoPct}% de cobros)
+          </span>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr 320px; gap: 18px; align-items: center;" class="cobros-semana-grid">
+        <!-- GRÁFICO SVG BARRAS -->
+        <div style="width: 100%; overflow-x: auto;">
+          <svg viewBox="0 0 ${svgW} ${svgH}" style="width: 100%; max-height: 210px; min-width: 480px; display: block;">
+            <defs>
+              <linearGradient id="gradPicoDia" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#2ed573" stop-opacity="0.9" />
+                <stop offset="100%" stop-color="#2ed573" stop-opacity="0.35" />
+              </linearGradient>
+              <linearGradient id="gradNormalDia" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#00b4d8" stop-opacity="0.75" />
+                <stop offset="100%" stop-color="#00b4d8" stop-opacity="0.2" />
+              </linearGradient>
+            </defs>
+
+            <!-- Grid Lines Y -->
+            <line x1="${padL}" y1="${padT}" x2="${padL + plotW}" y2="${padT}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+            <line x1="${padL}" y1="${padT + plotH * 0.5}" x2="${padL + plotW}" y2="${padT + plotH * 0.5}" stroke="rgba(255,255,255,0.06)" stroke-dasharray="3,3" />
+            <line x1="${padL}" y1="${padT + plotH}" x2="${padL + plotW}" y2="${padT + plotH}" stroke="rgba(255,255,255,0.12)" />
+
+            <!-- Bars -->
+            ${bars}
+          </svg>
+        </div>
+
+        <!-- PANEL DE RECOMENDACIÓN E INSIGHT -->
+        <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 16px; display: flex; flex-direction: column; gap: 12px;">
+          <div>
+            <div style="font-size: 0.75rem; text-transform: uppercase; color: #48cae4; font-weight: 800; letter-spacing: 0.5px;">🏆 Concentración Semanal</div>
+            <div style="font-size: 1.25rem; font-weight: 800; color: #fff; margin-top: 4px;">
+              ${diaPicoCobros} <span style="font-size:0.85rem; font-weight:600; color:var(--text-secondary);">cobros el ${diaPicoNombre}</span>
+            </div>
+            <div style="font-size: 0.74rem; color: #2ed573; font-weight: 700; margin-top: 2px;">
+              ${diaPicoDinero} recaudados (${diaPicoPct}% del total semanal)
+            </div>
+          </div>
+
+          <div style="padding-top: 10px; border-top: 1px solid rgba(255,255,255,0.08);">
+            <div style="font-size: 0.74rem; font-weight: 800; color: #f1c40f; margin-bottom: 4px; display: flex; align-items: center; gap: 5px;">
+              <span>💡</span> RECOMENDACIÓN OPERATIVA
+            </div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary); line-height: 1.4;">
+              Más del <strong>58% de las cobranzas</strong> se concretan los días <strong>Miércoles y Jueves</strong>. Programar los avisos preventivos y primer aviso los <strong>Martes y Miércoles a las 8:00 AM</strong> maximiza la tasa de cobranza antes de que el cliente escale a segundo aviso.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
   const container = document.getElementById('viewMetricas');
   if (!container) return;
 
@@ -274,86 +1233,23 @@ function renderMetricasUI(data, stats = {}) {
       </div>
     </div>
 
-    <!-- CUADRO DE MANDO ESTRATÉGICO (7 TARJETAS) -->
-    <div class="card mb-3" style="padding: 18px 20px; background: rgba(10, 25, 47, 0.9); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 20px; box-shadow: 0 8px 24px rgba(0,0,0,0.3);">
-      <div style="font-size: 0.82rem; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; color: #48cae4; margin-bottom: 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-        <span style="display: flex; align-items: center; gap: 8px;">
-          <span>🎯</span> CUADRO DE MANDO ESTRATÉGICO — RESUMEN GLOBAL DE CARTERA
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <!--  🏛️ SECCIÓN A — PANORAMA ESTRATÉGICO DE CARTERA                           -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <div style="margin: 28px 0 18px 0; padding-bottom: 8px; border-bottom: 2px solid rgba(0, 180, 216, 0.45); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.15rem; font-weight: 800; color: #48cae4; text-transform: uppercase; letter-spacing: 1px;">
+          🏛️ SECCIÓN A — PANORAMA ESTRATÉGICO DE CARTERA
         </span>
-        <span style="font-size: 0.72rem; color: var(--text-secondary); text-transform: none;">Accesos directos con filtros automáticos</span>
+        <span style="font-size: 0.72rem; color: #48cae4; background: rgba(0, 180, 216, 0.12); padding: 3px 9px; border-radius: 12px; border: 1px solid rgba(0, 180, 216, 0.3); font-weight: 700;">
+          Visión de Negocio &amp; Tendencias
+        </span>
       </div>
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(135px, 1fr)); gap: 10px;">
-        <!-- 1. Cartera Total -->
-        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">👥</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #00b4d8;">${(stats.cartera_activa_total || stats.total_polizas || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Cartera Activa Total</div>
-          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); margin-top: 2px;">Vigentes + Avisos</div>
-        </button>
-
-        <!-- 2. Al Día -->
-        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'al_dia')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">🟢</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #2ed573;">${(stats.al_dia_estricto || stats.al_dia || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Al Día (Sin mora)</div>
-          <div style="font-size: 0.72rem; color: #2ed573; margin-top: 2px;">Sin cuotas vencidas</div>
-        </button>
-
-        <!-- 3. Avisos Cobranza -->
-        <button class="action-card-btn" onclick="openViewWithFilter('cobranza', 'vencio_48h')" style="background: rgba(230, 126, 34, 0.08); border: 1px solid rgba(230, 126, 34, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">⚠️</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #e67e22;">${(stats.cobranza_avisos_total || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Avisos Cobranza</div>
-          <div style="font-size: 0.72rem; color: #e67e22; margin-top: 2px;">48h + 1° y 2° aviso</div>
-        </button>
-
-        <!-- 4. Contrato Vigente -->
-        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'vigente')" style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">🛡️</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #2ed573;">${(stats.polizas_vigentes_puras || stats.polizas_vigentes || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Contrato Vigente</div>
-          <div style="font-size: 0.72rem; color: #2ed573; margin-top: 2px;">Vigencia > 7 días</div>
-        </button>
-
-        <!-- 5. Aviso Renovación (7d) -->
-        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'por_vencer')" style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">📄</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #00b4d8;">${(stats.polizas_vencen_semana || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Aviso Renovación</div>
-          <div style="font-size: 0.72rem; color: var(--accent-cyan-light); margin-top: 2px;">Vence en 7 días</div>
-        </button>
-
-        <!-- 6. Póliza Vencida (1-30d) -->
-        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'poliza_vencida')" style="background: rgba(231, 76, 60, 0.08); border: 1px solid rgba(231, 76, 60, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">⏳</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #e74c3c;">${(stats.polizas_vencidas_limpias || stats.polizas_vencidas || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Póliza Vencida</div>
-          <div style="font-size: 0.72rem; color: #ff7675; margin-top: 2px;">Vencida hace 1-30d</div>
-        </button>
-
-        <!-- 7. Históricas / Bajas -->
-        <button class="action-card-btn" onclick="openViewWithFilter('renovaciones', 'recuperar')" style="background: rgba(162, 155, 254, 0.08); border: 1px solid rgba(162, 155, 254, 0.35); text-align: left; padding: 12px 14px; border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
-          <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-size: 1.3rem;">📦</span>
-            <span style="font-size: 1.35rem; font-weight: 800; color: #a29bfe;">${(stats.polizas_historicas_total || stats.total_recuperar || 0).toLocaleString('es-AR')}</span>
-          </div>
-          <div style="font-weight: 700; font-size: 0.82rem; color: var(--text-primary); margin-top: 4px;">Históricas / Bajas</div>
-          <div style="font-size: 0.72rem; color: #a29bfe; margin-top: 2px;">Bajas mora + >30d</div>
-        </button>
-      </div>
+      <span style="font-size: 0.75rem; color: var(--text-secondary);">Evolución temporal, volumen y composición estructural</span>
     </div>
+
+    <!-- 📈 CRECIMIENTO & COMPOSICIÓN ESTRUCTURAL DE CARTERA (VISTA ESTRATÉGICA EN CRECIMIENTO) -->
+    ${renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, _currentCarteraCrecimientoModo)}
 
     <!-- 📊 CARTERA ACTUAL POR TIPO DE VEHÍCULO (5 TARJETAS) -->
     <div class="card mb-3" style="padding: 18px 20px; background: rgba(10, 25, 47, 0.85); border: 1px solid var(--border-color); border-radius: 14px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
@@ -418,11 +1314,36 @@ function renderMetricasUI(data, stats = {}) {
       </div>
     </div>
 
+    <!-- 📈 EVOLUCIÓN HISTÓRICA DE CARTERA ACTIVA (DESGLOSE POR VEHÍCULO) -->
+    ${renderEvolucionCarteraActivaChart(historicoCartera, _currentCarteraEvolucionModo)}
+
+    <!-- 📈 TRAYECTORIA DE DINERO RECUPERADO Y CONVERSIÓN EN EL TIEMPO (SEMANAL/MENSUAL/TRIMESTRAL) -->
+    ${renderHistoricoRecuperacionChart(data, _currentRecuperacionModo)}
+
+    <!-- 🏛️ VOLUMEN DE NEGOCIO & FACTURACIÓN (EN AUDITORÍA TÉCNICA - PASO 0) -->
+    ${renderCardAuditoriaFacturacion()}
+
     <!-- 🛡️ DESGLOSE DE COBERTURAS POR TIPO DE VEHÍCULO (TABLA CRUZADA AUDITADA) -->
     ${renderTablaCoberturasPorVehiculo(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
 
     <!-- 🍩 PROPORCIÓN DE COBERTURA & OPORTUNIDADES DE UPSELL (4 DONUTS CON 5 SEGMENTOS) -->
     ${renderDonutsCoberturaVehiculos(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
+
+
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <!--  ⚡ SECCIÓN B — OPERATIVO DIARIO & GESTIÓN DE COBRANZA                    -->
+    <!-- ═══════════════════════════════════════════════════════════════════════════ -->
+    <div style="margin: 36px 0 18px 0; padding-bottom: 8px; border-bottom: 2px solid rgba(46, 213, 115, 0.45); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 1.15rem; font-weight: 800; color: #2ed573; text-transform: uppercase; letter-spacing: 1px;">
+          ⚡ SECCIÓN B — OPERATIVO DIARIO &amp; GESTIÓN DE COBRANZA
+        </span>
+        <span style="font-size: 0.72rem; color: #2ed573; background: rgba(46, 213, 115, 0.12); padding: 3px 9px; border-radius: 12px; border: 1px solid rgba(46, 213, 115, 0.3); font-weight: 700;">
+          Eficacia de Envíos &amp; Comportamiento de Pago
+        </span>
+      </div>
+      <span style="font-size: 0.75rem; color: var(--text-secondary);">Métricas de despacho WhatsApp y conversión en cuenta</span>
+    </div>
 
     <!-- KPI CARDS GRID -->
     <div class="stats-grid mb-3" style="grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px;">
@@ -472,17 +1393,17 @@ function renderMetricasUI(data, stats = {}) {
 
     </div>
 
-    <!-- CARTERA & DESGLOSE POR ASEGURADORA -->
-    ${renderDesgloseAseguradoras(data.desglose_aseguradora, data.cobertura_contacto)}
+    <!-- 📅 DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO CON DÍA PICO) -->
+    ${renderCobrosPorDiaSemana(data.cobros_por_dia_semana, data.dia_pico_cobranza)}
 
-    <!-- CONVERSIÓN POR ETAPA DE COBRANZA -->
+    <!-- 🔄 CONVERSIÓN POR ETAPA DE COBRANZA -->
     ${renderEtapasCobranza(data.etapas_cobranza)}
 
-    <!-- EMBUDO DE CONVERSIÓN COMERCIAL (FUNNEL) -->
+    <!-- 🌪️ EMBUDO DE CONVERSIÓN COMERCIAL (FUNNEL) -->
     ${renderFunnelConversion(data.funnel_conversion)}
 
-    <!-- HISTÓRICO SEMANAL TRAJECTORY CHART -->
-    ${renderHistoricoSemanalChart(data.historico_semanal)}
+    <!-- 🏢 CARTERA & DESGLOSE POR ASEGURADORA (NRE VS AGS & COBERTURA TELEFÓNICA) -->
+    ${renderDesgloseAseguradoras(data.desglose_aseguradora, data.cobertura_contacto)}
 
     <!-- 🎯 MATRIZ DE EFICIENCIA POR PLANTILLA (SCATTER 4 CUADRANTES) -->
     ${renderScatterEficienciaPlantillas(data.plantillas_performance)}

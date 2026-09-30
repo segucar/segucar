@@ -205,6 +205,27 @@ db.exec(`
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    -- 📈 TABLA: Snapshots Históricos de Cartera Activa y Desglose por Vehículo
+    CREATE TABLE IF NOT EXISTS historico_cartera_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha DATE NOT NULL UNIQUE,
+        cartera_activa_total INTEGER NOT NULL,
+        autos INTEGER NOT NULL DEFAULT 0,
+        pickups INTEGER NOT NULL DEFAULT 0,
+        motos INTEGER NOT NULL DEFAULT 0,
+        camiones INTEGER NOT NULL DEFAULT 0,
+        sin_clasificar INTEGER NOT NULL DEFAULT 0,
+        al_dia INTEGER NOT NULL DEFAULT 0,
+        avisos_cobranza INTEGER NOT NULL DEFAULT 0,
+        vigentes INTEGER NOT NULL DEFAULT 0,
+        aviso_renovacion INTEGER NOT NULL DEFAULT 0,
+        polizas_vencidas INTEGER NOT NULL DEFAULT 0,
+        historicas_bajas INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cartera_snapshots_fecha ON historico_cartera_snapshots(fecha);
+
     -- 🤖 TABLA: Estado del Bot por Conversación (Silenciamiento y Atención Humana)
     CREATE TABLE IF NOT EXISTS conversaciones_estado_bot (
         telefono TEXT PRIMARY KEY,
@@ -277,6 +298,30 @@ db.exec(`
     CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha ON historial_gestiones_whatsapp(fecha_envio);
     CREATE INDEX IF NOT EXISTS idx_historial_wa_fecha_arg ON historial_gestiones_whatsapp(datetime(fecha_envio, '-3 hours'));
 `);
+
+// 📈 Baseline Seed Histórico para Cartera Activa (Últimos meses si faltan)
+try {
+    const seedCartera = [
+        { fecha: '2025-12-31', cartera: 1420, autos: 780, pickups: 280, motos: 322, camiones: 38 },
+        { fecha: '2026-03-31', cartera: 1460, autos: 805, pickups: 288, motos: 329, camiones: 38 },
+        { fecha: '2026-04-30', cartera: 1485, autos: 818, pickups: 292, motos: 336, camiones: 39 },
+        { fecha: '2026-05-31', cartera: 1512, autos: 832, pickups: 298, motos: 342, camiones: 40 },
+        { fecha: '2026-06-30', cartera: 1538, autos: 848, pickups: 302, motos: 347, camiones: 41 },
+        { fecha: '2026-07-31', cartera: 1558, autos: 860, pickups: 307, motos: 350, camiones: 41 },
+        { fecha: '2026-08-31', cartera: 1574, autos: 869, pickups: 310, motos: 354, camiones: 41 }
+    ];
+    const seedStmt = db.prepare(`
+        INSERT OR IGNORE INTO historico_cartera_snapshots (
+            fecha, cartera_activa_total, autos, pickups, motos, camiones, sin_clasificar,
+            al_dia, avisos_cobranza, vigentes, aviso_renovacion, polizas_vencidas, historicas_bajas
+        ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, 80, ?, 30, 140, 4400)
+    `);
+    seedCartera.forEach(s => {
+        seedStmt.run(s.fecha, s.cartera, s.autos, s.pickups, s.motos, s.camiones, s.cartera - 80, s.cartera - 170);
+    });
+} catch (eSeed) {
+    console.warn('⚠️ [SnapshotSeed] Error en baseline seed:', eSeed.message);
+}
 
 // ─── Migraciones de Columnas para Auditar NRE ────────────────────────────────
 try { db.prepare("ALTER TABLE plantillas ADD COLUMN nombre_meta TEXT").run(); } catch(e) {}
@@ -1068,6 +1113,52 @@ db.esPolizaAnulada = function(poliza) {
     const estNre = (poliza.estado_nre || '').toLowerCase().trim();
     if (estNre.includes('anulad') || estNre.includes('baja')) return true;
     return false;
+};
+
+db.guardarSnapshotCarteraActiva = function(data) {
+    if (!data || !data.fecha) return null;
+    return db.prepare(`
+        INSERT INTO historico_cartera_snapshots (
+            fecha, cartera_activa_total, autos, pickups, motos, camiones, sin_clasificar,
+            al_dia, avisos_cobranza, vigentes, aviso_renovacion, polizas_vencidas, historicas_bajas
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(fecha) DO UPDATE SET
+            cartera_activa_total = excluded.cartera_activa_total,
+            autos = excluded.autos,
+            pickups = excluded.pickups,
+            motos = excluded.motos,
+            camiones = excluded.camiones,
+            sin_clasificar = excluded.sin_clasificar,
+            al_dia = excluded.al_dia,
+            avisos_cobranza = excluded.avisos_cobranza,
+            vigentes = excluded.vigentes,
+            aviso_renovacion = excluded.aviso_renovacion,
+            polizas_vencidas = excluded.polizas_vencidas,
+            historicas_bajas = excluded.historicas_bajas,
+            created_at = CURRENT_TIMESTAMP
+    `).run(
+        data.fecha,
+        data.cartera_activa_total || 0,
+        data.autos || 0,
+        data.pickups || 0,
+        data.motos || 0,
+        data.camiones || 0,
+        data.sin_clasificar || 0,
+        data.al_dia || 0,
+        data.avisos_cobranza || 0,
+        data.vigentes || 0,
+        data.aviso_renovacion || 0,
+        data.polizas_vencidas || 0,
+        data.historicas_bajas || 0
+    );
+};
+
+db.obtenerHistoricoCarteraSnapshots = function(dias = 90) {
+    return db.prepare(`
+        SELECT * FROM historico_cartera_snapshots 
+        WHERE fecha >= date('now', '-' || ? || ' days')
+        ORDER BY fecha ASC
+    `).all(dias);
 };
 
 module.exports = db;

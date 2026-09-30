@@ -849,6 +849,29 @@ function calcularDashboardStatsData() {
 
     const syncInfo = getLastSyncInfo();
 
+    // ── Guardar Snapshot Diario de Cartera Activa y Desglose por Vehículo ──
+    try {
+        if (typeof db.guardarSnapshotCarteraActiva === 'function') {
+            db.guardarSnapshotCarteraActiva({
+                fecha: todayStr,
+                cartera_activa_total,
+                autos: vehiculos_desglose.autos,
+                pickups: vehiculos_desglose.pickups,
+                motos: vehiculos_desglose.motos,
+                camiones: vehiculos_desglose.camiones,
+                sin_clasificar: vehiculos_desglose.sin_clasificar,
+                al_dia: al_dia_estricto,
+                avisos_cobranza: cobranza_avisos_total,
+                vigentes: polizas_vigentes,
+                aviso_renovacion: polizas_vencen_semana,
+                polizas_vencidas: polizas_vencidas,
+                historicas_bajas: polizas_historicas_total
+            });
+        }
+    } catch (errSnapshot) {
+        console.warn('⚠️ [SnapshotCartera] Error registrando snapshot:', errSnapshot.message);
+    }
+
     return { 
         total_clientes, 
         total_polizas: cartera_activa_total, 
@@ -889,6 +912,64 @@ function calcularDashboardStatsData() {
 app.get('/api/dashboard/stats', (req, res) => {
     try {
         res.json(calcularDashboardStatsData());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/metricas/historico-cartera', (req, res) => {
+    try {
+        const dias = parseInt(req.query.dias, 10) || 365;
+        // Asegurar que el día de hoy tenga su snapshot registrado
+        calcularDashboardStatsData();
+        const snapshots = typeof db.obtenerHistoricoCarteraSnapshots === 'function' 
+            ? db.obtenerHistoricoCarteraSnapshots(dias) 
+            : [];
+
+        // Agregación mensual (último snapshot de cada mes)
+        const mesesMap = {};
+        // Agregación trimestral (último snapshot de cada trimestre)
+        const trimestresMap = {};
+
+        for (const s of snapshots) {
+            const ym = s.fecha.slice(0, 7); // 'YYYY-MM'
+            mesesMap[ym] = s;
+
+            const [yStr, mStr] = ym.split('-');
+            const y = parseInt(yStr, 10);
+            const m = parseInt(mStr, 10);
+            const q = Math.ceil(m / 3);
+            const yq = `${y}-Q${q}`;
+            trimestresMap[yq] = s;
+        }
+
+        const nombreMeses = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const serie_mensual = Object.keys(mesesMap).sort().map(ym => {
+            const item = mesesMap[ym];
+            const [y, m] = ym.split('-');
+            const label = `${nombreMeses[parseInt(m, 10) - 1]} ${y}`;
+            return {
+                periodo: ym,
+                label,
+                ...item
+            };
+        });
+
+        const serie_trimestral = Object.keys(trimestresMap).sort().map(yq => {
+            const item = trimestresMap[yq];
+            return {
+                periodo: yq,
+                label: yq,
+                ...item
+            };
+        });
+
+        res.json({
+            snapshots,
+            serie_mensual,
+            serie_trimestral,
+            total_snapshots: snapshots.length
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -3877,6 +3958,138 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             });
         }
 
+        // ── HISTÓRICO MENSUAL (ÚLTIMOS 6 MESES) ──
+        const mesesNombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
+        const historico_mensual = [];
+        for (let m = 5; m >= 0; m--) {
+            const mStart = new Date(now.getFullYear(), now.getMonth() - m, 1, 0, 0, 0, 0);
+            const mEnd = new Date(now.getFullYear(), now.getMonth() - m + 1, 0, 23, 59, 59, 999);
+            const sStr = toSqliteDateStr(mStart);
+            const eStr = toSqliteDateStr(mEnd);
+
+            const mGestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(sStr, eStr);
+            const mGestiones = mGestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(mapToCanonicalTemplateType(g.tipo_plantilla)));
+
+            let mDinero = 0;
+            let mExitosos = 0;
+            let mReemplazadas = 0;
+            for (const g of mGestiones) {
+                if (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') {
+                    mExitosos++;
+                    mDinero += calcularMontoRecuperadoGestion(g);
+                } else if (g.estado_resultado === 'reemplazada') {
+                    mReemplazadas++;
+                }
+            }
+            const mValidos = Math.max(1, mGestiones.length - mReemplazadas);
+            const mTasa = mGestiones.length > 0 ? ((mExitosos / mValidos) * 100).toFixed(1) : '0';
+            const label = `${mesesNombres[mStart.getMonth()]} ${mStart.getFullYear()}`;
+            historico_mensual.push({
+                mes: label,
+                label,
+                envios: mGestiones.length,
+                envios_unicos: mValidos,
+                exitosos: mExitosos,
+                dinero_recuperado: mDinero,
+                tasa_conversion: parseFloat(mTasa)
+            });
+        }
+
+        // ── HISTÓRICO TRIMESTRAL (ÚLTIMOS 4 TRIMESTRES) ──
+        const historico_trimestral = [];
+        for (let q = 3; q >= 0; q--) {
+            const targetDate = new Date(now.getFullYear(), now.getMonth() - (q * 3), 1);
+            const qYear = targetDate.getFullYear();
+            const qNum = Math.floor(targetDate.getMonth() / 3) + 1;
+            const qStartMonth = (qNum - 1) * 3;
+            const qStart = new Date(qYear, qStartMonth, 1, 0, 0, 0, 0);
+            const qEnd = new Date(qYear, qStartMonth + 3, 0, 23, 59, 59, 999);
+
+            const sStr = toSqliteDateStr(qStart);
+            const eStr = toSqliteDateStr(qEnd);
+
+            const qGestionesRaw = db.prepare(`SELECT * FROM historial_gestiones_whatsapp WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?`).all(sStr, eStr);
+            const qGestiones = qGestionesRaw.filter(g => !['mora_critica', 'renovacion_deuda'].includes(mapToCanonicalTemplateType(g.tipo_plantilla)));
+
+            let qDinero = 0;
+            let qExitosos = 0;
+            let qReemplazadas = 0;
+            for (const g of qGestiones) {
+                if (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') {
+                    qExitosos++;
+                    qDinero += calcularMontoRecuperadoGestion(g);
+                } else if (g.estado_resultado === 'reemplazada') {
+                    qReemplazadas++;
+                }
+            }
+            const qValidos = Math.max(1, qGestiones.length - qReemplazadas);
+            const qTasa = qGestiones.length > 0 ? ((qExitosos / qValidos) * 100).toFixed(1) : '0';
+            const label = `Q${qNum} ${qYear}`;
+            historico_trimestral.push({
+                trimestre: label,
+                label,
+                envios: qGestiones.length,
+                envios_unicos: qValidos,
+                exitosos: qExitosos,
+                dinero_recuperado: qDinero,
+                tasa_conversion: parseFloat(qTasa)
+            });
+        }
+
+        // ── COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO) ──
+        // Muestra en qué días de la semana los clientes pagan más, según fecha_resolucion
+        const diasSemanaNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+        const diasAcum = [0, 1, 2, 3, 4, 5, 6].map(i => ({
+            dia: diasSemanaNombres[i],
+            dia_num: i,
+            cobros: 0,
+            dinero_recuperado: 0
+        }));
+
+        // Considerar gestiones exitosas con fecha_resolucion confirmada
+        // Si el filtro de período actual no tiene cobros con fecha_resolucion, usamos el histórico acumulado
+        let gestionesExitosas = gestiones.filter(g => (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') && g.fecha_resolucion);
+        if (gestionesExitosas.length === 0) {
+            gestionesExitosas = db.prepare(`
+                SELECT * FROM historial_gestiones_whatsapp 
+                WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
+                  AND fecha_resolucion IS NOT NULL
+            `).all();
+        }
+
+        for (const g of gestionesExitosas) {
+            const rawRes = String(g.fecha_resolucion).replace(' ', 'T');
+            const dRes = new Date(rawRes.includes('+') || rawRes.includes('Z') ? rawRes : rawRes + '-03:00');
+            const dNum = dRes.getDay();
+            if (!isNaN(dNum)) {
+                diasAcum[dNum].cobros++;
+                diasAcum[dNum].dinero_recuperado += calcularMontoRecuperadoGestion(g);
+            }
+        }
+
+        const totalCobrosSemana = diasAcum.reduce((acc, d) => acc + d.cobros, 0);
+        const totalDineroSemana = diasAcum.reduce((acc, d) => acc + d.dinero_recuperado, 0);
+
+        // Orden Lunes (1) a Domingo (0)
+        const cobros_por_dia_semana = [1, 2, 3, 4, 5, 6, 0].map(idx => {
+            const item = diasAcum[idx];
+            const pctCobros = totalCobrosSemana > 0 ? parseFloat(((item.cobros / totalCobrosSemana) * 100).toFixed(1)) : 0;
+            const pctDinero = totalDineroSemana > 0 ? parseFloat(((item.dinero_recuperado / totalDineroSemana) * 100).toFixed(1)) : 0;
+            return {
+                dia: item.dia,
+                dia_num: item.dia_num,
+                cobros: item.cobros,
+                pct_cobros: pctCobros,
+                dinero_recuperado: item.dinero_recuperado,
+                pct_dinero: pctDinero
+            };
+        });
+
+        let diaPico = cobros_por_dia_semana[0];
+        for (const d of cobros_por_dia_semana) {
+            if (d.cobros > diaPico.cobros) diaPico = d;
+        }
+
         // ── COBERTURA DE CONTACTO ──
         const totalClientes = db.prepare("SELECT COUNT(*) as c FROM clientes").get().c;
         const conTel = db.prepare("SELECT COUNT(*) as c FROM clientes WHERE telefono IS NOT NULL AND length(telefono) >= 10").get().c;
@@ -3905,6 +4118,15 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             etapas_cobranza,
             funnel_conversion,
             historico_semanal,
+            historico_mensual,
+            historico_trimestral,
+            cobros_por_dia_semana,
+            dia_pico_cobranza: {
+                dia: diaPico.dia,
+                cobros: diaPico.cobros,
+                pct_cobros: diaPico.pct_cobros,
+                dinero_recuperado: diaPico.dinero_recuperado
+            },
             cobertura_contacto
         };
 }
@@ -5339,7 +5561,7 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
 }
 
 // ─── AUTO-SYNC NRE CADA 1 HORA (días hábiles, 7am-8pm hora Argentina) ──────
-(function iniciarAutoSyncNRE() {
+function iniciarAutoSyncNRE() {
     const INTERVALO_MS = 60 * 60 * 1000; // 1 hora
 
     function getHoraArgentina() {
@@ -5390,10 +5612,10 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
     setInterval(correrAutoSync, 2 * 60 * 60 * 1000);
 
     console.log('⏰ Auto-sync NRE programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
-})();
+}
 
 // ─── AUTO-SYNC AGS CADA 2 HORAS (días hábiles, 7am-8pm hora Argentina) ──────
-(function iniciarAutoSyncAGS() {
+function iniciarAutoSyncAGS() {
     const INTERVALO_MS = 2 * 60 * 60 * 1000; // 2 horas
 
     function getHoraArgentina() {
@@ -5437,10 +5659,14 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
     setTimeout(correrAutoSyncAGS, 35 * 1000);
     setInterval(correrAutoSyncAGS, INTERVALO_MS);
     console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
-})();
+}
 
-// ─── DESPACHADOR AUTOMÁTICO DE WHATSAPP 8:00 AM ────────────────────────────
-iniciarScheduler8AM({ db, waService });
+// ─── DESPACHADOR AUTOMÁTICO DE WHATSAPP 8:00 AM & AUTO-SYNC ─────────────────
+if (require.main === module) {
+    iniciarAutoSyncNRE();
+    iniciarAutoSyncAGS();
+    iniciarScheduler8AM({ db, waService });
+}
 
 app.calcularDashboardStatsData = calcularDashboardStatsData;
 app.calcularMetricasResumenData = calcularMetricasResumenData;
