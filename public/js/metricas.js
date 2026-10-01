@@ -623,8 +623,60 @@ function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {
   };
   const labelPeriodo = RANGO_LABELS[activeRango] || 'Período Activo';
 
+  // 3. Chequeo Cruzado Dinámico con Preliquidaciones Reales de Cobranza (NRE)
+  const preliqs = (audit && Array.isArray(audit.preliquidaciones_nre_referencia) && audit.preliquidaciones_nre_referencia.length > 0)
+    ? audit.preliquidaciones_nre_referencia
+    : [
+        {
+          lote: 30403,
+          fecha: '2026-09-01',
+          periodo_label: 'Septiembre 2026',
+          total_liquidado: 27652834,
+          comision_productor: 11061133.60,
+          total_a_rendir: 16591700.40,
+          cuotas_liquidadas: 1531
+        },
+        {
+          lote: 32018,
+          fecha: '2026-10-01',
+          periodo_label: 'Octubre 2026',
+          total_liquidado: 32930935,
+          comision_productor: 13172374.00,
+          total_a_rendir: 19758561.00,
+          cuotas_liquidadas: 1703
+        }
+      ];
+
+  const cardsLotesHtml = preliqs.map(lote => {
+    const totFmt = (lote.total_liquidado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const comFmt = (lote.comision_productor || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const rendFmt = (lote.total_a_rendir || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+    const cuotasNum = (lote.cuotas_liquidadas || 0).toLocaleString('es-AR');
+    const pctDeProyeccion = volumenEstimado > 0 ? (((lote.total_liquidado || 0) / volumenEstimado) * 100).toFixed(1) : '0';
+
+    return `
+      <div class="preliq-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 4px;">
+          <div style="font-size: 0.74rem; text-transform: uppercase; color: #48cae4; font-weight: 800;">
+            Lote ${lote.lote} (${lote.periodo_label || lote.fecha})
+          </div>
+          <span style="font-size: 0.68rem; color: #00b4d8; background: rgba(0, 180, 216, 0.15); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
+            ${pctDeProyeccion}% de Opción B
+          </span>
+        </div>
+        <div style="font-size: 1.25rem; font-weight: 800; color: #2ed573; margin: 4px 0;">
+          ${totFmt}
+        </div>
+        <div style="font-size: 0.73rem; color: var(--text-secondary); line-height: 1.45;">
+          <strong>${cuotasNum}</strong> cuotas liquidadas en NRE | Com. Prod: <strong>${comFmt}</strong><br>
+          Total a rendir: <strong>${rendFmt}</strong>
+        </div>
+      </div>
+    `;
+  }).join('');
+
   return `
-    <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+    <div class="card mb-3" id="cardAuditoriaFacturacion" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 1.2rem;">🏛️</span>
@@ -664,34 +716,18 @@ function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {
       </div>
 
       <!-- CHEQUEO CRUZADO INFORMATIVO: PRELIQUIDACIONES REALES NRE VS PROYECCIÓN -->
-      <div style="margin-top: 14px; background: rgba(0, 180, 216, 0.03); border: 1px solid rgba(0, 180, 216, 0.25); border-left: 4px solid #00b4d8; border-radius: 10px; padding: 14px 16px;">
+      <div id="bloqueChequeoCruzadoPreliquidaciones" style="margin-top: 14px; background: rgba(0, 180, 216, 0.03); border: 1px solid rgba(0, 180, 216, 0.25); border-left: 4px solid #00b4d8; border-radius: 10px; padding: 14px 16px;">
         <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
           <div style="font-weight: 700; color: #48cae4; font-size: 0.84rem; display: flex; align-items: center; gap: 6px;">
             <span>📑</span> Chequeo Cruzado Informativo: Preliquidaciones Reales de Cobranza (NRE) vs Opción B
           </div>
           <span style="font-size: 0.7rem; color: #00b4d8; background: rgba(0, 180, 216, 0.12); padding: 2px 8px; border-radius: 10px; font-weight: 700;">
-            Referencia Externa Documental
+            Referencia Externa Documental (${preliqs.length} lotes)
           </span>
         </div>
 
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 10px;">
-          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px;">
-            <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">Lote 30403 (01/09/2026 - Septiembre)</div>
-            <div style="font-size: 1.15rem; font-weight: 800; color: #2ed573; margin: 4px 0;">$27.652.834,00</div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
-              <strong>1.531</strong> cuotas liquidadas en NRE | Com. Prod: <strong>$11.061.133,60</strong><br>
-              Total a rendir: <strong>$16.591.700,40</strong>
-            </div>
-          </div>
-
-          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px;">
-            <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">Lote 32018 (01/10/2026 - Octubre)</div>
-            <div style="font-size: 1.15rem; font-weight: 800; color: #00b4d8; margin: 4px 0;">$32.930.935,00</div>
-            <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
-              <strong>1.703</strong> cuotas liquidadas en NRE | Com. Prod: <strong>$13.172.374,00</strong><br>
-              Total a rendir: <strong>$19.758.561,00</strong>
-            </div>
-          </div>
+          ${cardsLotesHtml}
         </div>
 
         <div style="font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 8px;">
