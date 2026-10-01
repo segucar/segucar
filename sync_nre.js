@@ -925,7 +925,7 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
         const candidatos = db.prepare(`
             SELECT operacion, tipo_vehiculo, suma_asegurada
             FROM polizas 
-            WHERE (cobertura IS NULL OR cobertura = '')
+            WHERE (cobertura IS NULL OR TRIM(cobertura) = '')
               AND (aseguradora IS NULL OR aseguradora != 'AGS')
               AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
             ORDER BY (CASE WHEN tipo_vehiculo IN ('Auto', 'Pick Up') THEN 0 ELSE 1 END),

@@ -1591,7 +1591,56 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 28:", e.message);
     }
 
-    const totalTestsCount = 28;
+    // ── TEST 29: Blindaje Cobertura AGS, Selector Independiente Cobros Día & Calendario Mensual ──
+    try {
+        console.log("📌 TEST 29: Blindaje Cobertura AGS, Selector Independiente Cobros Día & Calendario Mensual");
+        const app = require('../server');
+
+        // 1. Selector independiente de cobros por día
+        const cobrosMes = app.calcularCobrosPorDiaSemanaData('este_mes');
+        const cobrosTodo = app.calcularCobrosPorDiaSemanaData('todo');
+        const okDiasMes = Array.isArray(cobrosMes.cobros_por_dia_semana) && cobrosMes.cobros_por_dia_semana.length === 7;
+        const okDiasTodo = Array.isArray(cobrosTodo.cobros_por_dia_semana) && cobrosTodo.cobros_por_dia_semana.length === 7;
+        const okPicoMes = Boolean(cobrosMes.dia_pico_cobranza && cobrosMes.dia_pico_cobranza.dia);
+        const okPicoTodo = Boolean(cobrosTodo.dia_pico_cobranza && cobrosTodo.dia_pico_cobranza.dia);
+
+        // 2. Calendario mensual de actividad
+        const calData = app.calcularCalendarioActividadData('2026-09');
+        const okCalMes = calData.mes === '2026-09';
+        const okCalDias = Array.isArray(calData.dias) && calData.dias.length === 30;
+        const okCalOffset = typeof calData.primer_dia_offset === 'number' && calData.primer_dia_offset >= 0 && calData.primer_dia_offset <= 6;
+        const okCalTotales = typeof calData.total_cobros === 'number' && typeof calData.total_dinero_recuperado === 'number';
+
+        // 3. Blindaje histórico semanal sin envíos (cero división artificial 0/1)
+        const metricasTodo = app.calcularMetricasResumenData('todo');
+        const semVacias = (metricasTodo.historico_semanal || []).filter(h => (h.envios || 0) === 0);
+        const okSemVacias = semVacias.every(h => h.tasa_conversion === 0 && (h.validos || 0) === 0);
+
+        // 4. Verificación de endpoint nuevo montado
+        const endpointsRegistrados = app._router.stack
+            .filter(r => r.route)
+            .map(r => r.route.path);
+        const okEndpointCobros = endpointsRegistrados.includes('/api/metricas/cobros-dia-semana');
+        const okEndpointCal = endpointsRegistrados.includes('/api/metricas/calendario-actividad');
+
+        if (okDiasMes && okDiasTodo && okPicoMes && okPicoTodo && okCalMes && okCalDias && okCalOffset && okCalTotales && okSemVacias && okEndpointCobros && okEndpointCal) {
+            console.log("  ✅ PASSED -> Selector Independiente Cobros Día: /api/metricas/cobros-dia-semana responde dinámico para 'este_mes' y 'todo'.");
+            console.log(`  ✅ PASSED -> Calendario Mensual de Actividad: Septiembre 2026 generado con ${calData.dias.length} días, offset ${calData.primer_dia_offset} y métricas consolidadas.`);
+            console.log("  ✅ PASSED -> Blindaje Semanas Pre-inicio: Semanas con 0 envíos registran tasa 0% y 0 válidos (sin distorsión 0/1).");
+            console.log("  ✅ PASSED -> Endpoints Registrados en Express: /api/metricas/cobros-dia-semana y /api/metricas/calendario-actividad listos.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 29:", {
+                okDiasMes, okDiasTodo, okPicoMes, okPicoTodo,
+                okCalMes, okCalDias, okCalOffset, okCalTotales,
+                okSemVacias, okEndpointCobros, okEndpointCal
+            });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 29:", e.message);
+    }
+
+    const totalTestsCount = 29;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

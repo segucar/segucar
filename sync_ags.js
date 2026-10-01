@@ -401,6 +401,38 @@ async function syncAGS() {
     // Marcar como grucar_activo=0 cualquier poliza AGS que pueda haber quedado con grucar activado
     db.prepare("UPDATE polizas SET grucar_activo = 0 WHERE aseguradora = 'AGS'").run();
 
+    // 5. Backfill de coberturas AGS pendientes (si alguna póliza activa quedó sin cobertura por vencimiento reciente)
+    try {
+        const agsSinCobertura = db.prepare(`
+            SELECT operacion, fin_vigencia_poliza, fecha_vencimiento
+            FROM polizas
+            WHERE aseguradora = 'AGS' AND (cobertura IS NULL OR TRIM(cobertura) = '')
+              AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
+        `).all();
+        if (agsSinCobertura.length > 0) {
+            for (const pol of agsSinCobertura) {
+                const fv = pol.fin_vigencia_poliza || pol.fecha_vencimiento;
+                if (!fv) continue;
+                const [y, m, d] = fv.split('-');
+                if (!y || !m || !d) continue;
+                const fechaFmt = `${d}/${m}/${y}`;
+                for (const orga of PRODUCTORES) {
+                    try {
+                        const vigList = await fetchPolizasVigentes(cookie, orga, fechaFmt);
+                        const match = vigList.find(v => String(v.poliza).trim() === String(pol.operacion).trim());
+                        if (match && match.cobertura) {
+                            db.prepare("UPDATE polizas SET cobertura = ? WHERE operacion = ? AND aseguradora = 'AGS'").run(match.cobertura, pol.operacion);
+                            console.log(`   🛡️ [syncAGS] Cobertura recuperada para póliza ${pol.operacion}: ${match.cobertura}`);
+                            break;
+                        }
+                    } catch (e) {}
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('   ⚠️ [syncAGS] Error no bloqueante en backfill de coberturas:', e.message);
+    }
+
     if (typeof db.anularPolizasSuperadas === 'function') {
         db.anularPolizasSuperadas();
     }

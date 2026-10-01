@@ -3630,29 +3630,330 @@ app.get('/api/metricas', (req, res) => {
     res.redirect('/api/metricas/resumen');
 });
 
+function toSqliteDateStr(d) {
+    if (!d) return null;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const hours = String(d.getHours()).padStart(2, '0');
+    const mins = String(d.getMinutes()).padStart(2, '0');
+    const secs = String(d.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
+}
+
+function getArgentinaDateObj() {
+    const d = new Date();
+    const argStr = d.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
+    return new Date(argStr);
+}
+
+function calcularMontoRecuperadoGestion(g, database = db) {
+    const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(mapToCanonicalTemplateType(g.tipo_plantilla));
+    const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
+
+    if (isRenovacion) {
+        let isPaid = false;
+        if (g.poliza_id) {
+            const origPol = database.prepare("SELECT patente, operacion FROM polizas WHERE id = ?").get(g.poliza_id);
+            if (origPol && origPol.patente) {
+                const paidPol = database.prepare(`
+                    SELECT 1 FROM polizas 
+                    WHERE patente = ? AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
+                      AND (COALESCE(saldo_pendiente, 0) = 0 OR COALESCE(cuotas_debe, 3) < COALESCE(total_cuotas, 3))
+                `).get(origPol.patente, origPol.operacion);
+                if (paidPol) isPaid = true;
+            }
+        }
+
+        if (isPaid) {
+            const valorPolizaRenovada = 55865;
+            return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
+        }
+        return 0;
+    }
+
+    if (g.estado_resultado === 'exitoso_total') {
+        return saldoEnviar;
+    } else if (g.estado_resultado === 'exitoso_parcial') {
+        let currentSaldo = 0;
+        if (g.poliza_id) {
+            const polRes = database.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo FROM polizas WHERE id = ?").get(g.poliza_id);
+            currentSaldo = polRes ? parseFloat(polRes.saldo || 0) : 0;
+        } else {
+            const saldoRes = database.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?").get(g.cliente_id);
+            currentSaldo = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
+        }
+        const rec = saldoEnviar - currentSaldo;
+        return rec > 0 ? rec : 0;
+    }
+
+    return 0;
+}
+
+function calcularCobrosPorDiaSemanaData(rangoInput = 'este_mes', desdeParam = null, hastaParam = null) {
+    const diasSemanaNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+    const diasAcum = [0, 1, 2, 3, 4, 5, 6].map(i => ({
+        dia: diasSemanaNombres[i],
+        dia_num: i,
+        cobros: 0,
+        dinero_recuperado: 0
+    }));
+
+    const now = getArgentinaDateObj();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    let boundsStart = null;
+    let boundsEnd = null;
+
+    if (rangoInput === 'hoy') {
+        boundsStart = todayStart;
+        boundsEnd = todayEnd;
+    } else if (rangoInput === 'esta_semana') {
+        const dayOfWeek = todayStart.getDay();
+        const diffToMon = (dayOfWeek + 6) % 7;
+        boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - diffToMon);
+        boundsEnd = todayEnd;
+    } else if (rangoInput === 'este_mes') {
+        boundsStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+        boundsEnd = todayEnd;
+    } else if (rangoInput === 'mes_anterior') {
+        boundsStart = new Date(now.getFullYear(), now.getMonth() - 1, 1, 0, 0, 0, 0);
+        boundsEnd = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    } else if (rangoInput === '30_dias') {
+        boundsStart = new Date(todayStart); boundsStart.setDate(boundsStart.getDate() - 30);
+        boundsEnd = todayEnd;
+    } else if (rangoInput === 'anio_actual') {
+        boundsStart = new Date(now.getFullYear(), 0, 1, 0, 0, 0, 0);
+        boundsEnd = todayEnd;
+    } else if (rangoInput === 'custom' && desdeParam && hastaParam) {
+        const partsD = desdeParam.split('-');
+        const partsH = hastaParam.split('-');
+        boundsStart = new Date(parseInt(partsD[0]), parseInt(partsD[1]) - 1, parseInt(partsD[2]), 0, 0, 0, 0);
+        boundsEnd = new Date(parseInt(partsH[0]), parseInt(partsH[1]) - 1, parseInt(partsH[2]), 23, 59, 59, 999);
+    }
+
+    let gestionesExitosas = [];
+    if (boundsStart && boundsEnd) {
+        const sStr = toSqliteDateStr(boundsStart);
+        const eStr = toSqliteDateStr(boundsEnd);
+        gestionesExitosas = db.prepare(`
+            SELECT * FROM historial_gestiones_whatsapp 
+            WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
+              AND fecha_resolucion IS NOT NULL
+              AND datetime(fecha_resolucion, '-3 hours') >= ? AND datetime(fecha_resolucion, '-3 hours') <= ?
+        `).all(sStr, eStr);
+    } else {
+        gestionesExitosas = db.prepare(`
+            SELECT * FROM historial_gestiones_whatsapp 
+            WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
+              AND fecha_resolucion IS NOT NULL
+        `).all();
+    }
+
+    let esFallbackHistorico = false;
+    if (gestionesExitosas.length === 0 && rangoInput !== 'todo') {
+        gestionesExitosas = db.prepare(`
+            SELECT * FROM historial_gestiones_whatsapp 
+            WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
+              AND fecha_resolucion IS NOT NULL
+        `).all();
+        esFallbackHistorico = true;
+    }
+
+    for (const g of gestionesExitosas) {
+        const rawRes = String(g.fecha_resolucion).replace(' ', 'T');
+        const dRes = new Date(rawRes.includes('+') || rawRes.includes('Z') ? rawRes : rawRes + '-03:00');
+        const dNum = dRes.getDay();
+        if (!isNaN(dNum)) {
+            diasAcum[dNum].cobros++;
+            diasAcum[dNum].dinero_recuperado += calcularMontoRecuperadoGestion(g, db);
+        }
+    }
+
+    const totalCobrosSemana = diasAcum.reduce((acc, d) => acc + d.cobros, 0);
+    const totalDineroSemana = diasAcum.reduce((acc, d) => acc + d.dinero_recuperado, 0);
+
+    const cobros_por_dia_semana = [1, 2, 3, 4, 5, 6, 0].map(idx => {
+        const item = diasAcum[idx];
+        const pctCobros = totalCobrosSemana > 0 ? parseFloat(((item.cobros / totalCobrosSemana) * 100).toFixed(1)) : 0;
+        const pctDinero = totalDineroSemana > 0 ? parseFloat(((item.dinero_recuperado / totalDineroSemana) * 100).toFixed(1)) : 0;
+        return {
+            dia: item.dia,
+            dia_num: item.dia_num,
+            cobros: item.cobros,
+            pct_cobros: pctCobros,
+            dinero_recuperado: item.dinero_recuperado,
+            pct_dinero: pctDinero
+        };
+    });
+
+    let diaPico = cobros_por_dia_semana[0];
+    for (const d of cobros_por_dia_semana) {
+        if (d.cobros > diaPico.cobros) diaPico = d;
+    }
+
+    return {
+        cobros_por_dia_semana,
+        dia_pico_cobranza: {
+            dia: diaPico.dia,
+            cobros: diaPico.cobros,
+            pct_cobros: diaPico.pct_cobros,
+            dinero_recuperado: diaPico.dinero_recuperado
+        },
+        rango: rangoInput,
+        es_fallback_historico: esFallbackHistorico,
+        total_cobros: totalCobrosSemana,
+        total_dinero_recuperado: totalDineroSemana
+    };
+}
+
+function calcularCalendarioActividadData(mesParam = null) {
+    const now = getArgentinaDateObj();
+    let ym = mesParam;
+    if (!ym || !/^\d{4}-\d{2}$/.test(ym)) {
+        const curY = now.getFullYear();
+        const curM = String(now.getMonth() + 1).padStart(2, '0');
+        ym = `${curY}-${curM}`;
+    }
+
+    const [yearStr, monthStr] = ym.split('-');
+    const year = parseInt(yearStr, 10);
+    const month = parseInt(monthStr, 10);
+
+    const nombreMesesCompletos = [
+        'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+        'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+    ];
+    const mesLabel = `${nombreMesesCompletos[month - 1]} ${year}`;
+
+    const prevDate = new Date(year, month - 2, 1);
+    const prevYm = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`;
+    const nextDate = new Date(year, month, 1);
+    const nextYm = `${nextDate.getFullYear()}-${String(nextDate.getMonth() + 1).padStart(2, '0')}`;
+
+    const numDays = new Date(year, month, 0).getDate();
+    const nombreDiasCortos = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+    const startMonthStr = `${ym}-01 00:00:00`;
+    const endMonthStr = `${ym}-${String(numDays).padStart(2, '0')} 23:59:59`;
+
+    const enviosMes = db.prepare(`
+        SELECT id, cliente_id, poliza_id, tipo_plantilla, saldo_al_enviar, estado_resultado, fecha_envio, fecha_resolucion,
+               date(datetime(fecha_envio, '-3 hours')) as dia_envio
+        FROM historial_gestiones_whatsapp
+        WHERE datetime(fecha_envio, '-3 hours') >= ? AND datetime(fecha_envio, '-3 hours') <= ?
+    `).all(startMonthStr, endMonthStr);
+
+    const cobrosMes = db.prepare(`
+        SELECT id, cliente_id, poliza_id, tipo_plantilla, saldo_al_enviar, estado_resultado, fecha_envio, fecha_resolucion
+        FROM historial_gestiones_whatsapp
+        WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
+          AND fecha_resolucion IS NOT NULL
+    `).all();
+
+    const enviosPorDia = {};
+    for (const g of enviosMes) {
+        const dia = g.dia_envio;
+        if (!dia) continue;
+        if (!enviosPorDia[dia]) enviosPorDia[dia] = { total: 0, exitosos: 0 };
+        enviosPorDia[dia].total++;
+        if (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') {
+            enviosPorDia[dia].exitosos++;
+        }
+    }
+
+    const cobrosPorDia = {};
+    for (const g of cobrosMes) {
+        const rawRes = String(g.fecha_resolucion).replace(' ', 'T');
+        const dRes = new Date(rawRes.includes('+') || rawRes.includes('Z') ? rawRes : rawRes + '-03:00');
+        if (isNaN(dRes.getTime())) continue;
+        const resYm = `${dRes.getFullYear()}-${String(dRes.getMonth() + 1).padStart(2, '0')}`;
+        if (resYm !== ym) continue;
+
+        const diaKey = `${resYm}-${String(dRes.getDate()).padStart(2, '0')}`;
+        if (!cobrosPorDia[diaKey]) cobrosPorDia[diaKey] = { cobros: 0, dinero: 0 };
+        cobrosPorDia[diaKey].cobros++;
+        cobrosPorDia[diaKey].dinero += calcularMontoRecuperadoGestion(g, db);
+    }
+
+    const todayStr = toLocalISOString(now);
+    const dias = [];
+    let totalCobros = 0;
+    let totalDinero = 0;
+    let totalEnvios = 0;
+    let totalExitososEnvios = 0;
+    let diaMaxRecaudacion = { fecha: null, dia: 0, dinero: 0, cobros: 0 };
+    let diasConCobros = 0;
+
+    for (let d = 1; d <= numDays; d++) {
+        const dayStr = String(d).padStart(2, '0');
+        const fechaDia = `${ym}-${dayStr}`;
+        const dateObj = new Date(year, month - 1, d);
+        const dayOfWeek = dateObj.getDay();
+
+        const cData = cobrosPorDia[fechaDia] || { cobros: 0, dinero: 0 };
+        const eData = enviosPorDia[fechaDia] || { total: 0, exitosos: 0 };
+
+        totalCobros += cData.cobros;
+        totalDinero += cData.dinero;
+        totalEnvios += eData.total;
+        totalExitososEnvios += eData.exitosos;
+
+        if (cData.cobros > 0) diasConCobros++;
+        if (cData.dinero > diaMaxRecaudacion.dinero) {
+            diaMaxRecaudacion = {
+                fecha: fechaDia,
+                dia: d,
+                dinero: cData.dinero,
+                cobros: cData.cobros
+            };
+        }
+
+        const tasaConv = eData.total > 0 ? parseFloat(((eData.exitosos / eData.total) * 100).toFixed(1)) : 0;
+
+        dias.push({
+            dia: d,
+            fecha: fechaDia,
+            dia_semana: dayOfWeek,
+            nombre_dia: nombreDiasCortos[dayOfWeek],
+            cobros: cData.cobros,
+            dinero_recuperado: cData.dinero,
+            envios: eData.total,
+            exitosos: eData.exitosos,
+            tasa_conversion: tasaConv,
+            es_hoy: fechaDia === todayStr,
+            es_fin_de_semana: dayOfWeek === 0 || dayOfWeek === 6
+        });
+    }
+
+    const primerDiaSemana = (new Date(year, month - 1, 1).getDay() + 6) % 7;
+
+    return {
+        mes: ym,
+        mes_label: mesLabel,
+        year,
+        month,
+        dias_en_mes: numDays,
+        primer_dia_offset: primerDiaSemana,
+        total_cobros: totalCobros,
+        total_dinero_recuperado: totalDinero,
+        total_envios: totalEnvios,
+        total_exitosos_envios: totalExitososEnvios,
+        tasa_conversion_global: totalEnvios > 0 ? parseFloat(((totalExitososEnvios / totalEnvios) * 100).toFixed(1)) : 0,
+        dia_max_recaudacion: diaMaxRecaudacion,
+        promedio_diario_dinero: diasConCobros > 0 ? Math.round(totalDinero / diasConCobros) : 0,
+        dias_con_cobros: diasConCobros,
+        mes_anterior: prevYm,
+        mes_siguiente: nextYm,
+        dias
+    };
+}
+
 function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
     evaluarAtribucionMetricas();
 
     const rango = rangoInput || 'este_mes';
-
-        function toSqliteDateStr(d) {
-            if (!d) return null;
-            const year = d.getFullYear();
-            const month = String(d.getMonth() + 1).padStart(2, '0');
-            const day = String(d.getDate()).padStart(2, '0');
-            const hours = String(d.getHours()).padStart(2, '0');
-            const mins = String(d.getMinutes()).padStart(2, '0');
-            const secs = String(d.getSeconds()).padStart(2, '0');
-            return `${year}-${month}-${day} ${hours}:${mins}:${secs}`;
-        }
-
-        function getArgentinaNow() {
-            const d = new Date();
-            const argStr = d.toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires' });
-            return new Date(argStr);
-        }
-
-        const now = getArgentinaNow();
+    const now = getArgentinaDateObj();
         const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
         const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
 
@@ -3740,53 +4041,6 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
         const total_validos = Math.max(0, total_envios - reemplazadas);
         const total_validos_calc = Math.max(1, total_validos);
         const tasa_conversion_global = total_validos > 0 ? ((total_exitosos / total_validos_calc) * 100).toFixed(1) : '0';
-
-        function calcularMontoRecuperadoGestion(g) {
-            const isRenovacion = ['renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica'].includes(mapToCanonicalTemplateType(g.tipo_plantilla));
-            const saldoEnviar = parseFloat(g.saldo_al_enviar || 0);
-
-            if (isRenovacion) {
-                let isPaid = false;
-                if (g.poliza_id) {
-                    const origPol = db.prepare("SELECT patente, operacion FROM polizas WHERE id = ?").get(g.poliza_id);
-                    if (origPol && origPol.patente) {
-                        const paidPol = db.prepare(`
-                            SELECT 1 FROM polizas 
-                            WHERE patente = ? AND CAST(operacion AS INTEGER) > CAST(? AS INTEGER)
-                              AND (COALESCE(saldo_pendiente, 0) = 0 OR COALESCE(cuotas_debe, 3) < COALESCE(total_cuotas, 3))
-                        `).get(origPol.patente, origPol.operacion);
-                        if (paidPol) isPaid = true;
-                    }
-                }
-
-                if (isPaid) {
-                    const valorPolizaRenovada = 55865;
-                    return saldoEnviar > 0 ? (saldoEnviar + valorPolizaRenovada) : valorPolizaRenovada;
-                }
-                // Renovó (nueva operación): cuenta como exitoso en conteo de gestiones, pero $0.00 en dinero recuperado hasta que se registre el pago
-                return 0;
-            }
-
-
-
-            if (g.estado_resultado === 'exitoso_total') {
-                return saldoEnviar;
-            } else if (g.estado_resultado === 'exitoso_parcial') {
-                let currentSaldo = 0;
-                if (g.poliza_id) {
-                    const polRes = db.prepare("SELECT COALESCE(saldo_pendiente, 0) as saldo FROM polizas WHERE id = ?").get(g.poliza_id);
-                    currentSaldo = polRes ? parseFloat(polRes.saldo || 0) : 0;
-                } else {
-                    const saldoRes = db.prepare("SELECT SUM(COALESCE(saldo_pendiente, 0)) as total_saldo FROM polizas WHERE cliente_id = ?").get(g.cliente_id);
-                    currentSaldo = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
-                }
-                const rec = saldoEnviar - currentSaldo;
-                return rec > 0 ? rec : 0;
-            }
-
-            return 0;
-        }
-
 
         let dinero_recuperado_total = 0;
         
@@ -4013,9 +4267,9 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
                     wReemplazadas++;
                 }
             }
-            const wValidos = Math.max(1, wGestiones.length - wReemplazadas);
-            const wTasa = wGestiones.length > 0 ? ((wExitosos / wValidos) * 100).toFixed(1) : '0';
-            const wRatio = wValidos > 0 ? (wGestiones.length / wValidos).toFixed(2) : '1.00';
+            const wValidos = wGestiones.length > 0 ? Math.max(1, wGestiones.length - wReemplazadas) : 0;
+            const wTasa = (wGestiones.length > 0 && wValidos > 0) ? ((wExitosos / wValidos) * 100).toFixed(1) : '0';
+            const wRatio = wValidos > 0 ? (wGestiones.length / wValidos).toFixed(2) : '0.00';
             const label = `${String(wStart.getDate()).padStart(2, '0')}/${String(wStart.getMonth() + 1).padStart(2, '0')}`;
             
             historico_semanal.push({
@@ -4108,59 +4362,15 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             });
         }
 
-        // ── COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO) ──
-        // Muestra en qué días de la semana los clientes pagan más, según fecha_resolucion
-        const diasSemanaNombres = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-        const diasAcum = [0, 1, 2, 3, 4, 5, 6].map(i => ({
-            dia: diasSemanaNombres[i],
-            dia_num: i,
-            cobros: 0,
-            dinero_recuperado: 0
-        }));
+        // ── COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO CON DÍA PICO) ──
+        const cobrosDiaData = calcularCobrosPorDiaSemanaData(rango, desdeParam, hastaParam);
+        const cobros_por_dia_semana = cobrosDiaData.cobros_por_dia_semana;
+        const diaPico = cobrosDiaData.dia_pico_cobranza;
 
-        // Considerar gestiones exitosas con fecha_resolucion confirmada
-        // Si el filtro de período actual no tiene cobros con fecha_resolucion, usamos el histórico acumulado
-        let gestionesExitosas = gestiones.filter(g => (g.estado_resultado === 'exitoso_total' || g.estado_resultado === 'exitoso_parcial') && g.fecha_resolucion);
-        if (gestionesExitosas.length === 0) {
-            gestionesExitosas = db.prepare(`
-                SELECT * FROM historial_gestiones_whatsapp 
-                WHERE (estado_resultado = 'exitoso_total' OR estado_resultado = 'exitoso_parcial')
-                  AND fecha_resolucion IS NOT NULL
-            `).all();
-        }
-
-        for (const g of gestionesExitosas) {
-            const rawRes = String(g.fecha_resolucion).replace(' ', 'T');
-            const dRes = new Date(rawRes.includes('+') || rawRes.includes('Z') ? rawRes : rawRes + '-03:00');
-            const dNum = dRes.getDay();
-            if (!isNaN(dNum)) {
-                diasAcum[dNum].cobros++;
-                diasAcum[dNum].dinero_recuperado += calcularMontoRecuperadoGestion(g);
-            }
-        }
-
-        const totalCobrosSemana = diasAcum.reduce((acc, d) => acc + d.cobros, 0);
-        const totalDineroSemana = diasAcum.reduce((acc, d) => acc + d.dinero_recuperado, 0);
-
-        // Orden Lunes (1) a Domingo (0)
-        const cobros_por_dia_semana = [1, 2, 3, 4, 5, 6, 0].map(idx => {
-            const item = diasAcum[idx];
-            const pctCobros = totalCobrosSemana > 0 ? parseFloat(((item.cobros / totalCobrosSemana) * 100).toFixed(1)) : 0;
-            const pctDinero = totalDineroSemana > 0 ? parseFloat(((item.dinero_recuperado / totalDineroSemana) * 100).toFixed(1)) : 0;
-            return {
-                dia: item.dia,
-                dia_num: item.dia_num,
-                cobros: item.cobros,
-                pct_cobros: pctCobros,
-                dinero_recuperado: item.dinero_recuperado,
-                pct_dinero: pctDinero
-            };
-        });
-
-        let diaPico = cobros_por_dia_semana[0];
-        for (const d of cobros_por_dia_semana) {
-            if (d.cobros > diaPico.cobros) diaPico = d;
-        }
+        // ── CALENDARIO MENSUAL DE ACTIVIDAD Y COBROS POR DÍA ──
+        const curCalNow = getArgentinaDateObj();
+        const currentCalYm = `${curCalNow.getFullYear()}-${String(curCalNow.getMonth() + 1).padStart(2, '0')}`;
+        const calendario_mensual = calcularCalendarioActividadData(currentCalYm);
 
         // ── COBERTURA DE CONTACTO & AUDITORÍA FACTURACIÓN (BASE UNIFICADA CON DASHBOARD) ──
         const dashStats = calcularDashboardStatsData();
@@ -4211,6 +4421,7 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
                 pct_cobros: diaPico.pct_cobros,
                 dinero_recuperado: diaPico.dinero_recuperado
             },
+            calendario_mensual,
             cobertura_contacto,
             auditoria_facturacion
         };
@@ -4219,6 +4430,24 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
 app.get('/api/metricas/resumen', (req, res) => {
     try {
         const data = calcularMetricasResumenData(req.query.rango, req.query.desde, req.query.hasta);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/metricas/cobros-dia-semana', (req, res) => {
+    try {
+        const data = calcularCobrosPorDiaSemanaData(req.query.rango, req.query.desde, req.query.hasta);
+        res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/metricas/calendario-actividad', (req, res) => {
+    try {
+        const data = calcularCalendarioActividadData(req.query.mes);
         res.json(data);
     } catch (error) {
         res.status(500).json({ error: error.message });
@@ -5767,6 +5996,8 @@ if (require.main === module) {
 
 app.calcularDashboardStatsData = calcularDashboardStatsData;
 app.calcularMetricasResumenData = calcularMetricasResumenData;
+app.calcularCobrosPorDiaSemanaData = calcularCobrosPorDiaSemanaData;
+app.calcularCalendarioActividadData = calcularCalendarioActividadData;
 app.generarReporteEjecutivoMetricasExcel = generarReporteEjecutivoMetricasExcel;
 
 module.exports = app;

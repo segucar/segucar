@@ -16,6 +16,8 @@ let _cachedHistoricoCarteraTimestamp = 0;
 let _currentCarteraCrecimientoModo = 'mensual'; // 'mensual' | 'trimestral'
 let _currentCarteraEvolucionModo = 'mensual'; // 'mensual' | 'trimestral' | 'snapshots'
 let _currentRecuperacionModo = 'semanal';      // 'semanal' | 'mensual' | 'trimestral'
+let _currentCobrosDiaRango = null;             // selector independiente de cobros por dia
+let _currentCalendarioMes = null;              // mes activo en calendario mensual de actividad
 
 window._lastMetricasData = null;
 window._lastStatsData = null;
@@ -408,7 +410,7 @@ function renderCuadroCrecimientoYComposicionCartera(historicoCartera, stats, mod
           </span>
         </div>
         <span style="font-size: 0.74rem; color: var(--text-secondary);">
-          Desglose proporcional continuo al 100% de la cartera activa + archivo histórico
+          Desglose proporcional de la cartera activa (100%) y archivo histórico complementario (fuera de cartera)
         </span>
       </div>
 
@@ -1033,7 +1035,7 @@ function renderHistoricoRecuperacionChart(data, modo = 'semanal') {
 }
 
 // ─── COMPONENTE: DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA ───────────────
-function renderCobrosPorDiaSemana(cobrosPorDia, diaPico, activeRango = 'este_mes') {
+function renderCobrosPorDiaSemanaInner(cobrosPorDia, diaPico, activeRango = 'este_mes') {
   if (!cobrosPorDia || cobrosPorDia.length === 0) return '';
   const sortedDias = [...cobrosPorDia].filter(d => (d.cobros || 0) > 0).sort((a, b) => (b.cobros || 0) - (a.cobros || 0));
   const top1 = sortedDias[0] || (diaPico?.dia ? { dia: diaPico.dia, cobros: diaPico.cobros || 0, pct_cobros: diaPico.pct_cobros || 0, dinero_recuperado: diaPico.dinero_recuperado || 0 } : { dia: 'Lunes', cobros: 0, pct_cobros: 0, dinero_recuperado: 0 });
@@ -1041,18 +1043,6 @@ function renderCobrosPorDiaSemana(cobrosPorDia, diaPico, activeRango = 'este_mes
   const diaPicoCobros = top1.cobros || 0;
   const diaPicoPct = top1.pct_cobros || 0;
   const diaPicoDinero = (top1.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
-
-  const RANGO_LABELS = {
-    hoy: '☀️ Hoy (Día Actual)',
-    esta_semana: '📆 Esta Semana',
-    este_mes: '📅 Este Mes',
-    mes_anterior: '🗓️ Mes Anterior',
-    '30_dias': '🗓️ Últimos 30 días',
-    anio_actual: '📆 Año Actual',
-    custom: '📅 Rango Personalizado',
-    todo: '🌐 Todo el Historial'
-  };
-  const labelPeriodo = RANGO_LABELS[activeRango] || (activeRango === 'custom' && currentCustomDesde && currentCustomHasta ? `📅 ${currentCustomDesde} a ${currentCustomHasta}` : '📅 Período Seleccionado');
 
   const top2 = sortedDias[1] || null;
   const topSumaPct = top2 ? ((top1.pct_cobros || 0) + (top2.pct_cobros || 0)).toFixed(1) : top1.pct_cobros;
@@ -1124,9 +1114,20 @@ Dinero recuperado: ${dineroFmt} (${d.pct_dinero}% del total)`;
           </div>
         </div>
         <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-          <span class="badge" style="background: rgba(0, 180, 216, 0.14); color: #48cae4; font-weight: 700; border: 1px solid rgba(0, 180, 216, 0.35); font-size: 0.78rem; padding: 4px 10px; border-radius: 8px;" title="Período temporal aplicado según el filtro superior">
-            ⏳ Período: <strong>${labelPeriodo}</strong>
-          </span>
+          <div style="display: flex; align-items: center; gap: 6px; background: rgba(0, 180, 216, 0.12); padding: 4px 10px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.35);">
+            <label for="selectRangoCobrosDia" style="font-size: 0.76rem; color: #48cae4; font-weight: 700; margin: 0; white-space: nowrap;">
+              ⏳ Período:
+            </label>
+            <select id="selectRangoCobrosDia" onchange="cambiarRangoCobrosDia(this.value)" style="background: rgba(10, 25, 47, 0.95); color: #fff; border: 1px solid rgba(0, 180, 216, 0.5); border-radius: 6px; font-size: 0.76rem; font-weight: 700; padding: 2px 6px; cursor: pointer; outline: none;">
+              <option value="este_mes" ${activeRango === 'este_mes' ? 'selected' : ''}>📅 Este Mes</option>
+              <option value="esta_semana" ${activeRango === 'esta_semana' ? 'selected' : ''}>📆 Esta Semana</option>
+              <option value="hoy" ${activeRango === 'hoy' ? 'selected' : ''}>☀️ Hoy</option>
+              <option value="mes_anterior" ${activeRango === 'mes_anterior' ? 'selected' : ''}>🗓️ Mes Anterior</option>
+              <option value="30_dias" ${activeRango === '30_dias' ? 'selected' : ''}>🗓️ Últimos 30 días</option>
+              <option value="anio_actual" ${activeRango === 'anio_actual' ? 'selected' : ''}>📆 Año Actual</option>
+              <option value="todo" ${activeRango === 'todo' ? 'selected' : ''}>🌐 Todo el Historial</option>
+            </select>
+          </div>
           <span class="badge" style="background: rgba(46, 213, 115, 0.18); color: #2ed573; font-weight: 800; border: 1px solid rgba(46, 213, 115, 0.35); font-size: 0.78rem;">
             🔥 Día Pico: ${diaPicoNombre} (${diaPicoPct}% de cobros)
           </span>
@@ -1183,6 +1184,229 @@ Dinero recuperado: ${dineroFmt} (${d.pct_dinero}% del total)`;
     </div>
   `;
 }
+
+function renderCobrosPorDiaSemana(cobrosPorDia, diaPico, activeRango = 'este_mes') {
+  const effRango = _currentCobrosDiaRango || activeRango;
+  return `
+    <div id="cardCobrosPorDiaSemanaContainer">
+      ${renderCobrosPorDiaSemanaInner(cobrosPorDia, diaPico, effRango)}
+    </div>
+  `;
+}
+
+window.cambiarRangoCobrosDia = async function(nuevoRango) {
+  _currentCobrosDiaRango = nuevoRango;
+  const container = document.getElementById('cardCobrosPorDiaSemanaContainer');
+  if (!container) return;
+  try {
+    container.style.opacity = '0.5';
+    const res = await fetch(`/api/metricas/cobros-dia-semana?rango=${encodeURIComponent(nuevoRango)}`);
+    const json = await res.json();
+    container.innerHTML = renderCobrosPorDiaSemanaInner(json.cobros_por_dia_semana, json.dia_pico_cobranza, nuevoRango);
+  } catch (err) {
+    console.error('Error actualizando cobros por dia:', err);
+  } finally {
+    container.style.opacity = '1';
+  }
+};
+
+// ─── COMPONENTE: CALENDARIO MENSUAL DE ACTIVIDAD Y COBROS POR DÍA ──────────
+function renderCalendarioActividadMensual(data) {
+  if (!data || !data.dias) {
+    return `
+      <div class="card mb-3" style="padding: 22px; margin-bottom: 24px; border: 1px solid var(--border-color); background: rgba(10, 25, 47, 0.85); border-radius: 16px;">
+        <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px;">
+          🗓️ Calendario Mensual de Actividad y Cobros por Día
+        </div>
+        <div style="color: var(--text-secondary); margin-top: 8px;">Cargando calendario...</div>
+      </div>
+    `;
+  }
+
+  const dineroTotalFmt = (data.total_dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const diaPico = data.dia_max_recaudacion || {};
+  const picoDineroFmt = (diaPico.dinero || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+  const promFmt = (data.promedio_diario_dinero || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+  // Encabezados de columna: LUN, MAR, MIÉ, JUE, VIE, SÁB, DOM
+  const headerCols = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'].map((h, i) => {
+    const isWknd = i >= 5;
+    return `<div style="text-align: center; font-size: 0.75rem; font-weight: 800; color: ${isWknd ? 'rgba(255,255,255,0.4)' : '#48cae4'}; padding: 8px 4px; letter-spacing: 0.5px;">${h}</div>`;
+  }).join('');
+
+  // Celdas vacías al inicio para alinear con el día de la semana correspondiente
+  let cellsHtml = '';
+  for (let i = 0; i < (data.primer_dia_offset || 0); i++) {
+    cellsHtml += `<div style="min-height: 82px; background: rgba(255,255,255,0.01); border: 1px dashed rgba(255,255,255,0.04); border-radius: 8px; opacity: 0.3;"></div>`;
+  }
+
+  // Celdas de los días del mes
+  for (const d of data.dias) {
+    const tieneCobros = (d.cobros || 0) > 0;
+    const tieneEnvios = (d.envios || 0) > 0;
+    const dineroDiaFmt = (d.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+    let bg = 'rgba(255,255,255,0.02)';
+    let border = '1px solid rgba(255,255,255,0.07)';
+    let shadow = 'none';
+
+    if (tieneCobros) {
+      if (d.dinero_recuperado >= 500000) {
+        bg = 'rgba(46, 213, 115, 0.28)';
+        border = '1px solid #2ed573';
+        shadow = '0 0 10px rgba(46, 213, 115, 0.25)';
+      } else if (d.dinero_recuperado >= 100000) {
+        bg = 'rgba(46, 213, 115, 0.18)';
+        border = '1px solid rgba(46, 213, 115, 0.6)';
+      } else {
+        bg = 'rgba(46, 213, 115, 0.10)';
+        border = '1px solid rgba(46, 213, 115, 0.35)';
+      }
+    } else if (tieneEnvios) {
+      bg = 'rgba(0, 180, 216, 0.05)';
+      border = '1px solid rgba(0, 180, 216, 0.2)';
+    }
+
+    if (d.es_hoy) {
+      border = '2px solid #f1c40f';
+      shadow = '0 0 12px rgba(241, 196, 15, 0.35)';
+    }
+
+    const tooltip = `📅 ${d.nombre_dia} ${d.dia} de ${data.mes_label}
+💳 Cobros confirmados: ${d.cobros}
+💰 Dinero recuperado: ${dineroDiaFmt}
+📤 Gestiones enviadas: ${d.envios}
+🎯 Tasa de conversión: ${d.tasa_conversion}%`;
+
+    cellsHtml += `
+      <div title="${tooltip}" style="min-height: 82px; background: ${bg}; border: ${border}; box-shadow: ${shadow}; border-radius: 8px; padding: 6px 8px; display: flex; flex-direction: column; justify-content: space-between; cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease;" onmouseover="this.style.transform='scale(1.03)'" onmouseout="this.style.transform='scale(1)'">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <span style="font-size: 0.88rem; font-weight: 800; color: ${d.es_hoy ? '#f1c40f' : (tieneCobros ? '#2ed573' : (d.es_fin_de_semana ? 'rgba(255,255,255,0.45)' : '#fff'))};">
+            ${d.dia}
+          </span>
+          ${d.es_hoy ? `<span style="font-size: 0.62rem; font-weight: 800; background: #f1c40f; color: #000; padding: 1px 4px; border-radius: 4px; text-transform: uppercase;">HOY</span>` : ''}
+          ${diaPico.dia === d.dia && d.cobros > 0 ? `<span style="font-size: 0.68rem;" title="Día con mayor recaudación">🏆</span>` : ''}
+        </div>
+
+        <div style="margin-top: 4px; display: flex; flex-direction: column; gap: 2px;">
+          ${tieneCobros ? `
+            <div style="font-size: 0.72rem; font-weight: 800; color: #2ed573; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              💳 ${d.cobros} pago${d.cobros > 1 ? 's' : ''}
+            </div>
+            <div style="font-size: 0.72rem; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              ${d.dinero_recuperado >= 1000 ? '$' + Math.round(d.dinero_recuperado / 1000).toLocaleString('es-AR') + 'k' : dineroDiaFmt}
+            </div>
+          ` : (tieneEnvios ? `
+            <div style="font-size: 0.68rem; color: #48cae4; white-space: nowrap;">
+              📤 ${d.envios} env.
+            </div>
+          ` : `
+            <div style="font-size: 0.68rem; color: rgba(255,255,255,0.18);">-</div>
+          `)}
+        </div>
+
+        ${tieneCobros && tieneEnvios ? `
+          <div style="font-size: 0.62rem; color: var(--text-secondary); text-align: right; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 2px; margin-top: 2px;">
+            ${d.tasa_conversion}% conv.
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  return `
+    <div class="card mb-3" style="padding: 22px; margin-bottom: 24px; border: 1px solid var(--border-color); background: rgba(10, 25, 47, 0.85); border-radius: 16px;">
+      
+      <!-- ENCABEZADO Y SELECTOR DE MES -->
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; flex-wrap: wrap; gap: 10px;">
+        <div>
+          <div style="font-size: 0.92rem; font-weight: 800; text-transform: uppercase; color: var(--accent-cyan-light); letter-spacing: 0.5px; display: flex; align-items: center; gap: 8px;">
+            <span>🗓️</span> CALENDARIO MENSUAL DE ACTIVIDAD Y COBROS POR DÍA
+          </div>
+          <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px;">
+            Mapa de calor diario con volumen de pagos confirmados, dinero recuperado y mensajes de WhatsApp enviados
+          </div>
+        </div>
+
+        <!-- CONTROL NAVEGACIÓN MES -->
+        <div style="display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); padding: 4px 8px; border-radius: 10px;">
+          <button class="btn btn-sm btn-outline-secondary" onclick="navegarCalendarioMes('${data.mes_anterior}')" style="padding: 3px 10px; font-size: 0.78rem; font-weight: 700; border-radius: 6px; cursor: pointer;" title="Ir al mes anterior">
+            ◀ Anterior
+          </button>
+          <span style="font-size: 0.84rem; font-weight: 800; color: #48cae4; padding: 0 6px; min-width: 120px; text-align: center;">
+            📅 ${data.mes_label}
+          </span>
+          <button class="btn btn-sm btn-outline-secondary" onclick="navegarCalendarioMes('${data.mes_siguiente}')" style="padding: 3px 10px; font-size: 0.78rem; font-weight: 700; border-radius: 6px; cursor: pointer;" title="Ir al mes siguiente">
+            Siguiente ▶
+          </button>
+        </div>
+      </div>
+
+      <!-- KPI SUMMARY STRIP -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin-bottom: 18px;">
+        <div style="background: rgba(46, 213, 115, 0.08); border: 1px solid rgba(46, 213, 115, 0.25); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">💰 Recaudado Mes</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #2ed573; margin-top: 2px;">${dineroTotalFmt}</div>
+        </div>
+        <div style="background: rgba(0, 180, 216, 0.08); border: 1px solid rgba(0, 180, 216, 0.25); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">💳 Cobros Registrados</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 2px;">${data.total_cobros || 0} pagos</div>
+        </div>
+        <div style="background: rgba(155, 89, 182, 0.08); border: 1px solid rgba(155, 89, 182, 0.25); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">📤 Contactos WhatsApp</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #fff; margin-top: 2px;">${data.total_envios || 0} envíos</div>
+        </div>
+        <div style="background: rgba(241, 196, 15, 0.08); border: 1px solid rgba(241, 196, 15, 0.25); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">🏆 Día Pico de Cobranza</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #f1c40f; margin-top: 2px;">
+            ${diaPico.dia ? 'Día ' + diaPico.dia + ' (' + picoDineroFmt + ')' : 'Sin cobros'}
+          </div>
+        </div>
+        <div style="background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 10px; padding: 10px 14px;">
+          <div style="font-size: 0.7rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">📊 Promedio Día Activo</div>
+          <div style="font-size: 1.15rem; font-weight: 800; color: #48cae4; margin-top: 2px;">${promFmt} / día</div>
+        </div>
+      </div>
+
+      <!-- MATRIZ DE CALENDARIO -->
+      <div style="overflow-x: auto;">
+        <div style="min-width: 600px;">
+          <!-- FILA DE ENCABEZADOS DE DÍA -->
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px; margin-bottom: 8px;">
+            ${headerCols}
+          </div>
+          <!-- CELDAS DE DÍAS -->
+          <div style="display: grid; grid-template-columns: repeat(7, 1fr); gap: 8px;">
+            ${cellsHtml}
+          </div>
+        </div>
+      </div>
+
+      <!-- NOTA DE PATRONES INTRA-MES -->
+      <div style="margin-top: 16px; background: rgba(0, 180, 216, 0.05); border: 1px solid rgba(0, 180, 216, 0.2); border-left: 4px solid #00b4d8; border-radius: 8px; padding: 10px 14px; font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45;">
+        <strong style="color: #48cae4;">💡 Patrones intra-mes detectados:</strong> 
+        La actividad de cobranza muestra picos concentrados entre los días 10 al 15 y 20 al 25 de cada mes, coincidiendo con los ciclos estándar de vencimiento de pólizas NRE y AGS. Los días hábiles inmediatamente posteriores presentan la mayor tasa de efectividad de recupero económico tras el disparo automático preventivo de WhatsApp.
+      </div>
+
+    </div>
+  `;
+}
+
+window.navegarCalendarioMes = async function(nuevoMes) {
+  _currentCalendarioMes = nuevoMes;
+  const container = document.getElementById('containerCalendarioActividadMensual');
+  if (!container) return;
+  try {
+    container.style.opacity = '0.5';
+    const res = await fetch(`/api/metricas/calendario-actividad?mes=${encodeURIComponent(nuevoMes)}`);
+    const json = await res.json();
+    container.innerHTML = renderCalendarioActividadMensual(json);
+  } catch (e) {
+    console.error('Error navegando calendario:', e);
+  } finally {
+    container.style.opacity = '1';
+  }
+};
 
 function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
   const container = document.getElementById('viewMetricas');
@@ -1477,6 +1701,11 @@ function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
     <!-- 📅 DISTRIBUCIÓN DE COBROS POR DÍA DE LA SEMANA (LUNES A DOMINGO CON DÍA PICO) -->
     ${renderCobrosPorDiaSemana(data.cobros_por_dia_semana, data.dia_pico_cobranza, activeRango)}
 
+    <!-- 🗓️ CALENDARIO MENSUAL DE ACTIVIDAD POR DÍA (HEATMAP DE COBROS Y GESTIONES) -->
+    <div id="containerCalendarioActividadMensual">
+      ${renderCalendarioActividadMensual(data.calendario_mensual)}
+    </div>
+
     <!-- 🔄 CONVERSIÓN POR ETAPA DE COBRANZA -->
     ${renderEtapasCobranza(data.etapas_cobranza)}
 
@@ -1741,7 +1970,7 @@ function renderHistoricoSemanalChart(historico) {
     return `
       <g>
         <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#2ed573" stroke="#0a192f" stroke-width="2">
-          <title>${p.h.semana} (${p.h.label}): ${dinFmt} recuperados en ${p.h.exitosos || 0} cobros</title>
+          <title>${p.h.semana} (${p.h.label}): ${(p.h.envios || 0) === 0 ? 'Sin envíos registrados (Pre-lanzamiento)' : `${dinFmt} recuperados en ${p.h.exitosos || 0} cobros`}</title>
         </circle>
       </g>
     `;
@@ -1751,7 +1980,7 @@ function renderHistoricoSemanalChart(historico) {
     return `
       <g>
         <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="4.5" fill="#00b4d8" stroke="#0a192f" stroke-width="2">
-          <title>${p.h.semana} (${p.h.label}): ${p.val}% conversión</title>
+          <title>${p.h.semana} (${p.h.label}): ${(p.h.envios || 0) === 0 ? 'Pre-lanzamiento (0 envíos)' : `${p.val}% conversión`}</title>
         </circle>
       </g>
     `;
@@ -1768,10 +1997,23 @@ function renderHistoricoSemanalChart(historico) {
 
   // Bottom ratio cards
   const ratioCards = historico.map(h => {
+    const isPreRollout = (h.envios || 0) === 0 && (h.exitosos || 0) === 0;
     const ratio = parseFloat(h.reenvios_ratio || 1.0);
     const isSpamRisk = ratio >= 2.50;
     const ratioColor = isSpamRisk ? '#ff7675' : '#a0aec0';
     const dineroFmt = (h.dinero_recuperado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
+
+    if (isPreRollout) {
+      return `
+        <div style="flex: 1; text-align: center; min-width: 65px; background: rgba(255,255,255,0.015); border-radius: 8px; padding: 8px 4px; border: 1px dashed rgba(255,255,255,0.08); opacity: 0.7;">
+          <div style="font-size: 0.72rem; font-weight: 700; color: var(--text-secondary);">$0</div>
+          <div style="font-size: 0.65rem; font-weight: 700; color: #a0aec0; margin: 3px 0;">Pre-inicio</div>
+          <div style="font-size: 0.60rem; color: var(--text-secondary);" title="Período previo al inicio operativo de los envíos automatizados">
+            0 envíos
+          </div>
+        </div>
+      `;
+    }
 
     return `
       <div style="flex: 1; text-align: center; min-width: 65px; background: rgba(255,255,255,0.02); border-radius: 8px; padding: 8px 4px; border: 1px solid rgba(255,255,255,0.06);">

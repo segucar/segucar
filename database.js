@@ -1075,6 +1075,16 @@ try {
     `).run();
 } catch (e) {}
 
+// Reconciliación de coberturas pendientes AGS en Cartera Activa
+try {
+    // Póliza 8377355 (DOÑO FLAVIA ALEJANDRA - FIAT IDEA FHH475): Cobertura 'A' (RC) confirmada en portal Agrosalta (AGS)
+    db.prepare(`
+        UPDATE polizas 
+        SET cobertura = 'A'
+        WHERE operacion = '8377355' AND aseguradora = 'AGS' AND (cobertura IS NULL OR TRIM(cobertura) = '')
+    `).run();
+} catch (e) {}
+
 db.marcarPolizaAnulada = function(operacionOId, motivo = 'Anulada en NRE') {
     return db.prepare(`
         UPDATE polizas 
