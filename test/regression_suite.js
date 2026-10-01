@@ -1640,35 +1640,75 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 29:", e.message);
     }
 
-    // ── TEST 30: Chequeo Cruzado Informativo de Preliquidaciones NRE y Blindaje de Snapshots ──
+    // ── TEST 30: Blindaje de DNI (No Sobrescritura), Inferencia de Género y Demografía ──
     try {
-        console.log("📌 TEST 30: Chequeo Cruzado Informativo de Preliquidaciones NRE y Blindaje de Snapshots");
+        console.log("📌 TEST 30: Blindaje de DNI, Inferencia de Género por Nombre de Pila y Demografía de Cartera");
         const app = require('../server');
+        const db = require('../database');
+        const { inferirGeneroPorNombre, calcularEstadisticasDemograficas } = require('../gender_helper');
 
-        const metricasMes = app.calcularMetricasResumenData('este_mes');
+        // 1. Blindaje de DNI: Jamás sobrescribir un DNI ya cargado a mano
+        const testCliManual = db.prepare("INSERT INTO clientes (nombre, dni) VALUES (?, ?)").run('TEST DNI MANUAL', '99999999');
+        const manualId = testCliManual.lastInsertRowid;
+
+        // Intentar sobrescribir con el guard SQL del backfill
+        const guardStmt = db.prepare("UPDATE clientes SET dni = ? WHERE id = ? AND (dni IS NULL OR TRIM(dni) = '')");
+        const resIntentoSobrescritura = guardStmt.run('11111111', manualId);
+        const cliDespues = db.prepare("SELECT dni FROM clientes WHERE id = ?").get(manualId);
+        const okNoSobrescritura = (resIntentoSobrescritura.changes === 0 && cliDespues.dni === '99999999');
+
+        // Verificar que en cliente sin DNI sí lo complete
+        const testCliVacio = db.prepare("INSERT INTO clientes (nombre, dni) VALUES (?, NULL)").run('TEST DNI VACIO');
+        const vacioId = testCliVacio.lastInsertRowid;
+        const resCompletado = guardStmt.run('22222222', vacioId);
+        const cliVacioDespues = db.prepare("SELECT dni FROM clientes WHERE id = ?").get(vacioId);
+        const okCompletado = (resCompletado.changes === 1 && cliVacioDespues.dni === '22222222');
+
+        // Limpiar registros de prueba
+        db.prepare("DELETE FROM clientes WHERE id IN (?, ?)").run(manualId, vacioId);
+
+        // 2. Inferencia de género por nombre de pila
+        const casosGenero = [
+            { nombre: 'ZARATE MARTA VERONICA', esperado: 'Femenino' },
+            { nombre: 'CANALES DIEGO AGUSTIN', esperado: 'Masculino' },
+            { nombre: 'ACOSTA CARLOS ALBERTO', esperado: 'Masculino' },
+            { nombre: 'AGUINAGA MARIA DE LAS MERCEDES', esperado: 'Femenino' },
+            { nombre: 'DE LOS MILAGROS ROMINA', esperado: 'Femenino' },
+            { nombre: 'EMPRESA DE TRANSPORTE S.A.', esperado: 'No determinado' }
+        ];
+
+        let okGeneroCases = true;
+        for (const c of casosGenero) {
+            const inf = inferirGeneroPorNombre(c.nombre);
+            if (inf.genero !== c.esperado) {
+                console.error(`  ❌ Fallo en inferencia para '${c.nombre}': esperado '${c.esperado}', obtenido '${inf.genero}'`);
+                okGeneroCases = false;
+            }
+        }
+
+        // 3. Demografía en Cartera Activa y Pausa de Estadísticas de Edad
         const dashStats = app.calcularDashboardStatsData();
+        const metricasMes = app.calcularMetricasResumenData('este_mes');
 
-        const preliqs = metricasMes.auditoria_facturacion?.preliquidaciones_nre_referencia;
-        const okPreliqsArray = Array.isArray(preliqs) && preliqs.length === 2;
-        const loteSept = preliqs?.find(p => p.lote === 30403);
-        const loteOct = preliqs?.find(p => p.lote === 32018);
+        const demo = dashStats.demografia_genero;
+        const okDemoObj = Boolean(demo && typeof demo.total_analizados === 'number' && demo.total_analizados === dashStats.cartera_activa_total);
+        const okSumaPartes = (demo.masculino + demo.femenino + demo.no_determinado === demo.total_analizados);
+        const okEdadPausada = (demo.estadistica_edad_disponible === false && typeof demo.motivo_edad_pausada === 'string');
+        const okResumenDemo = Boolean(metricasMes.demografia_genero && metricasMes.demografia_genero.total_analizados === demo.total_analizados);
 
-        const okLoteSept = Boolean(loteSept && loteSept.total_liquidado === 27652834 && loteSept.cuotas_liquidadas === 1531);
-        const okLoteOct = Boolean(loteOct && loteOct.total_liquidado === 32930935 && loteOct.cuotas_liquidadas === 1703);
+        // 4. Verificación de que el Chequeo Cruzado / Preliquidaciones fue removido de auditoria_facturacion
+        const okSinPreliqs = (metricasMes.auditoria_facturacion?.preliquidaciones_nre_referencia === undefined);
 
-        // Blindaje: los snapshots no fueron alterados por los números de cuotas (1531 / 1703)
-        const totalPolizasActivas = metricasMes.auditoria_facturacion?.total_polizas_activas;
-        const okNoSobrescritura = (totalPolizasActivas === dashStats.cartera_activa_total) && (totalPolizasActivas !== 1531) && (totalPolizasActivas !== 1703);
-
-        if (okPreliqsArray && okLoteSept && okLoteOct && okNoSobrescritura) {
-            console.log(`  ✅ PASSED -> Preliquidaciones NRE Registradas: Lote 30403 ($27,65M - 1.531 cuotas) y Lote 32018 ($32,93M - 1.703 cuotas).`);
-            console.log(`  ✅ PASSED -> Blindaje de Snapshots: total_polizas_activas (${totalPolizasActivas}) se mantiene intacto sin contaminar con cuotas.`);
-            console.log("  ✅ PASSED -> Chequeo Cruzado Informativo: Referencia documental externa disponible para auditoría sin sobrescribir datos.\n");
+        if (okNoSobrescritura && okCompletado && okGeneroCases && okDemoObj && okSumaPartes && okEdadPausada && okResumenDemo && okSinPreliqs) {
+            console.log(`  ✅ PASSED -> Blindaje de DNI: El guard SQL protege DNIs existentes y solo completa vacíos/NULL.`);
+            console.log(`  ✅ PASSED -> Inferencia de Género: 6/6 casos de prueba clasificados con exactitud por nombre de pila.`);
+            console.log(`  ✅ PASSED -> Demografía de Cartera Activa: ${demo.total_analizados} pólizas (${demo.masculino} Masc, ${demo.femenino} Fem, ${demo.no_determinado} No det).`);
+            console.log(`  ✅ PASSED -> Pausa Metodológica de Edad: Prohibición estricta de cálculo de edad por DNI confirmada.`);
+            console.log("  ✅ PASSED -> Limpieza de Chequeo Cruzado: preliquidaciones_nre_referencia removido limpiamente de la API.\n");
             totalPassed++;
         } else {
             console.error("  ❌ FAILED en TEST 30:", {
-                okPreliqsArray, okLoteSept, okLoteOct, okNoSobrescritura,
-                totalPolizasActivas, dashTotal: dashStats.cartera_activa_total
+                okNoSobrescritura, okCompletado, okGeneroCases, okDemoObj, okSumaPartes, okEdadPausada, okResumenDemo, okSinPreliqs
             });
         }
     } catch (e) {

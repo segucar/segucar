@@ -494,7 +494,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     // 1. Pólizas que antes tenían saldo pero NRE lisdeupmo.php ya NO lista como deudoras (resolución inmediata de pagos)
     if (opsEnNreDeuda && opsEnNreDeuda instanceof Set) {
         const candidatosResueltos = db.prepare(`
-            SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
+            SELECT operacion, cliente_id, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
             FROM polizas 
             WHERE (saldo_pendiente > 0 OR cuotas_debe > 0)
               AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
@@ -504,7 +504,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     // 2. Toda la ventana de cobranza activa (últimos 45 días a próximos 30 días)
     const candidatosVentana = db.prepare(`
-        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
+        SELECT operacion, cliente_id, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
           AND fecha_vencimiento >= date('now', 'localtime', '-45 days')
@@ -515,7 +515,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     // 3. Pólizas activas en la ventana actual sin historial de cuotas cargado
     const candidatosSinHistorial = db.prepare(`
-        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza
+        SELECT operacion, cliente_id, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza
         FROM polizas
         WHERE (cuotas_historial IS NULL OR cuotas_historial = '' OR cuotas_historial = '[]')
           AND LOWER(COALESCE(estado, '')) NOT IN ('anulada', 'baja')
@@ -527,7 +527,7 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
     // 4. Otras pólizas con saldo restante
     const otrosDeudores = db.prepare(`
-        SELECT operacion, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
+        SELECT operacion, cliente_id, saldo_pendiente, cuotas_debe, fecha_vencimiento, fin_vigencia_poliza 
         FROM polizas 
         WHERE saldo_pendiente > 0 
           AND (fecha_vencimiento < date('now', 'localtime', '-45 days') OR fecha_vencimiento > date('now', 'localtime', '+30 days') OR fecha_vencimiento IS NULL)
@@ -598,6 +598,16 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                 if (cobMatch && cobMatch[1]) {
                     coberturaFicha = cobMatch[1].trim();
                     db.prepare("UPDATE polizas SET cobertura = ? WHERE operacion = ? AND (cobertura IS NULL OR cobertura = '')").run(coberturaFicha, pol.operacion);
+                }
+
+                // 🪪 Extraer DNI del cliente si está presente en la ficha ("Documento: X" o "DNI: X")
+                // REGLA FUNDAMENTAL: Guardar SOLO SI el cliente no tiene DNI cargado. Jamás sobrescribir un DNI manual o previo.
+                const docMatch = bodyText.match(/(?:Documento|DNI):\s*([0-9]{7,11})/i);
+                if (docMatch && docMatch[1]) {
+                    const cid = pol.cliente_id || db.prepare("SELECT cliente_id FROM polizas WHERE operacion = ?").get(pol.operacion)?.cliente_id;
+                    if (cid) {
+                        db.prepare("UPDATE clientes SET dni = ? WHERE id = ? AND (dni IS NULL OR TRIM(dni) = '')").run(docMatch[1].trim(), cid);
+                    }
                 }
 
                 const pagosHistorial = [];
@@ -835,6 +845,15 @@ async function syncGeneralNRE(usuario = 'SUA', password = 'sua') {
         console.warn('⚠️ [syncGeneralNRE] Error no bloqueante en syncCoberturasNREProgresivo:', cobErr.message);
     }
 
+    // 5b. 🪪 Sincronizar micro-lote progresivo de DNI en NRE (50 pólizas/clientes por ciclo)
+    let dnisRes = { total: 0, actualizadas: 0 };
+    try {
+        dnisRes = await syncDnisNREProgresivo(50, usuario, password);
+        console.log(`🪪 [syncGeneralNRE] DNIs NRE progresivo: ${dnisRes.actualizadas || 0} actualizados de ${dnisRes.total || 0} pendientes.`);
+    } catch (dniErr) {
+        console.warn('⚠️ [syncGeneralNRE] Error no bloqueante en syncDnisNREProgresivo:', dniErr.message);
+    }
+
     if (typeof db.restaurarTelefonosMaestros === 'function') {
         db.restaurarTelefonosMaestros();
     }
@@ -923,7 +942,7 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
     try {
         // Priorizar autos y pick ups con saldo o vigentes que tengan cobertura NULL
         const candidatos = db.prepare(`
-            SELECT operacion, tipo_vehiculo, suma_asegurada
+            SELECT operacion, tipo_vehiculo, suma_asegurada, cliente_id
             FROM polizas 
             WHERE (cobertura IS NULL OR TRIM(cobertura) = '')
               AND (aseguradora IS NULL OR aseguradora != 'AGS')
@@ -941,6 +960,7 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
         console.log(`[syncCoberturasNREProgresivo] Sincronizando coberturas de ${candidatos.length} pólizas (micro-lotes controlados)...`);
         const { baseUrl, getCookieString } = await loginNRE(usuario, password);
         const updateCob = db.prepare("UPDATE polizas SET cobertura = ? WHERE operacion = ?");
+        const updateDni = db.prepare("UPDATE clientes SET dni = ? WHERE id = ? AND (dni IS NULL OR TRIM(dni) = '')");
 
         let actualizadas = 0;
         const BATCH_SIZE = 5;
@@ -960,6 +980,16 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
                         updateCob.run(cobVal, pol.operacion);
                         actualizadas++;
                     }
+
+                    // 🪪 Extraer DNI del cliente si está presente en la ficha
+                    // REGLA: Guardar SOLO SI no tiene DNI cargado. Jamás sobrescribir un DNI manual o previo.
+                    const docMatch = bodyText.match(/(?:Documento|DNI):\s*([0-9]{7,11})/i);
+                    if (docMatch && docMatch[1]) {
+                        const cid = pol.cliente_id || db.prepare("SELECT cliente_id FROM polizas WHERE operacion = ?").get(pol.operacion)?.cliente_id;
+                        if (cid) {
+                            updateDni.run(docMatch[1].trim(), cid);
+                        }
+                    }
                 } catch (e) {
                     // Ignorar errores individuales para no frenar el lote
                 }
@@ -975,6 +1005,73 @@ async function syncCoberturasNREProgresivo(maxPolizas = 20, usuario = 'SUA', pas
         return { total: candidatos.length, actualizadas };
     } catch (e) {
         console.error('Error en syncCoberturasNREProgresivo:', e.message);
+        return { total: 0, actualizadas: 0, error: e.message };
+    }
+}
+
+/**
+ * Sincroniza progresivamente el DNI de clientes asociados a pólizas NRE
+ * consultando muestro-polizas.php en micro-lotes controlados con pausas preventivas.
+ * 
+ * ⚠️ REGLAS ESTRICTAS:
+ * - Guarda en clientes.dni SOLO SI está vacío o NULL (nunca sobrescribe un DNI manual o previo).
+ * - Pausa de 400ms entre micro-lotes para no saturar NRE.
+ * - Prioriza clientes de cartera activa viva.
+ */
+async function syncDnisNREProgresivo(maxPolizas = 50, usuario = 'SUA', password = 'sua') {
+    const cheerio = require('cheerio');
+    try {
+        const candidatos = db.prepare(`
+            SELECT p.operacion, p.cliente_id, c.nombre, p.tipo_vehiculo
+            FROM polizas p
+            JOIN clientes c ON c.id = p.cliente_id
+            WHERE (p.aseguradora IS NULL OR p.aseguradora != 'AGS')
+              AND (c.dni IS NULL OR TRIM(c.dni) = '')
+              AND LOWER(COALESCE(p.estado, '')) NOT IN ('anulada', 'baja')
+            ORDER BY (CASE WHEN p.tipo_vehiculo IN ('Auto', 'Pick Up') THEN 0 ELSE 1 END),
+                     p.id DESC
+            LIMIT ?
+        `).all(maxPolizas);
+
+        if (candidatos.length === 0) {
+            return { total: 0, actualizadas: 0, mensaje: 'Todos los clientes con pólizas NRE activas ya tienen DNI registrado.' };
+        }
+
+        console.log(`[syncDnisNREProgresivo] Sincronizando DNI de ${candidatos.length} clientes/pólizas NRE...`);
+        const { baseUrl, getCookieString } = await loginNRE(usuario, password);
+        const updateDni = db.prepare("UPDATE clientes SET dni = ? WHERE id = ? AND (dni IS NULL OR TRIM(dni) = '')");
+
+        let actualizadas = 0;
+        const BATCH_SIZE = 5;
+        for (let i = 0; i < candidatos.length; i += BATCH_SIZE) {
+            const batch = candidatos.slice(i, i + BATCH_SIZE);
+            await Promise.all(batch.map(async (pol) => {
+                try {
+                    const infoRes = await fetchWithRetry(`${baseUrl}/muestro-polizas.php?prop=${pol.operacion}`, {
+                        headers: { 'Cookie': getCookieString() }
+                    });
+                    const html = await infoRes.text();
+                    const $ = cheerio.load(html);
+                    const bodyText = $.text();
+                    const docMatch = bodyText.match(/(?:Documento|DNI):\s*([0-9]{7,11})/i);
+                    if (docMatch && docMatch[1] && pol.cliente_id) {
+                        const res = updateDni.run(docMatch[1].trim(), pol.cliente_id);
+                        if (res.changes > 0) actualizadas++;
+                    }
+                } catch (e) {
+                    // Ignorar errores individuales
+                }
+            }));
+
+            if (i + BATCH_SIZE < candidatos.length) {
+                await new Promise(r => setTimeout(r, 400));
+            }
+        }
+
+        console.log(`[syncDnisNREProgresivo] Completado: ${actualizadas} DNIs actualizados.`);
+        return { total: candidatos.length, actualizadas };
+    } catch (e) {
+        console.error('Error en syncDnisNREProgresivo:', e.message);
         return { total: 0, actualizadas: 0, error: e.message };
     }
 }
@@ -1129,6 +1226,6 @@ async function auditarParidadNRE(usuario, password) {
     }
 }
 
-module.exports = { loginNRE, syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
+module.exports = { loginNRE, syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, syncDnisNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
 
 

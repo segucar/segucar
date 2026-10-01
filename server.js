@@ -7,10 +7,11 @@ const path = require('path');
 const fs = require('fs');
 const db = require('./database');
 const { scrapeTelefonos, consultarPolizaSistema } = require('./scraper');
-const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncCoberturasNREProgresivo, auditarParidadNRE } = require('./sync_nre');
+const { syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncCoberturasNREProgresivo, syncDnisNREProgresivo, auditarParidadNRE } = require('./sync_nre');
 const { syncAGS } = require('./sync_ags');
 const { cotizarVehiculo } = require('./cotizador_nre');
 const { esNoHabil, esHabil, obtenerSiguienteDiaHabil, evaluarEstadoCobranzaHabil, toLocalDateString, getArgentinaNow } = require('./holidays_ar');
+const { inferirGeneroPorNombre, calcularEstadisticasDemograficas } = require('./gender_helper');
 const waService = require('./whatsapp_service');
 const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = require('./automation_scheduler');
 
@@ -653,7 +654,7 @@ function calcularDashboardStatsData() {
     const esDiaNoHabil = esNoHabil(hoy);
 
     const allPolizas = db.prepare(`
-        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora, p.suma_asegurada, p.cuotas_historial, c.telefono as cliente_telefono 
+        SELECT p.id, p.operacion, p.patente, p.fecha_vencimiento, p.fin_vigencia_poliza, p.tipo_vehiculo, p.vehiculo, p.seccion, p.cobertura, p.cuotas_debe, p.estado, p.anulada, p.estado_nre, p.saldo_pendiente, p.aseguradora, p.suma_asegurada, p.cuotas_historial, c.id as cliente_id, c.nombre as cliente_nombre, c.dni as cliente_dni, c.telefono as cliente_telefono 
         FROM polizas p 
         LEFT JOIN clientes c ON p.cliente_id = c.id
     `).all();
@@ -724,6 +725,8 @@ function calcularDashboardStatsData() {
         totales: { label: 'TOTAL CARTERA ACTIVA', rc: 0, plan_b: 0, plan_c: 0, todo_riesgo: 0, otros: 0, pendiente: 0, total: 0 }
     };
 
+    const demografia_items = [];
+
     for (const p of allPolizas) {
         if (db.esPolizaAnulada(p)) continue;
         const isRenewed = renewedPolizaIds.has(p.id);
@@ -764,6 +767,11 @@ function calcularDashboardStatsData() {
         }
 
         // ── Cartera Activa Viva ──────────────────────────
+        demografia_items.push({
+            cliente_id: p.cliente_id,
+            cliente_nombre: p.cliente_nombre,
+            cliente_dni: p.cliente_dni
+        });
         // Desglose por tipo de vehículo (usando clasificador canónico con máxima prioridad en seccion)
         let vKey = 'sin_clasificar';
         const vReal = clasificarVehiculoReal(p);
@@ -880,27 +888,6 @@ function calcularDashboardStatsData() {
     const ticketPromedioCuotaReal = countCuotasReales > 0 ? Math.round(sumaCuotasReales / countCuotasReales) : 33452;
     const volumenEstimadoMensual = Math.round(cartera_activa_total * ticketPromedioCuotaReal);
 
-    const PRELIQUIDACIONES_NRE_REFERENCIA = [
-        {
-            lote: 30403,
-            fecha: '2026-09-01',
-            periodo_label: 'Septiembre 2026',
-            total_liquidado: 27652834,
-            comision_productor: 11061133.60,
-            total_a_rendir: 16591700.40,
-            cuotas_liquidadas: 1531
-        },
-        {
-            lote: 32018,
-            fecha: '2026-10-01',
-            periodo_label: 'Octubre 2026',
-            total_liquidado: 32930935,
-            comision_productor: 13172374.00,
-            total_a_rendir: 19758561.00,
-            cuotas_liquidadas: 1703
-        }
-    ];
-
     const auditoria_facturacion_base = {
         total_polizas_activas: cartera_activa_total,
         polizas_con_suma: conSumaGlobal,
@@ -909,8 +896,7 @@ function calcularDashboardStatsData() {
         pct_con_suma_ags: pctConSumaAgs,
         total_cuotas_analizadas: countCuotasReales,
         ticket_promedio_cuota: ticketPromedioCuotaReal,
-        volumen_estimado_mensual: volumenEstimadoMensual,
-        preliquidaciones_nre_referencia: PRELIQUIDACIONES_NRE_REFERENCIA
+        volumen_estimado_mensual: volumenEstimadoMensual
     };
 
     const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
@@ -927,6 +913,7 @@ function calcularDashboardStatsData() {
     };
 
     const syncInfo = getLastSyncInfo();
+    const demografia_genero = calcularEstadisticasDemograficas(demografia_items);
 
     // ── Guardar Snapshot Diario de Cartera Activa y Desglose por Vehículo ──
     try {
@@ -979,6 +966,7 @@ function calcularDashboardStatsData() {
         vehiculos_desglose,
         vehiculos_porcentajes,
         cobertura_vehiculos,
+        demografia_genero,
         last_sync_date: lastSync,
         last_sync_nre: syncInfo.last_sync_nre || syncInfo.last_sync_date || null,
         last_sync_ags: syncInfo.last_sync_ags || null,
@@ -4413,8 +4401,7 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             total_cuotas_analizadas: baseAudit.total_cuotas_analizadas || 0,
             ticket_promedio_cuota: baseAudit.ticket_promedio_cuota || 33452,
             volumen_estimado_mensual: baseAudit.volumen_estimado_mensual || Math.round(dashStats.cartera_activa_total * (baseAudit.ticket_promedio_cuota || 33452)),
-            cobranza_efectiva_periodo: dinero_recuperado_total,
-            preliquidaciones_nre_referencia: baseAudit.preliquidaciones_nre_referencia || []
+            cobranza_efectiva_periodo: dinero_recuperado_total
         };
 
         return {
@@ -4446,7 +4433,8 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             },
             calendario_mensual,
             cobertura_contacto,
-            auditoria_facturacion
+            auditoria_facturacion,
+            demografia_genero: dashStats.demografia_genero || {}
         };
 }
 
@@ -4454,6 +4442,15 @@ app.get('/api/metricas/resumen', (req, res) => {
     try {
         const data = calcularMetricasResumenData(req.query.rango, req.query.desde, req.query.hasta);
         res.json(data);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.get('/api/metricas/demografia', (req, res) => {
+    try {
+        const dashStats = calcularDashboardStatsData();
+        res.json(dashStats.demografia_genero || {});
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -5258,6 +5255,18 @@ app.post('/api/sync-nre/coberturas-progresivo', async (req, res) => {
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
         const max = parseInt(req.body.max, 10) || 20;
         const result = await syncCoberturasNREProgresivo(max, usuario, password);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+app.post('/api/sync-nre/dnis-progresivo', async (req, res) => {
+    try {
+        const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
+        const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
+        const max = parseInt(req.body.max, 10) || 50;
+        const result = await syncDnisNREProgresivo(max, usuario, password);
         res.json(result);
     } catch (error) {
         res.status(500).json({ error: error.message });

@@ -623,60 +623,8 @@ function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {
   };
   const labelPeriodo = RANGO_LABELS[activeRango] || 'Período Activo';
 
-  // 3. Chequeo Cruzado Dinámico con Preliquidaciones Reales de Cobranza (NRE)
-  const preliqs = (audit && Array.isArray(audit.preliquidaciones_nre_referencia) && audit.preliquidaciones_nre_referencia.length > 0)
-    ? audit.preliquidaciones_nre_referencia
-    : [
-        {
-          lote: 30403,
-          fecha: '2026-09-01',
-          periodo_label: 'Septiembre 2026',
-          total_liquidado: 27652834,
-          comision_productor: 11061133.60,
-          total_a_rendir: 16591700.40,
-          cuotas_liquidadas: 1531
-        },
-        {
-          lote: 32018,
-          fecha: '2026-10-01',
-          periodo_label: 'Octubre 2026',
-          total_liquidado: 32930935,
-          comision_productor: 13172374.00,
-          total_a_rendir: 19758561.00,
-          cuotas_liquidadas: 1703
-        }
-      ];
-
-  const cardsLotesHtml = preliqs.map(lote => {
-    const totFmt = (lote.total_liquidado || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
-    const comFmt = (lote.comision_productor || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
-    const rendFmt = (lote.total_a_rendir || 0).toLocaleString('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 });
-    const cuotasNum = (lote.cuotas_liquidadas || 0).toLocaleString('es-AR');
-    const pctDeProyeccion = volumenEstimado > 0 ? (((lote.total_liquidado || 0) / volumenEstimado) * 100).toFixed(1) : '0';
-
-    return `
-      <div class="preliq-card" style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 8px; padding: 12px 14px;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; flex-wrap: wrap; gap: 4px;">
-          <div style="font-size: 0.74rem; text-transform: uppercase; color: #48cae4; font-weight: 800;">
-            Lote ${lote.lote} (${lote.periodo_label || lote.fecha})
-          </div>
-          <span style="font-size: 0.68rem; color: #00b4d8; background: rgba(0, 180, 216, 0.15); padding: 2px 7px; border-radius: 6px; font-weight: 700;">
-            ${pctDeProyeccion}% de Opción B
-          </span>
-        </div>
-        <div style="font-size: 1.25rem; font-weight: 800; color: #2ed573; margin: 4px 0;">
-          ${totFmt}
-        </div>
-        <div style="font-size: 0.73rem; color: var(--text-secondary); line-height: 1.45;">
-          <strong>${cuotasNum}</strong> cuotas liquidadas en NRE | Com. Prod: <strong>${comFmt}</strong><br>
-          Total a rendir: <strong>${rendFmt}</strong>
-        </div>
-      </div>
-    `;
-  }).join('');
-
   return `
-    <div class="card mb-3" id="cardAuditoriaFacturacion" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+    <div class="card mb-3" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(243, 156, 18, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
       <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
         <div style="display: flex; align-items: center; gap: 8px;">
           <span style="font-size: 1.2rem;">🏛️</span>
@@ -714,30 +662,119 @@ function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {
           </div>
         </div>
       </div>
+    </div>
+  `;
+}
 
-      <!-- CHEQUEO CRUZADO INFORMATIVO: PRELIQUIDACIONES REALES NRE VS PROYECCIÓN -->
-      <div id="bloqueChequeoCruzadoPreliquidaciones" style="margin-top: 14px; background: rgba(0, 180, 216, 0.03); border: 1px solid rgba(0, 180, 216, 0.25); border-left: 4px solid #00b4d8; border-radius: 10px; padding: 14px 16px;">
-        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
-          <div style="font-weight: 700; color: #48cae4; font-size: 0.84rem; display: flex; align-items: center; gap: 6px;">
-            <span>📑</span> Chequeo Cruzado Informativo: Preliquidaciones Reales de Cobranza (NRE) vs Opción B
+// ─── COMPONENTE: PERFIL DEMOGRÁFICO DE LA CARTERA ACTIVA (GÉNERO & COBERTURA DNI) ─
+function renderCardDemografiaGenero(demo = {}) {
+  const total = demo.total_analizados || 0;
+  const totalFmt = total.toLocaleString('es-AR');
+  const masc = (demo.masculino || 0).toLocaleString('es-AR');
+  const fem = (demo.femenino || 0).toLocaleString('es-AR');
+  const noDet = (demo.no_determinado || 0).toLocaleString('es-AR');
+  const conDni = (demo.con_dni || 0).toLocaleString('es-AR');
+
+  const pctMasc = typeof demo.pct_masculino === 'number' ? demo.pct_masculino : parseFloat(demo.pct_masculino || 0);
+  const pctFem = typeof demo.pct_femenino === 'number' ? demo.pct_femenino : parseFloat(demo.pct_femenino || 0);
+  const pctNoDet = typeof demo.pct_no_determinado === 'number' ? demo.pct_no_determinado : parseFloat(demo.pct_no_determinado || 0);
+  const pctConDni = typeof demo.pct_con_dni === 'number' ? demo.pct_con_dni : parseFloat(demo.pct_con_dni || 0);
+
+  return `
+    <div class="card mb-3" id="cardDemografiaGenero" style="padding: 20px 22px; background: rgba(10, 25, 47, 0.85); border: 1px solid rgba(0, 180, 216, 0.35); border-radius: 16px; margin-bottom: 24px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);">
+      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; flex-wrap: wrap; gap: 8px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <span style="font-size: 1.3rem;">👥</span>
+          <div>
+            <div style="font-size: 0.95rem; font-weight: 800; color: #48cae4; text-transform: uppercase; letter-spacing: 0.5px;">
+              Perfil Demográfico de la Cartera Activa
+            </div>
+            <div style="font-size: 0.74rem; color: var(--text-secondary);">
+              Inferencia de género por nombre de pila &amp; Cobertura de DNI en Cartera Activa
+            </div>
           </div>
-          <span style="font-size: 0.7rem; color: #00b4d8; background: rgba(0, 180, 216, 0.12); padding: 2px 8px; border-radius: 10px; font-weight: 700;">
-            Referencia Externa Documental (${preliqs.length} lotes)
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+          <span style="font-size: 0.72rem; color: #48cae4; background: rgba(72, 202, 228, 0.12); border: 1px solid rgba(72, 202, 228, 0.3); padding: 3px 10px; border-radius: 12px; font-weight: 700;">
+            🌐 ${totalFmt} pólizas activas
+          </span>
+          <span style="font-size: 0.72rem; color: #2ed573; background: rgba(46, 213, 115, 0.12); border: 1px solid rgba(46, 213, 115, 0.3); padding: 3px 10px; border-radius: 12px; font-weight: 700;">
+            🪪 DNI Extraído: ${conDni} (${pctConDni}%)
           </span>
         </div>
+      </div>
 
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 10px;">
-          ${cardsLotesHtml}
+      <!-- 3 TARJETAS DE GÉNERO -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 16px;">
+        
+        <!-- MASCULINO -->
+        <div style="background: rgba(9, 132, 227, 0.06); border: 1px solid rgba(9, 132, 227, 0.35); border-left: 4px solid #0984e3; border-radius: 10px; padding: 14px 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.76rem; font-weight: 800; color: #74b9ff; text-transform: uppercase;">👨 Masculino</span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: #0984e3; background: rgba(9, 132, 227, 0.18); padding: 2px 7px; border-radius: 6px;">${pctMasc}%</span>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 4px;">
+            ${masc}
+          </div>
+          <div style="font-size: 0.73rem; color: var(--text-secondary);">
+            Asegurados con nombre masculino identificado
+          </div>
         </div>
 
-        <div style="font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 8px;">
-          <strong style="color: #f39c12;">⚠️ Aclaración metodológica sobre esta comparación:</strong>
-          <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: disc;">
-            <li><strong>Alcance parcial (Solo NRE):</strong> Estos lotes de liquidación corresponden exclusivamente a Triunvirato Seguros (NRE). No incluyen la cartera activa de Agrosalta (AGS).</li>
-            <li><strong>Período de corte propio:</strong> El lote responde al corte administrativo de NRE, por lo que no coincide necesariamente con el mes calendario cerrado (del 1 al 30/31).</li>
-            <li><strong>Cuotas liquidadas ≠ Pólizas activas:</strong> El contador de renglones (#1531 / #1703) mide cuotas individuales cobradas en el corte, no vehículos ni pólizas únicas. Una misma póliza trimestral (ej. clienta Zárate Marta Verónica, póliza 11947134) aparece con cuota 2/3 en septiembre y cuota 3/3 en octubre.</li>
-            <li><strong>Uso informativo:</strong> Sirve como validación orientativa de que la proyección de Opción B (~$${volumenMillones}M/mes para NRE+AGS combinados) es coherente en escala, sin modificar ni sobrescribir los snapshots históricos de cartera viva.</li>
-          </ul>
+        <!-- FEMENINO -->
+        <div style="background: rgba(232, 67, 147, 0.06); border: 1px solid rgba(232, 67, 147, 0.35); border-left: 4px solid #e84393; border-radius: 10px; padding: 14px 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.76rem; font-weight: 800; color: #fd79a8; text-transform: uppercase;">👩 Femenino</span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: #e84393; background: rgba(232, 67, 147, 0.18); padding: 2px 7px; border-radius: 6px;">${pctFem}%</span>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 4px;">
+            ${fem}
+          </div>
+          <div style="font-size: 0.73rem; color: var(--text-secondary);">
+            Aseguradas con nombre femenino identificado
+          </div>
+        </div>
+
+        <!-- NO DETERMINADO / SOCIEDADES -->
+        <div style="background: rgba(160, 174, 192, 0.06); border: 1px solid rgba(160, 174, 192, 0.3); border-left: 4px solid #a0aec0; border-radius: 10px; padding: 14px 16px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <span style="font-size: 0.76rem; font-weight: 800; color: #cbd5e0; text-transform: uppercase;">❔ No determinado</span>
+            <span style="font-size: 0.72rem; font-weight: 700; color: #a0aec0; background: rgba(160, 174, 192, 0.18); padding: 2px 7px; border-radius: 6px;">${pctNoDet}%</span>
+          </div>
+          <div style="font-size: 1.45rem; font-weight: 800; color: #fff; margin-bottom: 4px;">
+            ${noDet}
+          </div>
+          <div style="font-size: 0.73rem; color: var(--text-secondary);">
+            Empresas, nombres neutros o sin coincidencia
+          </div>
+        </div>
+
+      </div>
+
+      <!-- BARRA VISUAL MULTICOLOR -->
+      <div style="margin-bottom: 16px;">
+        <div style="height: 12px; border-radius: 6px; overflow: hidden; display: flex; background: rgba(255, 255, 255, 0.05);">
+          <div style="width: ${pctMasc}%; background: linear-gradient(90deg, #0984e3, #74b9ff);" title="Masculino: ${pctMasc}%"></div>
+          <div style="width: ${pctFem}%; background: linear-gradient(90deg, #d63031, #e84393);" title="Femenino: ${pctFem}%"></div>
+          <div style="width: ${pctNoDet}%; background: #636e72;" title="No determinado: ${pctNoDet}%"></div>
+        </div>
+      </div>
+
+      <!-- NOTAS METODOLÓGICAS TRANSPARENTES -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+        <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.45; background: rgba(0, 180, 216, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.15);">
+          <strong style="color: #48cae4;">💡 Inferencia de Género por Nombre de Pila:</strong>
+          <div style="margin-top: 2px;">
+            Estimación algorítmica orientativa analizada a partir de los nombres de pila de la cartera viva. No constituye dato registral oficial ni contractual.
+          </div>
+        </div>
+
+        <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.45; background: rgba(243, 156, 18, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(243, 156, 18, 0.18);">
+          <strong style="color: #f39c12;">⏳ Estadísticas de Edad &amp; Pirámide Etaria (En Pausa Metodológica):</strong>
+          <div style="margin-top: 2px;">
+            En pausa metodológica. La numeración de DNI en Argentina no es un predictor lineal confiable de la edad por duplicados históricos y naturalizaciones. No se calculará edad hasta disponer de fecha de nacimiento fehaciente en póliza.
+          </div>
         </div>
       </div>
     </div>
@@ -1711,6 +1748,9 @@ function renderMetricasUI(data, stats = {}, historicoCartera = {}) {
 
     <!-- 🍩 PROPORCIÓN DE COBERTURA & OPORTUNIDADES DE UPSELL (4 DONUTS CON 5 SEGMENTOS) -->
     ${renderDonutsCoberturaVehiculos(stats.cobertura_vehiculos || data.cobertura_vehiculos)}
+
+    <!-- 👥 PERFIL DEMOGRÁFICO DE LA CARTERA ACTIVA (GÉNERO & COBERTURA DNI) -->
+    ${renderCardDemografiaGenero(stats.demografia_genero || data.demografia_genero)}
 
 
     <!-- ═══════════════════════════════════════════════════════════════════════════ -->

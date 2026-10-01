@@ -380,6 +380,12 @@ async function syncAGS() {
             try {
                 const detHtml = await httpReq('GET', `/muestro-polizasmod.php?prop=${p.propuesta}`, null, cookie, null, 1, 300, 6000);
                 p.detalleCuotas = parseMuestroPolizasMod(detHtml.data);
+                if (detHtml && detHtml.data) {
+                    const dniMatch = String(detHtml.data).match(/(?:Documento|DNI):\s*([0-9]{7,11})/i);
+                    if (dniMatch && dniMatch[1]) {
+                        p.dni = dniMatch[1].trim();
+                    }
+                }
             } catch(e) {
                 // Fallback automático y seguro al cronograma algorítmico si el detalle individual demora
             }
@@ -392,6 +398,9 @@ async function syncAGS() {
     // 4. Guardar en Base de Datos
     for (const p of allPolizas) {
         const cliente = upsertClienteAGS(p.asegurado);
+        if (p.dni && cliente && cliente.id) {
+            db.prepare("UPDATE clientes SET dni = ? WHERE id = ? AND (dni IS NULL OR TRIM(dni) = '')").run(p.dni, cliente.id);
+        }
         const pagosSet = pagosNoRendidosMap[p.poliza] || null;
         const { accion } = upsertPolizaAGS(cliente.id, p, pagosSet);
         if (accion === 'creada') totalCreadas++;
