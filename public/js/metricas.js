@@ -752,7 +752,7 @@ function renderCardDemografiaGenero(demo = {}) {
 
       </div>
 
-      <!-- BARRA VISUAL MULTICOLOR -->
+      <!-- BARRA VISUAL MULTICOLOR (GÉNERO) -->
       <div style="margin-bottom: 16px;">
         <div style="height: 12px; border-radius: 6px; overflow: hidden; display: flex; background: rgba(255, 255, 255, 0.05);">
           <div style="width: ${pctMasc}%; background: linear-gradient(90deg, #0984e3, #74b9ff);" title="Masculino: ${pctMasc}%"></div>
@@ -761,21 +761,101 @@ function renderCardDemografiaGenero(demo = {}) {
         </div>
       </div>
 
+      <!-- SECCIÓN: DISTRIBUCIÓN ETARIA ESTIMADA POR RANGO DE DNI -->
+      ${(() => {
+        const etaria = demo.distribucion_etaria || {};
+        const franjas = etaria.franjas || [];
+        const conDniTotal = etaria.total_con_dni || 0;
+        const conDniFmt = conDniTotal.toLocaleString('es-AR');
+        const pctCoberturaDni = etaria.pct_cobertura_dni || pctConDni;
+
+        if (franjas.length === 0) return '';
+
+        const cardsFranjasHtml = franjas.map(f => {
+          const cantFmt = (f.cantidad || 0).toLocaleString('es-AR');
+          const pctFmt = f.pct || 0;
+          return `
+            <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                <div>
+                  <strong style="color: #48cae4; font-size: 0.85rem;">${f.franja}</strong>
+                  <span style="font-size: 0.7rem; color: var(--text-secondary); margin-left: 6px;">(${f.decada_nacimiento})</span>
+                </div>
+                <span style="font-size: 0.74rem; font-weight: 800; color: #2ed573; background: rgba(46, 213, 115, 0.12); padding: 2px 7px; border-radius: 6px;">
+                  ${pctFmt}%
+                </span>
+              </div>
+              <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.68rem; color: var(--text-secondary); margin-bottom: 5px;">
+                <span>DNI ${f.rango_dni}</span>
+                <strong>${cantFmt} asegurados</strong>
+              </div>
+              <div style="height: 6px; border-radius: 3px; background: rgba(255, 255, 255, 0.05); overflow: hidden;">
+                <div style="width: ${pctFmt}%; height: 100%; background: linear-gradient(90deg, #00b4d8, #0077b6); border-radius: 3px;"></div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        return `
+          <div style="margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; flex-wrap: wrap; gap: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 1.15rem;">🎂</span>
+                <div>
+                  <div style="font-size: 0.88rem; font-weight: 800; color: #48cae4; text-transform: uppercase; letter-spacing: 0.5px;">
+                    Distribución Etaria Estimada por Rango de DNI
+                  </div>
+                  <div style="font-size: 0.72rem; color: var(--text-secondary);">
+                    Asignación secuencial histórica de DNI en Argentina (cálculo dinámico contra ${etaria.anio_referencia || new Date().getFullYear()})
+                  </div>
+                </div>
+              </div>
+              <span style="font-size: 0.72rem; color: #00b4d8; background: rgba(0, 180, 216, 0.12); border: 1px solid rgba(0, 180, 216, 0.3); padding: 3px 10px; border-radius: 12px; font-weight: 700;">
+                Muestra evaluada: ${conDniFmt} de ${totalFmt} pólizas (${pctCoberturaDni}%)
+              </span>
+            </div>
+
+            <!-- GRILLA DE FRANJAS ETARIAS -->
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; margin-bottom: 14px;">
+              ${cardsFranjasHtml}
+            </div>
+          </div>
+        `;
+      })()}
+
       <!-- NOTAS METODOLÓGICAS TRANSPARENTES -->
-      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding-top: 10px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
-        <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.45; background: rgba(0, 180, 216, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.15);">
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; padding-top: 12px; border-top: 1px solid rgba(255, 255, 255, 0.08);">
+        
+        <!-- NOTA 1: GÉNERO -->
+        <div style="font-size: 0.74rem; color: var(--text-secondary); line-height: 1.45; background: rgba(0, 180, 216, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.15);">
           <strong style="color: #48cae4;">💡 Inferencia de Género por Nombre de Pila:</strong>
-          <div style="margin-top: 2px;">
+          <div style="margin-top: 3px;">
             Estimación algorítmica orientativa analizada a partir de los nombres de pila de la cartera viva. No constituye dato registral oficial ni contractual.
           </div>
         </div>
 
-        <div style="font-size: 0.75rem; color: var(--text-secondary); line-height: 1.45; background: rgba(243, 156, 18, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(243, 156, 18, 0.18);">
-          <strong style="color: #f39c12;">⏳ Estadísticas de Edad &amp; Pirámide Etaria (En Pausa Metodológica):</strong>
-          <div style="margin-top: 2px;">
-            En pausa metodológica. La numeración de DNI en Argentina no es un predictor lineal confiable de la edad por duplicados históricos y naturalizaciones. No se calculará edad hasta disponer de fecha de nacimiento fehaciente en póliza.
+        <!-- NOTA 2: ESTIMACIÓN ETARIA POR DNI Y EXCEPCIONES CONOCIDAS -->
+        <div style="font-size: 0.74rem; color: var(--text-secondary); line-height: 1.45; background: rgba(0, 180, 216, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(0, 180, 216, 0.2);">
+          <strong style="color: #48cae4;">📊 Metodología de Estimación Etaria por DNI:</strong>
+          <div style="margin-top: 3px;">
+            Aproximación por décadas basada en la correlación secuencial histórica de asignación de DNI en Argentina (calculada dinámicamente contra la fecha actual).
+          </div>
+          <div style="margin-top: 4px; font-size: 0.71rem; color: #a0aec0;">
+            <strong>⚠️ Excepciones metodológicas conocidas:</strong><br>
+            • No es confiable para extranjeros naturalizados (su DNI refleja cuándo se nacionalizaron, no cuándo nacieron).<br>
+            • No es confiable ante duplicados o trámites tardíos de documento.<br>
+            • Es una estimación por década, no una edad exacta.
           </div>
         </div>
+
+        <!-- NOTA 3: EDAD EXACTA EN PAUSA METODOLÓGICA (DISTINTA Y NO MEZCLADA) -->
+        <div style="font-size: 0.74rem; color: var(--text-secondary); line-height: 1.45; background: rgba(243, 156, 18, 0.04); padding: 10px 12px; border-radius: 8px; border: 1px solid rgba(243, 156, 18, 0.18);">
+          <strong style="color: #f39c12;">⏳ Estadísticas de Fecha de Nacimiento Real (En Pausa Metodológica):</strong>
+          <div style="margin-top: 3px;">
+            La pirámide etaria exacta por fecha de nacimiento continúa en pausa metodológica por falta de fecha de nacimiento fehaciente en póliza. La estimación por DNI de arriba es una aproximación distinta y más gruesa mientras no se disponga de la fecha de nacimiento real.
+          </div>
+        </div>
+
       </div>
     </div>
   `;

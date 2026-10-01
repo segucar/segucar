@@ -170,24 +170,141 @@ function inferirGeneroPorNombre(nombreCompleto) {
 }
 
 /**
- * Calcula agregación demográfica de género y cobertura de DNI
- * sobre una lista de pólizas/clientes activos.
+ * Infiere la franja etaria aproximada en años a partir de la numeración secuencial de DNI en Argentina.
+ * Se calcula de forma dinámica contra el año en curso (sin años fijos hardcodeados).
+ * 
+ * Tabla de referencia de asignación secuencial (RENAPER):
+ * - < 10.000.000: Antes de 1950 -> > (currentYear - 1950) años (ej. > 76 años)
+ * - 10.000.000 – 19.999.999: 1950–1969 (cubre décadas '50 y '60) -> (currentYear - 1970) a (currentYear - 1950) años (ej. 56-76 años)
+ * - 20.000.000 – 29.999.999: 1970–1979 (década '70) -> (currentYear - 1980) a (currentYear - 1970) años (ej. 46-56 años)
+ * - 30.000.000 – 39.999.999: 1980–1989 (década '80) -> (currentYear - 1990) a (currentYear - 1980) años (ej. 36-46 años)
+ * - 40.000.000 – 49.999.999: 1990–1999 (década '90) -> (currentYear - 2000) a (currentYear - 1990) años (ej. 26-36 años)
+ * - 50.000.000 o más: 2000 en adelante -> < (currentYear - 2000) años (ej. < 26 años)
+ * 
+ * @param {string|number} dni
+ * @param {number} [anioReferencia]
+ * @returns {object|null}
+ */
+function inferirFranjaEtariaPorDni(dni, anioReferencia = new Date().getFullYear()) {
+    if (!dni) return null;
+    const num = parseInt(String(dni).replace(/\D/g, ''), 10);
+    if (isNaN(num) || num <= 0 || num > 120000000) return null;
+
+    const y = anioReferencia || new Date().getFullYear();
+
+    if (num < 10000000) {
+        const edadMin = y - 1950;
+        return {
+            key: 'menor_10m',
+            rango_dni: '< 10.000.000',
+            decada_nacimiento: 'Antes de 1950',
+            franja: `> ${edadMin} años`,
+            edad_min: edadMin,
+            edad_max: null,
+            orden: 1,
+            num_dni: num
+        };
+    } else if (num < 20000000) {
+        const edadMin = y - 1970; // 56 en 2026
+        const edadMax = y - 1950; // 76 en 2026
+        return {
+            key: '10m_20m',
+            rango_dni: '10.000.000 – 19.999.999',
+            decada_nacimiento: '1950–1969',
+            franja: `${edadMin}-${edadMax} años`,
+            edad_min: edadMin,
+            edad_max: edadMax,
+            orden: 2,
+            num_dni: num
+        };
+    } else if (num < 30000000) {
+        const edadMin = y - 1980; // 46 en 2026
+        const edadMax = y - 1970; // 56 en 2026
+        return {
+            key: '20m_30m',
+            rango_dni: '20.000.000 – 29.999.999',
+            decada_nacimiento: '1970–1979',
+            franja: `${edadMin}-${edadMax} años`,
+            edad_min: edadMin,
+            edad_max: edadMax,
+            orden: 3,
+            num_dni: num
+        };
+    } else if (num < 40000000) {
+        const edadMin = y - 1990; // 36 en 2026
+        const edadMax = y - 1980; // 46 en 2026
+        return {
+            key: '30m_40m',
+            rango_dni: '30.000.000 – 39.999.999',
+            decada_nacimiento: '1980–1989',
+            franja: `${edadMin}-${edadMax} años`,
+            edad_min: edadMin,
+            edad_max: edadMax,
+            orden: 4,
+            num_dni: num
+        };
+    } else if (num < 50000000) {
+        const edadMin = y - 2000; // 26 en 2026
+        const edadMax = y - 1990; // 36 en 2026
+        return {
+            key: '40m_50m',
+            rango_dni: '40.000.000 – 49.999.999',
+            decada_nacimiento: '1990–1999',
+            franja: `${edadMin}-${edadMax} años`,
+            edad_min: edadMin,
+            edad_max: edadMax,
+            orden: 5,
+            num_dni: num
+        };
+    } else {
+        const edadMax = y - 2000; // 26 en 2026
+        return {
+            key: '50m_mas',
+            rango_dni: '50.000.000 o más',
+            decada_nacimiento: '2000 en adelante',
+            franja: `< ${edadMax} años`,
+            edad_min: null,
+            edad_max: edadMax,
+            orden: 6,
+            num_dni: num
+        };
+    }
+}
+
+/**
+ * Calcula agregación demográfica de género y distribución etaria estimada por DNI
+ * sobre una lista de pólizas/clientes de cartera activa.
  * 
  * @param {Array<{ nombre?: string, cliente_nombre?: string, dni?: string, cliente_dni?: string }>} items
+ * @param {number} [anioReferencia]
  * @returns {object}
  */
-function calcularEstadisticasDemograficas(items = []) {
+function calcularEstadisticasDemograficas(items = [], anioReferencia = new Date().getFullYear()) {
+    const currentYear = anioReferencia || new Date().getFullYear();
     let masc = 0;
     let fem = 0;
     let noDet = 0;
     let conDni = 0;
+
+    const franjasMap = {
+        'menor_10m': { key: 'menor_10m', rango_dni: '< 10.000.000', decada_nacimiento: 'Antes de 1950', franja: `> ${currentYear - 1950} años`, cantidad: 0, orden: 1 },
+        '10m_20m': { key: '10m_20m', rango_dni: '10.000.000 – 19.999.999', decada_nacimiento: '1950–1969', franja: `${currentYear - 1970}-${currentYear - 1950} años`, cantidad: 0, orden: 2 },
+        '20m_30m': { key: '20m_30m', rango_dni: '20.000.000 – 29.999.999', decada_nacimiento: '1970–1979', franja: `${currentYear - 1980}-${currentYear - 1970} años`, cantidad: 0, orden: 3 },
+        '30m_40m': { key: '30m_40m', rango_dni: '30.000.000 – 39.999.999', decada_nacimiento: '1980–1989', franja: `${currentYear - 1990}-${currentYear - 1980} años`, cantidad: 0, orden: 4 },
+        '40m_50m': { key: '40m_50m', rango_dni: '40.000.000 – 49.999.999', decada_nacimiento: '1990–1999', franja: `${currentYear - 2000}-${currentYear - 1990} años`, cantidad: 0, orden: 5 },
+        '50m_mas': { key: '50m_mas', rango_dni: '50.000.000 o más', decada_nacimiento: '2000 en adelante', franja: `< ${currentYear - 2000} años`, cantidad: 0, orden: 6 }
+    };
 
     for (const item of items) {
         const nombre = item.cliente_nombre || item.nombre || '';
         const dni = item.cliente_dni || item.dni || '';
 
         if (dni && String(dni).trim().length >= 7) {
-            conDni++;
+            const franjaObj = inferirFranjaEtariaPorDni(dni, currentYear);
+            if (franjaObj && franjasMap[franjaObj.key]) {
+                franjasMap[franjaObj.key].cantidad++;
+                conDni++;
+            }
         }
 
         const inf = inferirGeneroPorNombre(nombre);
@@ -202,6 +319,16 @@ function calcularEstadisticasDemograficas(items = []) {
     const pctNoDet = total > 0 ? parseFloat(((noDet / total) * 100).toFixed(1)) : 0;
     const pctConDni = total > 0 ? parseFloat(((conDni / total) * 100).toFixed(1)) : 0;
 
+    const franjasArray = Object.values(franjasMap).sort((a, b) => a.orden - b.orden).map(f => ({
+        key: f.key,
+        rango_dni: f.rango_dni,
+        decada_nacimiento: f.decada_nacimiento,
+        franja: f.franja,
+        cantidad: f.cantidad,
+        pct: conDni > 0 ? parseFloat(((f.cantidad / conDni) * 100).toFixed(1)) : 0,
+        pct_sobre_cartera: total > 0 ? parseFloat(((f.cantidad / total) * 100).toFixed(1)) : 0
+    }));
+
     return {
         total_analizados: total,
         masculino: masc,
@@ -212,6 +339,17 @@ function calcularEstadisticasDemograficas(items = []) {
         pct_no_determinado: pctNoDet,
         con_dni: conDni,
         pct_con_dni: pctConDni,
+        distribucion_etaria: {
+            total_con_dni: conDni,
+            pct_cobertura_dni: pctConDni,
+            anio_referencia: currentYear,
+            franjas: franjasArray,
+            excepciones_conocidas: [
+                'No es confiable para extranjeros naturalizados (su DNI refleja cuándo se nacionalizaron, no cuándo nacieron).',
+                'No es confiable ante duplicados o trámites tardíos de documento.',
+                'Es una estimación por década, no una edad exacta.'
+            ]
+        },
         estadistica_edad_disponible: false,
         motivo_edad_pausada: 'En pausa metodológica hasta contar con fecha de nacimiento real verificada. En Argentina la numeración de DNI no correlaciona linealmente con la edad por duplicados históricos y naturalizaciones.',
         aclaracion_metodologica: 'Inferencia algorítmica estimada por nombre de pila sobre la cartera activa viva. Estimación orientativa interna, no constituye dato registral oficial ni contractual.'
@@ -222,5 +360,6 @@ module.exports = {
     MASCULINE_NAMES,
     FEMININE_NAMES,
     inferirGeneroPorNombre,
+    inferirFranjaEtariaPorDni,
     calcularEstadisticasDemograficas
 };

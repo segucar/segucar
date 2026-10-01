@@ -1640,12 +1640,12 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 29:", e.message);
     }
 
-    // ── TEST 30: Blindaje de DNI (No Sobrescritura), Inferencia de Género y Demografía ──
+    // ── TEST 30: Blindaje de DNI, Inferencia de Género y Distribución Etaria por DNI ──
     try {
-        console.log("📌 TEST 30: Blindaje de DNI, Inferencia de Género por Nombre de Pila y Demografía de Cartera");
+        console.log("📌 TEST 30: Blindaje de DNI, Inferencia de Género y Distribución Etaria Estimada por DNI");
         const app = require('../server');
         const db = require('../database');
-        const { inferirGeneroPorNombre, calcularEstadisticasDemograficas } = require('../gender_helper');
+        const { inferirGeneroPorNombre, inferirFranjaEtariaPorDni, calcularEstadisticasDemograficas } = require('../gender_helper');
 
         // 1. Blindaje de DNI: Jamás sobrescribir un DNI ya cargado a mano
         const testCliManual = db.prepare("INSERT INTO clientes (nombre, dni) VALUES (?, ?)").run('TEST DNI MANUAL', '99999999');
@@ -1686,7 +1686,27 @@ async function runRegressionSuite() {
             }
         }
 
-        // 3. Demografía en Cartera Activa y Pausa de Estadísticas de Edad
+        // 3. Mapeo de franjas etarias por rango de DNI (6 rangos de la tabla de referencia)
+        const curYear = new Date().getFullYear();
+        const casosDni = [
+            { dni: '8.450.123', keyEsperada: 'menor_10m', franjaEsperada: `> ${curYear - 1950} años` },
+            { dni: '14230456', keyEsperada: '10m_20m', franjaEsperada: `${curYear - 1970}-${curYear - 1950} años` },
+            { dni: '25.957.138', keyEsperada: '20m_30m', franjaEsperada: `${curYear - 1980}-${curYear - 1970} años` },
+            { dni: '34120789', keyEsperada: '30m_40m', franjaEsperada: `${curYear - 1990}-${curYear - 1980} años` },
+            { dni: '42500000', keyEsperada: '40m_50m', franjaEsperada: `${curYear - 2000}-${curYear - 1990} años` },
+            { dni: '52.100.200', keyEsperada: '50m_mas', franjaEsperada: `< ${curYear - 2000} años` }
+        ];
+
+        let okDniCases = true;
+        for (const cd of casosDni) {
+            const resDni = inferirFranjaEtariaPorDni(cd.dni, curYear);
+            if (!resDni || resDni.key !== cd.keyEsperada || resDni.franja !== cd.franjaEsperada) {
+                console.error(`  ❌ Fallo en mapeo DNI '${cd.dni}': obtenido`, resDni);
+                okDniCases = false;
+            }
+        }
+
+        // 4. Demografía en Cartera Activa y Pausa de Estadísticas de Edad
         const dashStats = app.calcularDashboardStatsData();
         const metricasMes = app.calcularMetricasResumenData('este_mes');
 
@@ -1696,19 +1716,26 @@ async function runRegressionSuite() {
         const okEdadPausada = (demo.estadistica_edad_disponible === false && typeof demo.motivo_edad_pausada === 'string');
         const okResumenDemo = Boolean(metricasMes.demografia_genero && metricasMes.demografia_genero.total_analizados === demo.total_analizados);
 
-        // 4. Verificación de que el Chequeo Cruzado / Preliquidaciones fue removido de auditoria_facturacion
+        // 5. Verificación de distribución etaria integrada y excepciones documentadas
+        const etaria = demo?.distribucion_etaria;
+        const okEtariaObj = Boolean(etaria && Array.isArray(etaria.franjas) && etaria.franjas.length === 6);
+        const okExcepciones = Array.isArray(etaria?.excepciones_conocidas) && etaria.excepciones_conocidas.length === 3;
+
+        // 6. Verificación de que el Chequeo Cruzado / Preliquidaciones fue removido de auditoria_facturacion
         const okSinPreliqs = (metricasMes.auditoria_facturacion?.preliquidaciones_nre_referencia === undefined);
 
-        if (okNoSobrescritura && okCompletado && okGeneroCases && okDemoObj && okSumaPartes && okEdadPausada && okResumenDemo && okSinPreliqs) {
+        if (okNoSobrescritura && okCompletado && okGeneroCases && okDniCases && okDemoObj && okSumaPartes && okEdadPausada && okResumenDemo && okEtariaObj && okExcepciones && okSinPreliqs) {
             console.log(`  ✅ PASSED -> Blindaje de DNI: El guard SQL protege DNIs existentes y solo completa vacíos/NULL.`);
             console.log(`  ✅ PASSED -> Inferencia de Género: 6/6 casos de prueba clasificados con exactitud por nombre de pila.`);
+            console.log(`  ✅ PASSED -> Mapeo DNI por Rango: 6/6 rangos mapeados dinámicamente (${curYear}) sin años fijos hardcodeados.`);
             console.log(`  ✅ PASSED -> Demografía de Cartera Activa: ${demo.total_analizados} pólizas (${demo.masculino} Masc, ${demo.femenino} Fem, ${demo.no_determinado} No det).`);
-            console.log(`  ✅ PASSED -> Pausa Metodológica de Edad: Prohibición estricta de cálculo de edad por DNI confirmada.`);
+            console.log(`  ✅ PASSED -> Excepciones Documentadas: 3 excepciones metodológicas (extranjeros, duplicados/tardíos, estimación por década).`);
+            console.log(`  ✅ PASSED -> Pausa Metodológica de Fecha de Nacimiento: Preservada y no mezclada con estimación por DNI.`);
             console.log("  ✅ PASSED -> Limpieza de Chequeo Cruzado: preliquidaciones_nre_referencia removido limpiamente de la API.\n");
             totalPassed++;
         } else {
             console.error("  ❌ FAILED en TEST 30:", {
-                okNoSobrescritura, okCompletado, okGeneroCases, okDemoObj, okSumaPartes, okEdadPausada, okResumenDemo, okSinPreliqs
+                okNoSobrescritura, okCompletado, okGeneroCases, okDniCases, okDemoObj, okSumaPartes, okEdadPausada, okResumenDemo, okEtariaObj, okExcepciones, okSinPreliqs
             });
         }
     } catch (e) {
