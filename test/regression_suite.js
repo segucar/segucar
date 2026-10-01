@@ -1640,7 +1640,42 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 29:", e.message);
     }
 
-    const totalTestsCount = 29;
+    // ── TEST 30: Chequeo Cruzado Informativo de Preliquidaciones NRE y Blindaje de Snapshots ──
+    try {
+        console.log("📌 TEST 30: Chequeo Cruzado Informativo de Preliquidaciones NRE y Blindaje de Snapshots");
+        const app = require('../server');
+
+        const metricasMes = app.calcularMetricasResumenData('este_mes');
+        const dashStats = app.calcularDashboardStatsData();
+
+        const preliqs = metricasMes.auditoria_facturacion?.preliquidaciones_nre_referencia;
+        const okPreliqsArray = Array.isArray(preliqs) && preliqs.length === 2;
+        const loteSept = preliqs?.find(p => p.lote === 30403);
+        const loteOct = preliqs?.find(p => p.lote === 32018);
+
+        const okLoteSept = Boolean(loteSept && loteSept.total_liquidado === 27652834 && loteSept.cuotas_liquidadas === 1531);
+        const okLoteOct = Boolean(loteOct && loteOct.total_liquidado === 32930935 && loteOct.cuotas_liquidadas === 1703);
+
+        // Blindaje: los snapshots no fueron alterados por los números de cuotas (1531 / 1703)
+        const totalPolizasActivas = metricasMes.auditoria_facturacion?.total_polizas_activas;
+        const okNoSobrescritura = (totalPolizasActivas === dashStats.cartera_activa_total) && (totalPolizasActivas !== 1531) && (totalPolizasActivas !== 1703);
+
+        if (okPreliqsArray && okLoteSept && okLoteOct && okNoSobrescritura) {
+            console.log(`  ✅ PASSED -> Preliquidaciones NRE Registradas: Lote 30403 ($27,65M - 1.531 cuotas) y Lote 32018 ($32,93M - 1.703 cuotas).`);
+            console.log(`  ✅ PASSED -> Blindaje de Snapshots: total_polizas_activas (${totalPolizasActivas}) se mantiene intacto sin contaminar con cuotas.`);
+            console.log("  ✅ PASSED -> Chequeo Cruzado Informativo: Referencia documental externa disponible para auditoría sin sobrescribir datos.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 30:", {
+                okPreliqsArray, okLoteSept, okLoteOct, okNoSobrescritura,
+                totalPolizasActivas, dashTotal: dashStats.cartera_activa_total
+            });
+        }
+    } catch (e) {
+        console.error("  ❌ ERROR en TEST 30:", e.message);
+    }
+
+    const totalTestsCount = 30;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

@@ -880,6 +880,27 @@ function calcularDashboardStatsData() {
     const ticketPromedioCuotaReal = countCuotasReales > 0 ? Math.round(sumaCuotasReales / countCuotasReales) : 33452;
     const volumenEstimadoMensual = Math.round(cartera_activa_total * ticketPromedioCuotaReal);
 
+    const PRELIQUIDACIONES_NRE_REFERENCIA = [
+        {
+            lote: 30403,
+            fecha: '2026-09-01',
+            periodo_label: 'Septiembre 2026',
+            total_liquidado: 27652834,
+            comision_productor: 11061133.60,
+            total_a_rendir: 16591700.40,
+            cuotas_liquidadas: 1531
+        },
+        {
+            lote: 32018,
+            fecha: '2026-10-01',
+            periodo_label: 'Octubre 2026',
+            total_liquidado: 32930935,
+            comision_productor: 13172374.00,
+            total_a_rendir: 19758561.00,
+            cuotas_liquidadas: 1703
+        }
+    ];
+
     const auditoria_facturacion_base = {
         total_polizas_activas: cartera_activa_total,
         polizas_con_suma: conSumaGlobal,
@@ -888,7 +909,8 @@ function calcularDashboardStatsData() {
         pct_con_suma_ags: pctConSumaAgs,
         total_cuotas_analizadas: countCuotasReales,
         ticket_promedio_cuota: ticketPromedioCuotaReal,
-        volumen_estimado_mensual: volumenEstimadoMensual
+        volumen_estimado_mensual: volumenEstimadoMensual,
+        preliquidaciones_nre_referencia: PRELIQUIDACIONES_NRE_REFERENCIA
     };
 
     const polizas_historicas_db = db.prepare('SELECT COUNT(*) as count FROM polizas_historicas').get().count;
@@ -4391,7 +4413,8 @@ function calcularMetricasResumenData(rangoInput, desdeParam, hastaParam) {
             total_cuotas_analizadas: baseAudit.total_cuotas_analizadas || 0,
             ticket_promedio_cuota: baseAudit.ticket_promedio_cuota || 33452,
             volumen_estimado_mensual: baseAudit.volumen_estimado_mensual || Math.round(dashStats.cartera_activa_total * (baseAudit.ticket_promedio_cuota || 33452)),
-            cobranza_efectiva_periodo: dinero_recuperado_total
+            cobranza_efectiva_periodo: dinero_recuperado_total,
+            preliquidaciones_nre_referencia: baseAudit.preliquidaciones_nre_referencia || []
         };
 
         return {

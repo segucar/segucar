@@ -662,6 +662,48 @@ function renderCardAuditoriaFacturacion(audit = {}, stats = {}, metricasData = {
           </div>
         </div>
       </div>
+
+      <!-- CHEQUEO CRUZADO INFORMATIVO: PRELIQUIDACIONES REALES NRE VS PROYECCIÓN -->
+      <div style="margin-top: 14px; background: rgba(0, 180, 216, 0.03); border: 1px solid rgba(0, 180, 216, 0.25); border-left: 4px solid #00b4d8; border-radius: 10px; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; flex-wrap: wrap; gap: 8px;">
+          <div style="font-weight: 700; color: #48cae4; font-size: 0.84rem; display: flex; align-items: center; gap: 6px;">
+            <span>📑</span> Chequeo Cruzado Informativo: Preliquidaciones Reales de Cobranza (NRE) vs Opción B
+          </div>
+          <span style="font-size: 0.7rem; color: #00b4d8; background: rgba(0, 180, 216, 0.12); padding: 2px 8px; border-radius: 10px; font-weight: 700;">
+            Referencia Externa Documental
+          </span>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px; margin-bottom: 10px;">
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">Lote 30403 (01/09/2026 - Septiembre)</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #2ed573; margin: 4px 0;">$27.652.834,00</div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
+              <strong>1.531</strong> cuotas liquidadas en NRE | Com. Prod: <strong>$11.061.133,60</strong><br>
+              Total a rendir: <strong>$16.591.700,40</strong>
+            </div>
+          </div>
+
+          <div style="background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 8px; padding: 10px 12px;">
+            <div style="font-size: 0.72rem; text-transform: uppercase; color: var(--text-secondary); font-weight: 700;">Lote 32018 (01/10/2026 - Octubre)</div>
+            <div style="font-size: 1.15rem; font-weight: 800; color: #00b4d8; margin: 4px 0;">$32.930.935,00</div>
+            <div style="font-size: 0.72rem; color: var(--text-secondary); line-height: 1.4;">
+              <strong>1.703</strong> cuotas liquidadas en NRE | Com. Prod: <strong>$13.172.374,00</strong><br>
+              Total a rendir: <strong>$19.758.561,00</strong>
+            </div>
+          </div>
+        </div>
+
+        <div style="font-size: 0.76rem; color: var(--text-secondary); line-height: 1.45; border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 8px;">
+          <strong style="color: #f39c12;">⚠️ Aclaración metodológica sobre esta comparación:</strong>
+          <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: disc;">
+            <li><strong>Alcance parcial (Solo NRE):</strong> Estos lotes de liquidación corresponden exclusivamente a Triunvirato Seguros (NRE). No incluyen la cartera activa de Agrosalta (AGS).</li>
+            <li><strong>Período de corte propio:</strong> El lote responde al corte administrativo de NRE, por lo que no coincide necesariamente con el mes calendario cerrado (del 1 al 30/31).</li>
+            <li><strong>Cuotas liquidadas ≠ Pólizas activas:</strong> El contador de renglones (#1531 / #1703) mide cuotas individuales cobradas en el corte, no vehículos ni pólizas únicas. Una misma póliza trimestral (ej. clienta Zárate Marta Verónica, póliza 11947134) aparece con cuota 2/3 en septiembre y cuota 3/3 en octubre.</li>
+            <li><strong>Uso informativo:</strong> Sirve como validación orientativa de que la proyección de Opción B (~$${volumenMillones}M/mes para NRE+AGS combinados) es coherente en escala, sin modificar ni sobrescribir los snapshots históricos de cartera viva.</li>
+          </ul>
+        </div>
+      </div>
     </div>
   `;
 }
