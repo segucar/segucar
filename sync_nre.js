@@ -425,7 +425,15 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
         }
     });
 
-    const resetCuotas = db.prepare('UPDATE polizas SET cuotas_debe = 0, saldo_pendiente = 0');
+    // 🛡️ PROTECCIÓN CRÍTICA: NO resetear masivamente a 0 pólizas que tienen cuotas pendientes reales en su historial
+    const resetCuotas = db.prepare(`
+        UPDATE polizas 
+        SET cuotas_debe = 0, saldo_pendiente = 0 
+        WHERE cuotas_historial IS NULL 
+           OR cuotas_historial = '' 
+           OR cuotas_historial = '[]' 
+           OR cuotas_historial NOT LIKE '%"estado":"PENDIENTE"%'
+    `);
     const updatePolizaDeuda = db.prepare(`
         UPDATE polizas 
         SET cuotas_debe = ?, 
@@ -654,14 +662,28 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                                 
                                 if (vtoIso && /\d{4}-\d{2}-\d{2}/.test(vtoIso)) {
                                     const pagoCorresp = pagosHistorial.find(p => p.nro === nroCuota);
+                                    
+                                    // 🛡️ PROTECCIÓN CRÍTICA CONTRA PRELIQUIDACIONES / LOTES ADMINISTRATIVOS DE NRE:
+                                    // Los recibos masivos emitidos en NRE el 01/10 (ej. Lote 32018 con recibos 239xxxx)
+                                    // representan liquidación interna con el broker, NO cobranzas reales de los clientes.
+                                    const esPreliquidacionBatch = Boolean(
+                                        pagoCorresp && (
+                                            (pagoCorresp.recibo && String(pagoCorresp.recibo).startsWith('239')) ||
+                                            (pagoCorresp.fecha && (pagoCorresp.fecha.includes('01/10/2026') || pagoCorresp.fecha.includes('02/10/2026')))
+                                        )
+                                    );
+
+                                    const estadoCuota = (saldoCli <= 0 && !esPreliquidacionBatch) ? 'PAGADA' : 'PENDIENTE';
+                                    const saldoReal = esPreliquidacionBatch ? (saldoCli > 0 ? saldoCli : importeCuota) : saldoCli;
+
                                     cuotasHistorial.push({
                                         nro_cuota: nroCuota,
                                         vto_cuota: vtoIso,
                                         importe: importeCuota,
-                                        saldo_cli: saldoCli,
-                                        estado: saldoCli <= 0 ? 'PAGADA' : 'PENDIENTE',
-                                        fecha_pago: pagoCorresp ? pagoCorresp.fecha : null,
-                                        lote: pagoCorresp ? `Recibo ${pagoCorresp.recibo}` : ''
+                                        saldo_cli: saldoReal,
+                                        estado: estadoCuota,
+                                        fecha_pago: (pagoCorresp && !esPreliquidacionBatch) ? pagoCorresp.fecha : null,
+                                        lote: (pagoCorresp && !esPreliquidacionBatch) ? `Recibo ${pagoCorresp.recibo}` : ''
                                     });
                                 }
                             }

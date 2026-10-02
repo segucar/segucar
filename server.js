@@ -5302,6 +5302,121 @@ app.post('/api/admin/polizas/limpiar-saldo', (req, res) => {
     }
 });
 
+// ─── REVERSIÓN DE COBROS FALSOS POR PRELIQUIDACIÓN / LOTE NRE (01/10/2026) ────
+app.post('/api/admin/revertir-pagos-lote-octubre', (req, res) => {
+    try {
+        const hoyIso = new Date().toISOString().slice(0, 10);
+        const polizasConLote = db.prepare(`
+            SELECT id, operacion, patente, cuotas_historial, cuotas_debe, saldo_pendiente
+            FROM polizas
+            WHERE cuotas_historial LIKE '%239%'
+               OR cuotas_historial LIKE '%01/10/2026%'
+               OR cuotas_historial LIKE '%02/10/2026%'
+        `).all();
+
+        const updatePolizaStmt = db.prepare(`
+            UPDATE polizas
+            SET saldo_pendiente = ?,
+                cuotas_debe = ?,
+                nro_cuota = COALESCE(?, nro_cuota),
+                fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                cuotas_historial = ?
+            WHERE id = ?
+        `);
+
+        let polizasRevertidas = 0;
+        let cuotasRevertidas = 0;
+        const revertidasDetalle = [];
+
+        db.transaction(() => {
+            for (const p of polizasConLote) {
+                let hist = [];
+                try { hist = JSON.parse(p.cuotas_historial); } catch(e){}
+                if (!Array.isArray(hist) || hist.length === 0) continue;
+
+                let cambio = false;
+                for (const c of hist) {
+                    const esFalsoPago = Boolean(
+                        (c.lote && String(c.lote).includes('239')) ||
+                        (c.fecha_pago && (String(c.fecha_pago).includes('01/10/2026') || String(c.fecha_pago).includes('02/10/2026')))
+                    );
+                    if (esFalsoPago && c.estado === 'PAGADA') {
+                        c.estado = 'PENDIENTE';
+                        c.saldo_cli = (c.importe && c.importe > 0) ? c.importe : (c.saldo_cli || 0);
+                        c.fecha_pago = null;
+                        c.lote = '';
+                        cambio = true;
+                        cuotasRevertidas++;
+                    }
+                }
+
+                if (cambio) {
+                    const cuotasPendientes = hist.filter(c => c.estado === 'PENDIENTE');
+                    const cuotasPendientesPrincipales = cuotasPendientes.filter(c => (c.saldo_cli || 0) > 2500);
+                    const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
+                    const primerVtoPendiente = cuotasPendientesPrincipales.length > 0
+                        ? [...cuotasPendientesPrincipales].sort((a, b) => String(a.vto_cuota).localeCompare(String(b.vto_cuota)))[0].vto_cuota
+                        : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+                    const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+                        ? [...cuotasPendientesPrincipales].sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                        : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+                    const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < hoyIso).length;
+
+                    updatePolizaStmt.run(
+                        nuevoSaldo,
+                        cantDebe,
+                        primerNroPendiente,
+                        primerVtoPendiente,
+                        JSON.stringify(hist),
+                        p.id
+                    );
+
+                    // Revertir también en cuotas_admin si existe
+                    try {
+                        db.prepare(`
+                            UPDATE cuotas_admin
+                            SET estado = CASE WHEN fecha_vencimiento < ? THEN 'VENCIDO' ELSE 'PENDIENTE' END,
+                                fecha_pago = NULL
+                            WHERE poliza_id = ?
+                              AND (fecha_pago LIKE '%2026-10-01%' OR fecha_pago LIKE '%2026-10-02%' OR estado = 'PAGADO')
+                        `).run(hoyIso, p.id);
+                    } catch(caErr){}
+
+                    polizasRevertidas++;
+                    revertidasDetalle.push({
+                        id: p.id,
+                        operacion: p.operacion,
+                        patente: p.patente,
+                        nuevoSaldo,
+                        cantDebe,
+                        primerNroPendiente,
+                        primerVtoPendiente
+                    });
+                }
+            }
+        })();
+
+        if (typeof db.sincronizarSaldosCuotasHistorial === 'function') {
+            db.sincronizarSaldosCuotasHistorial();
+        }
+        if (typeof db.sincronizarEstadosCuotasMoraFechas === 'function') {
+            db.sincronizarEstadosCuotasMoraFechas();
+        }
+
+        console.log(`[Admin] Reversión de Lote Octubre completada: ${polizasRevertidas} pólizas revertidas (${cuotasRevertidas} cuotas).`);
+        res.json({
+            ok: true,
+            mensaje: `Se revirtieron exitosamente ${cuotasRevertidas} cuotas falsamente cobradas en ${polizasRevertidas} pólizas.`,
+            polizas_revertidas: polizasRevertidas,
+            cuotas_revertidas: cuotasRevertidas,
+            muestra: revertidasDetalle.slice(0, 10)
+        });
+    } catch (error) {
+        console.error('Error revirtiendo pagos de lote octubre:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 app.post('/api/sync-nre/general', async (req, res) => {
     try {
         const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
