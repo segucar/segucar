@@ -102,19 +102,49 @@ function analizarLotesRecibosNRE(todosLosPagos = []) {
                 : 'Pagos autorizados (carga diaria u oficina)'
         };
     }
+    const recibosPorNumero = {};
+    for (const p of todosLosPagos) {
+        const numStr = String(p.recibo || '').replace(/[^0-9]/g, '');
+        if (numStr) {
+            if (!recibosPorNumero[numStr]) recibosPorNumero[numStr] = [];
+            recibosPorNumero[numStr].push(p.operacion);
+        }
+    }
 
     return {
         clasificacionFechas,
+        recibosPorNumero,
         total_evaluados: todosLosPagos.length
     };
 }
 
+// Nómina estricta de los 153 recibos del lote administrativo del incidente del 01/10/2026
+const RECIBOS_INCIDENTE_01_OCT = new Set([
+  "2391551","2392062","2392561","2391115","2392695","2391629","2393219","2393224","2390682","2392443",
+  "2393276","2393371","2392479","2392068","2391891","2390969","2390688","2392834","2390718","2392049",
+  "2390835","2392521","2392428","2392893","2392835","2392792","2390879","2390700","2390736","2392408",
+  "2392087","2390796","2390717","2392532","2390971","2390698","2390691","2390769","2390911","2390775",
+  "2391013","2392391","2392480","2390814","2393320","2391693","2392351","2392416","2392394","2392286",
+  "2392620","2392058","2392065","2392185","2390790","2392223","2392245","2390794","2390792","2392243",
+  "2390974","2390923","2391110","2390712","2390811","2390818","2391091","2392736","2391725","2391726",
+  "2390715","2393323","2392757","2392184","2390987","2390742","2391547","2391060","2391063","2391533",
+  "2390817","2390980","2390710","2391534","2390677","2393383","2391053","2391008","2393300","2393254",
+  "2393253","2390697","2390695","2393241","2393208","2393141","2393123","2390924","2393091","2393057",
+  "2393036","2393007","2390730","2392941","2392923","2392918","2390703","2390908","2390916","2392908",
+  "2390655","2390653","2390669","2390678","2390650","2392721","2392656","2390760","2390846","2390902",
+  "2392550","2390675","2392330","2392403","2392503","2393273","2392990","2393258","2391102","2390900",
+  "2392571","2392539","2392499","2392474","2392455","2392448","2392444","2392352","2392235","2392194",
+  "2390708","2392090","2392073","2392072","2392064","2392044","2392041","2390981","2390936","2393297",
+  "2390813","2390966","2391112"
+]);
+
 /**
  * Clasifica si un pago específico es un PAGO INDIVIDUAL REAL o PARTE DE UN LOTE ADMINISTRATIVO.
  * 
- * @param {object} pago - { operacion, nro_cuota, recibo, fecha, importe }
- * @param {object} contextoLotes - Resultado de analizarLotesRecibosNRE
- * @returns {object} { esPagoReal: boolean, esLote: boolean, razon: string }
+ * Regla:
+ * - Si el recibo está en la lista negra de 153 recibos del incidente 01/10 -> BLOQUEADO (Lote)
+ * - Si el recibo aparece repetido en múltiples pólizas distintas el mismo día -> BLOQUEADO (Lote)
+ * - Si es un recibo de póliza individual (aunque empiece con 239) -> AUTORIZADO (Pago individual real)
  */
 function clasificarPagoNRE(pago, contextoLotes = {}) {
     if (!pago || !pago.recibo) {
@@ -122,32 +152,34 @@ function clasificarPagoNRE(pago, contextoLotes = {}) {
     }
 
     const numStr = String(pago.recibo || '').replace(/[^0-9]/g, '');
-    const fecha = pago.fecha;
 
-    // 1. Filtro estricto de prefijo de rendición de broker (ej. serie 239xxxx)
-    if (CONFIG_DETECTOR_DEFAULT.prefijos_lote_conocidos.some(pref => numStr.startsWith(pref))) {
+    // 1. Filtro estricto: Bloquear los 153 recibos específicos del incidente del 01/10/2026
+    if (RECIBOS_INCIDENTE_01_OCT.has(numStr)) {
         return {
             esPagoReal: false,
             esLote: true,
-            razon: `Recibo ${pago.recibo} pertenece a serie técnica de preliquidación/rendición (${numStr.slice(0, 3)}...)`
+            razon: `Recibo ${pago.recibo} bloqueado: pertenece al lote administrativo del incidente del 01/10/2026.`
         };
     }
 
-    // 2. Filtro de contexto del día
-    const infoFecha = contextoLotes.clasificacionFechas && contextoLotes.clasificacionFechas[fecha];
-    if (infoFecha && infoFecha.es_lote_administrativo) {
-        return {
-            esPagoReal: false,
-            esLote: true,
-            razon: `Emitido en fecha ${fecha} dentro de un lote administrativo (${infoFecha.cantidad_recibos} pólizas simultáneas: ${infoFecha.motivo})`
-        };
+    // 2. Filtro de recibo repetido en múltiples pólizas distintas (lote administrativo multi-póliza)
+    if (contextoLotes.recibosPorNumero && contextoLotes.recibosPorNumero[numStr]) {
+        const ops = contextoLotes.recibosPorNumero[numStr];
+        const uniqueOps = new Set(ops);
+        if (uniqueOps.size > 1) {
+            return {
+                esPagoReal: false,
+                esLote: true,
+                razon: `Recibo ${pago.recibo} aparece repetido en ${uniqueOps.size} pólizas distintas (lote administrativo).`
+            };
+        }
     }
 
-    // 3. Si no es lote ni tiene prefijo técnico, es un candidato a pago individual real
+    // 3. Pago individual real válido (incluso si empieza con 239 u otra serie)
     return {
         esPagoReal: true,
         esLote: false,
-        razon: `Recibo aislado en fecha ${fecha || 'no concentrada'} fuera de lotes masivos.`
+        razon: `Recibo individual aislado (${pago.recibo}) validado.`
     };
 }
 
