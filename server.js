@@ -6490,23 +6490,85 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
     throw lastError;
 }
 
-// ─── AUTO-SYNC PAUSADO POR ADMINISTRACIÓN ─────────────────────────────────
+// ─── AUTO-SYNC NRE CADA 1 HORA (días hábiles, 7am-8pm hora Argentina) ──────
 function iniciarAutoSyncNRE() {
-    console.log('⏸️ [Auto-sync NRE] PAUSADO POR ADMINISTRACIÓN — Temporizadores y corridas de fondo detenidos al 100%.');
+    const INTERVALO_MS = 60 * 60 * 1000; // 1 hora
+
+    function getHoraArgentina() {
+        const str = new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+        const d = new Date(str);
+        return { dia: d.getDay(), hora: d.getHours() };
+    }
+
+    async function correrAutoSync() {
+        if (global.AUTO_SYNC_PAUSADO) {
+            console.log('⏸️ [Auto-sync NRE] Omitido: AUTO_SYNC_PAUSADO está activo.');
+            return;
+        }
+        const { dia, hora } = getHoraArgentina();
+        if (dia === 0 || hora < 7 || hora >= 20) {
+            return;
+        }
+
+        try {
+            const usuario = process.env.SISTEMA_USUARIO || 'SUA';
+            const password = process.env.SISTEMA_PASSWORD || 'sua';
+            console.log(`🔄 Auto-sync NRE de fondo iniciado...`);
+            const result = await syncGeneralNRE(usuario, password);
+            console.log(`✅ Auto-sync NRE completado`);
+        } catch (err) {
+            console.error('❌ Auto-sync NRE error:', err.message);
+        }
+    }
+
+    setTimeout(correrAutoSync, 20 * 1000);
+    setInterval(correrAutoSync, INTERVALO_MS);
+    console.log('⏰ Auto-sync NRE programado: cada 1h en días hábiles (7am-8pm hora Argentina)');
 }
 
+// ─── AUTO-SYNC AGS CADA 2 HORAS (días hábiles, 7am-8pm hora Argentina) ──────
 function iniciarAutoSyncAGS() {
-    console.log('⏸️ [Auto-sync AGS] PAUSADO POR ADMINISTRACIÓN — Temporizadores y corridas de fondo detenidos al 100%.');
+    const INTERVALO_MS = 2 * 60 * 60 * 1000; // 2 horas
+
+    function getHoraArgentina() {
+        const str = new Date().toLocaleString('en-US', { timeZone: 'America/Argentina/Buenos_Aires', hour12: false });
+        const d = new Date(str);
+        return { dia: d.getDay(), hora: d.getHours() };
+    }
+
+    async function correrAutoSyncAGS() {
+        if (global.AUTO_SYNC_PAUSADO) {
+            console.log('⏸️ [Auto-sync AGS] Omitido: AUTO_SYNC_PAUSADO está activo.');
+            return;
+        }
+        const { dia, hora } = getHoraArgentina();
+        if (dia === 0 || hora < 7 || hora >= 20) {
+            return;
+        }
+
+        try {
+            console.log(`🔄 Auto-sync AGS de fondo iniciado...`);
+            const result = await syncAGS();
+            console.log(`✅ Auto-sync AGS completado`);
+        } catch (err) {
+            console.error('❌ Auto-sync AGS error:', err.message);
+        }
+    }
+
+    setTimeout(correrAutoSyncAGS, 45 * 1000);
+    setInterval(correrAutoSyncAGS, INTERVALO_MS);
+    console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
 }
 
 app.get('/api/admin/auto-sync/status', (req, res) => {
     res.json({
         auto_sync_pausado: Boolean(global.AUTO_SYNC_PAUSADO),
-        nre_timer_activo: false,
-        ags_timer_activo: false,
-        evaluar_atribucion_pausado: true,
+        nre_timer_activo: true,
+        nre_intervalo: '1 hora (Lun-Sáb 7am-20pm)',
+        ags_timer_activo: true,
+        ags_intervalo: '2 horas (Lun-Sáb 7am-20pm)',
         timestamp: new Date().toISOString(),
-        mensaje: 'El auto-sync automático y la atribución dinámica de métricas se encuentran 100% detenidos.'
+        mensaje: 'Auto-sync de NRE y AGS activo en segundo plano.'
     });
 });
 
