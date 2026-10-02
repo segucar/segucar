@@ -310,6 +310,32 @@ async function ejecutarDespachoDiario({
     const omitidos_ya_contactados = [];
     const errores = [];
 
+    // 🛡️ BLOQUEO ESTRICTO DE ENVÍO AUTOMÁTICO DE WHATSAPP:
+    // Solicitado por administración: Permanece 100% pausado hasta confirmación explícita de Tomás Suares.
+    let despachoHabilitado = false;
+    try {
+        const cfg = db.prepare("SELECT despacho_activo FROM config_whatsapp_api WHERE id = 1").get();
+        despachoHabilitado = Boolean(cfg && (cfg.despacho_activo === 1 || cfg.despacho_activo === true));
+    } catch(e) {}
+
+    if (!dryRun && !despachoHabilitado && !force) {
+        console.log("⏸️ [Despacho 8AM] PAUSADO POR ADMINISTRACIÓN: Envíos automáticos de WhatsApp suspendidos temporalmente mientras se reconcilia caja.");
+        return {
+            ejecutado: false,
+            motivo: 'despacho_pausado_por_administracion',
+            fecha,
+            total_evaluados: pendientes.length,
+            enviados_count: 0,
+            omitidos_silenciados_count: 0,
+            omitidos_ya_contactados_count: 0,
+            errores_count: 0,
+            enviados: [],
+            omitidos_silenciados: [],
+            omitidos_ya_contactados: [],
+            errores: []
+        };
+    }
+
     console.log(`🚀 [Despacho 8AM] Iniciando procesamiento (${dryRun ? 'MODO DRY-RUN' : 'MODO REAL'}). Total pendientes evaluados: ${pendientes.length}`);
 
     for (let i = 0; i < pendientes.length; i++) {

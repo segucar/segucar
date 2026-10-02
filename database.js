@@ -226,6 +226,26 @@ db.exec(`
 
     CREATE INDEX IF NOT EXISTS idx_cartera_snapshots_fecha ON historico_cartera_snapshots(fecha);
 
+    -- 🛡️ TABLA: Auditoría de Imputaciones y Reversiones de Pagos (Trazabilidad 100% de Cobranzas)
+    CREATE TABLE IF NOT EXISTS auditoria_pagos_cuotas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poliza_id INTEGER,
+        operacion TEXT,
+        patente TEXT,
+        cliente_nombre TEXT,
+        numero_cuota INTEGER,
+        monto REAL DEFAULT 0,
+        estado_anterior TEXT,
+        estado_nuevo TEXT,
+        origen TEXT DEFAULT 'Oficina Manual CRM',
+        usuario TEXT DEFAULT 'Oficina',
+        detalles TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_auditoria_pagos_poliza ON auditoria_pagos_cuotas(poliza_id);
+    CREATE INDEX IF NOT EXISTS idx_auditoria_pagos_fecha ON auditoria_pagos_cuotas(created_at);
+
     -- 🤖 TABLA: Estado del Bot por Conversación (Silenciamiento y Atención Humana)
     CREATE TABLE IF NOT EXISTS conversaciones_estado_bot (
         telefono TEXT PRIMARY KEY,
@@ -350,6 +370,7 @@ const addColumnMensajesWa = (colName, colDef) => {
 };
 
 addColumnConfigWa('n8n_webhook_url', "TEXT DEFAULT ''");
+addColumnConfigWa('despacho_activo', "INTEGER DEFAULT 0");
 addColumnMensajesWa('origen', "TEXT DEFAULT 'bot'");
 addColumnMensajesWa('autor', "TEXT NULL");
 
@@ -1183,6 +1204,45 @@ db.obtenerHistoricoCarteraSnapshots = function(dias = 90) {
         WHERE fecha >= date('now', '-' || ? || ' days')
         ORDER BY fecha ASC
     `).all(dias);
+};
+
+// 🛡️ AUDITORÍA DE PAGOS: Registro inmutable de cada cambio de estado de cobranzas
+db.registrarAuditoriaPago = function({
+    poliza_id,
+    operacion,
+    patente,
+    cliente_nombre,
+    numero_cuota,
+    monto,
+    estado_anterior,
+    estado_nuevo,
+    origen,
+    usuario,
+    detalles
+}) {
+    try {
+        return db.prepare(`
+            INSERT INTO auditoria_pagos_cuotas (
+                poliza_id, operacion, patente, cliente_nombre,
+                numero_cuota, monto, estado_anterior, estado_nuevo,
+                origen, usuario, detalles, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+        `).run(
+            poliza_id || null,
+            operacion || '',
+            patente || '',
+            cliente_nombre || '',
+            numero_cuota || 1,
+            monto || 0,
+            estado_anterior || 'PENDIENTE',
+            estado_nuevo || 'PAGADA',
+            origen || 'Oficina Manual CRM',
+            usuario || 'Oficina',
+            typeof detalles === 'object' ? JSON.stringify(detalles) : (detalles || '')
+        );
+    } catch(e) {
+        console.error('Error registrando auditoría de pago:', e.message);
+    }
 };
 
 module.exports = db;

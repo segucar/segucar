@@ -15,8 +15,9 @@ const { inferirGeneroPorNombre, calcularEstadisticasDemograficas } = require('./
 const waService = require('./whatsapp_service');
 const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = require('./automation_scheduler');
 
-// 🛑 BANDERA GLOBAL: Auto-sync y mutaciones automáticas PAUSADOS por administración
-global.AUTO_SYNC_PAUSADO = true;
+// ✅ AUTO-SYNC REACTIVADO: Sincronización normal de datos (coberturas, vigencias, DNI, pólizas).
+// 🛡️ Blindado al 100%: Los sincronizadores NRE/AGS nunca tocan los estados de cobranzas.
+global.AUTO_SYNC_PAUSADO = false;
 
 // ─── MIGRACIÓN AUTOMÁTICA: Alinear plantillas con nombres de Meta ────────────
 (function migrarPlantillas() {
@@ -5677,6 +5678,32 @@ app.post('/api/polizas/:id/cuotas/:nroCuota/marcar-pago', (req, res) => {
 
         const polizaActualizada = db.prepare('SELECT * FROM polizas WHERE id = ?').get(poliza.id);
 
+        // 🛡️ REGISTRO INMUTABLE DE AUDITORÍA DE PAGOS:
+        // Cada vez que una cuota pasa a PAGADA o se revierte a PENDIENTE, queda registrada
+        if (typeof db.registrarAuditoriaPago === 'function') {
+            const cliente = db.prepare('SELECT nombre FROM clientes WHERE id = ?').get(poliza.cliente_id);
+            const userStr = req.user ? (req.user.username || req.user.nombre || 'Oficina') : 'Oficina / Admin';
+            db.registrarAuditoriaPago({
+                poliza_id: poliza.id,
+                operacion: poliza.operacion,
+                patente: poliza.patente,
+                cliente_nombre: cliente ? cliente.nombre : '',
+                numero_cuota: nro,
+                monto: targetCuota.importe || 0,
+                estado_anterior: nuevoEstado === 'PAGADA' ? 'PENDIENTE' : 'PAGADA',
+                estado_nuevo: nuevoEstado,
+                origen: metodo || 'Oficina Manual CRM',
+                usuario: userStr,
+                detalles: {
+                    saldo_restante: nuevoSaldo,
+                    cuotas_debe: cantDebe,
+                    fecha_pago: targetCuota.fecha_pago,
+                    lote: targetCuota.lote,
+                    ip: req.ip || req.headers['x-forwarded-for'] || ''
+                }
+            });
+        }
+
         res.json({
             success: true,
             mensaje: `Cuota ${nro} actualizada a ${nuevoEstado} exitosamente.`,
@@ -5693,6 +5720,33 @@ app.post('/api/polizas/:id/cuotas/:nroCuota/marcar-pago', (req, res) => {
         });
     } catch(e) {
         console.error('Error al marcar pago manual de cuota:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 📋 GET /api/admin/auditoria-pagos — Consultar historial inmutable de cobranzas
+app.get('/api/admin/auditoria-pagos', (req, res) => {
+    try {
+        const limit = Math.min(parseInt(req.query.limit, 10) || 100, 500);
+        const operacion = req.query.operacion;
+        let query = 'SELECT * FROM auditoria_pagos_cuotas';
+        const params = [];
+
+        if (operacion) {
+            query += ' WHERE operacion = ?';
+            params.push(operacion);
+        }
+
+        query += ' ORDER BY id DESC LIMIT ?';
+        params.push(limit);
+
+        const items = db.prepare(query).all(...params);
+        res.json({
+            success: true,
+            total: items.length,
+            items
+        });
+    } catch (e) {
         res.status(500).json({ error: e.message });
     }
 });
