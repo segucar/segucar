@@ -6,6 +6,7 @@
 
 const cheerio = require('cheerio');
 const db = require('./database');
+const { obtenerConfigDetector, clasificarPagoNRE } = require('./nre_payment_detector');
 
 function sanitizeAndFixPhone(phone, clientCity = '') {
     if (!phone) return '';
@@ -710,16 +711,31 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                                 if (vtoIso && /\d{4}-\d{2}-\d{2}/.test(vtoIso)) {
                                     const existingCuota = existingMap[nroCuota];
                                     const esPagadaManual = existingCuota && existingCuota.estado === 'PAGADA';
-                                    const saldoReal = esPagadaManual ? 0 : (existingCuota && existingCuota.saldo_cli !== undefined ? existingCuota.saldo_cli : importeCuota);
+
+                                    // 🛡️ DETECTOR INTELIGENTE DE PAGOS NRE (Detrás de switch, APAGADO por defecto)
+                                    const pagoCorresp = pagosHistorial.find(p => p.nro === nroCuota);
+                                    let esPagoIndividualValido = false;
+                                    try {
+                                        const configDetector = obtenerConfigDetector();
+                                        if (configDetector && configDetector.activo && pagoCorresp && !esPagadaManual) {
+                                            const evaluacion = clasificarPagoNRE(pagoCorresp);
+                                            if (evaluacion.esPagoReal && !evaluacion.esLote) {
+                                                esPagoIndividualValido = true;
+                                            }
+                                        }
+                                    } catch(e) {}
+
+                                    const esPagada = esPagadaManual || esPagoIndividualValido;
+                                    const saldoReal = esPagada ? 0 : (existingCuota && existingCuota.saldo_cli !== undefined ? existingCuota.saldo_cli : importeCuota);
 
                                     cuotasHistorial.push({
                                         nro_cuota: nroCuota,
                                         vto_cuota: vtoIso,
                                         importe: importeCuota,
                                         saldo_cli: saldoReal,
-                                        estado: esPagadaManual ? 'PAGADA' : 'PENDIENTE',
-                                        fecha_pago: esPagadaManual ? (existingCuota.fecha_pago || 'Cobro Manual') : null,
-                                        lote: existingCuota?.lote || ''
+                                        estado: esPagada ? 'PAGADA' : 'PENDIENTE',
+                                        fecha_pago: esPagada ? (existingCuota?.fecha_pago || (pagoCorresp ? pagoCorresp.fecha : 'Cobro Manual')) : null,
+                                        lote: existingCuota?.lote || (pagoCorresp ? `Recibo ${pagoCorresp.recibo}` : '')
                                     });
                                 }
                             }

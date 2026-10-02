@@ -1837,7 +1837,76 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 31:", e.message);
     }
 
-    const totalTestsCount = 31;
+    // ── TEST 32: Detector Inteligente de Pagos NRE (Lotes Masivos vs Pagos Individuales) ──
+    console.log("📌 TEST 32: Detector Inteligente de Pagos NRE (Lotes Masivos vs Pagos Individuales)");
+    try {
+        const {
+            obtenerConfigDetector,
+            analizarLotesRecibosNRE,
+            clasificarPagoNRE,
+            evaluarImputacionCuotaNRE
+        } = require('../nre_payment_detector');
+
+        // 1. Verificar que el interruptor maestro está APAGADO por defecto
+        const configDefault = obtenerConfigDetector();
+        const okSwitchApagado = configDefault.activo === false;
+
+        // 2. Simular lote masivo de rendición mensual del broker (como el 01/10)
+        const loteSimulado = [];
+        for (let i = 1; i <= 20; i++) {
+            loteSimulado.push({
+                operacion: `120000${i}`,
+                nro_cuota: 1,
+                recibo: `23910${String(i).padStart(2, '0')}`,
+                fecha: '01/10/2026',
+                importe: 32000
+            });
+        }
+
+        const analisisLote = analizarLotesRecibosNRE(loteSimulado);
+        const info0110 = analisisLote.clasificacionFechas['01/10/2026'];
+        const okDetectaLote = Boolean(info0110 && info0110.es_lote_administrativo === true);
+
+        // Cada recibo de ese lote debe ser clasificado como lote y rechazado
+        const pagoLote = loteSimulado[0];
+        const clasifLote = clasificarPagoNRE(pagoLote, analisisLote);
+        const okRechazoLote = clasifLote.esLote === true && clasifLote.esPagoReal === false;
+
+        // 3. Simular un recibo aislado en una fecha no concentrada (pago individual real)
+        const pagoAislado = {
+            operacion: '11999999',
+            nro_cuota: 2,
+            recibo: '1854930', // fuera de series de lote
+            fecha: '18/10/2026',
+            importe: 35000
+        };
+        const analisisAislado = analizarLotesRecibosNRE([pagoAislado]);
+        const clasifAislado = clasificarPagoNRE(pagoAislado, analisisAislado);
+        const okAceptaAislado = clasifAislado.esPagoReal === true && clasifAislado.esLote === false;
+
+        // 4. Verificar que evaluarImputacionCuotaNRE respeta el switch apagado
+        const cuotaTest = { nro_cuota: 2, importe: 35000, estado: 'PENDIENTE' };
+        const evaluacion = evaluarImputacionCuotaNRE(cuotaTest, pagoAislado, analisisAislado);
+        const okRespetaSwitch = evaluacion.switch_activo === false && evaluacion.debe_imputar === false && evaluacion.motivo_bloqueo === 'SWITCH_APAGADO_ADMINISTRACION';
+
+        const test32Ok = okSwitchApagado && okDetectaLote && okRechazoLote && okAceptaAislado && okRespetaSwitch;
+
+        if (test32Ok) {
+            console.log("  ✅ PASSED -> Interruptor Maestro: Detección automática APAGADA por defecto (activo = false).");
+            console.log("  ✅ PASSED -> Discriminación de Lotes: Recibos correlativos/masivos (serie 239xxxx) clasificados como LOTE_ADMINISTRATIVO (0 imputación).");
+            console.log("  ✅ PASSED -> Detección de Pagos Aislados: Recibos individuales fuera de lotes identificados correctamente como candidatos reales.");
+            console.log("  ✅ PASSED -> Protección Absoluta: Con switch apagado ninguna cuota muta a PAGADA (cero riesgo en producción).\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 32:", {
+                okSwitchApagado, okDetectaLote, okRechazoLote, okAceptaAislado, okRespetaSwitch
+            });
+        }
+    } catch(e) {
+        console.error("  ❌ ERROR en TEST 32:", e.message);
+    }
+
+    const totalTestsCount = 32;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

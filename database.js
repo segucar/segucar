@@ -371,6 +371,7 @@ const addColumnMensajesWa = (colName, colDef) => {
 
 addColumnConfigWa('n8n_webhook_url', "TEXT DEFAULT ''");
 addColumnConfigWa('despacho_activo', "INTEGER DEFAULT 0");
+addColumnConfigWa('auto_imputacion_pagos_activa', "INTEGER DEFAULT 0");
 addColumnMensajesWa('origen', "TEXT DEFAULT 'bot'");
 addColumnMensajesWa('autor', "TEXT NULL");
 

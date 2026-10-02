@@ -5751,6 +5751,48 @@ app.get('/api/admin/auditoria-pagos', (req, res) => {
     }
 });
 
+// ⚙️ GET /api/admin/config-deteccion-pagos — Estado del Detector Inteligente de Pagos NRE
+app.get('/api/admin/config-deteccion-pagos', (req, res) => {
+    try {
+        const { obtenerConfigDetector } = require('./nre_payment_detector');
+        const config = obtenerConfigDetector();
+        res.json({
+            success: true,
+            config,
+            mensaje: config.activo 
+                ? 'Detección automática de pagos NRE ACTIVADA.' 
+                : 'Detección automática de pagos NRE APAGADA (Modo Seguro 100% Manual).'
+        });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 🔒 POST /api/admin/config-deteccion-pagos/toggle — Interruptor maestro de detección automática
+app.post('/api/admin/config-deteccion-pagos/toggle', (req, res) => {
+    try {
+        const { activo, confirmacion } = req.body;
+        if (activo === true && confirmacion !== 'CONFIRMO_ACTIVAR_DETECCION_PAGOS_NRE') {
+            return res.status(400).json({ 
+                error: 'Para activar se requiere confirmación explícita con frase de seguridad: CONFIRMO_ACTIVAR_DETECCION_PAGOS_NRE.' 
+            });
+        }
+        const nuevoValor = activo ? 1 : 0;
+        db.prepare("UPDATE config_whatsapp_api SET auto_imputacion_pagos_activa = ? WHERE id = 1").run(nuevoValor);
+        const { obtenerConfigDetector } = require('./nre_payment_detector');
+        const configActual = obtenerConfigDetector();
+        res.json({
+            success: true,
+            config: configActual,
+            mensaje: nuevoValor === 1 
+                ? 'Detección automática de pagos individuales NRE activada con éxito.' 
+                : 'Detección automática de pagos NRE apagada (Modo 100% manual activo).'
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // Endpoint de testeo para simular pago (cambiar estado a PAGADO y asociar PDFs NRE + Grucar)
 app.post('/api/admin/cuotas/:id/simular-pago', (req, res) => {
     try {
