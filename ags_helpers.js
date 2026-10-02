@@ -33,81 +33,73 @@ function calcularFechaCuotaAGS(finVigenciaStr, mesesAntes) {
 function generarCronogramaCuotasAGS(finVigencia, premio, historialExistente = null, cuotasReales = null, pagosNoRendidos = null) {
     const hoyStr = new Date().toISOString().slice(0, 10);
     const montoCuota = premio > 0 ? Math.round((premio / AGS_TOTAL_CUOTAS) * 100) / 100 : 0;
-    
     let cuotas = [];
+    
+    let histMap = {};
+    if (historialExistente) {
+        try {
+            const parsed = typeof historialExistente === 'string' ? JSON.parse(historialExistente) : historialExistente;
+            if (Array.isArray(parsed)) {
+                for (const item of parsed) {
+                    if (item && item.nro_cuota) histMap[item.nro_cuota] = item;
+                }
+            }
+        } catch(e) {}
+    }
 
     if (Array.isArray(cuotasReales) && cuotasReales.length > 0) {
         // Usar las cuotas reales parseadas de muestro-polizasmod.php
+        // 🛡️ REGLA: El portal de AGS NUNCA imputa pagos. Solo la oficina marca pagos manualmente.
         cuotas = cuotasReales.map(c => {
             const nro = parseInt(c.nro_cuota, 10);
-            const tienePagoNoRendido = pagosNoRendidos && (
-                (typeof pagosNoRendidos.has === 'function' && pagosNoRendidos.has(nro)) || 
-                (Array.isArray(pagosNoRendidos) && pagosNoRendidos.includes(nro))
-            );
-            const saldo = tienePagoNoRendido ? 0 : (parseFloat(c.saldo_cli) || 0);
-            const estado = (saldo <= 2500 || tienePagoNoRendido) ? 'PAGADA' : 'PENDIENTE';
+            const existing = histMap[nro];
+            const esPagadaManual = existing && existing.estado === 'PAGADA';
+            const importe = parseFloat(c.importe || montoCuota);
+            const saldo = esPagadaManual ? 0 : (existing && existing.saldo_cli !== undefined ? existing.saldo_cli : importe);
             return {
                 nro_cuota: nro,
                 vto_cuota: c.vto_cuota,
-                importe: parseFloat(c.importe || montoCuota),
+                importe: importe,
                 saldo_cli: saldo,
-                estado: estado,
-                fecha_pago: c.fecha_pago || (estado === 'PAGADA' ? (tienePagoNoRendido ? 'A Rendir (Pagado)' : 'Registrado en AGS') : null),
-                lote: c.lote || 'Sincronizado con AGS'
+                estado: esPagadaManual ? 'PAGADA' : 'PENDIENTE',
+                fecha_pago: esPagadaManual ? (existing.fecha_pago || 'Cobro Manual') : null,
+                lote: existing?.lote || c.lote || 'Sincronizado con AGS'
             };
         });
     } else {
-        let histMap = {};
-        if (historialExistente) {
-            try {
-                const parsed = typeof historialExistente === 'string' ? JSON.parse(historialExistente) : historialExistente;
-                if (Array.isArray(parsed)) {
-                    for (const item of parsed) {
-                        if (item && item.nro_cuota) histMap[item.nro_cuota] = item;
-                    }
-                }
-            } catch(e) {}
-        }
-
         for (let i = 1; i <= AGS_TOTAL_CUOTAS; i++) {
             const vto = calcularFechaCuotaAGS(finVigencia, AGS_TOTAL_CUOTAS - i + 1);
             const existing = histMap[i];
-            const tienePagoNoRendido = pagosNoRendidos && (
-                (typeof pagosNoRendidos.has === 'function' && pagosNoRendidos.has(i)) || 
-                (Array.isArray(pagosNoRendidos) && pagosNoRendidos.includes(i))
-            );
+            const esPagadaManual = existing && existing.estado === 'PAGADA';
 
-            if (tienePagoNoRendido) {
+            if (esPagadaManual) {
                 cuotas.push({
                     nro_cuota: i,
                     vto_cuota: existing ? (existing.vto_cuota || vto) : vto,
                     importe: montoCuota,
                     saldo_cli: 0,
                     estado: 'PAGADA',
-                    fecha_pago: 'A Rendir (Pagado)',
-                    lote: 'Sincronizado con AGS'
+                    fecha_pago: existing.fecha_pago || 'Cobro Manual',
+                    lote: existing.lote || 'Sincronizado con AGS'
                 });
             } else if (existing) {
-                const saldo = existing.saldo_cli !== undefined ? existing.saldo_cli : (existing.estado === 'PAGADA' ? 0 : montoCuota);
-                const estado = existing.estado || (saldo <= 2500 ? 'PAGADA' : (vto < hoyStr ? 'PAGADA' : 'PENDIENTE'));
                 cuotas.push({
                     nro_cuota: i,
                     vto_cuota: existing.vto_cuota || vto,
                     importe: montoCuota,
-                    saldo_cli: saldo,
-                    estado: estado,
-                    fecha_pago: existing.fecha_pago || (estado === 'PAGADA' ? 'Registrado en AGS' : null),
+                    saldo_cli: existing.saldo_cli !== undefined ? existing.saldo_cli : montoCuota,
+                    estado: 'PENDIENTE',
+                    fecha_pago: null,
                     lote: existing.lote || 'Sincronizado con AGS'
                 });
             } else {
-                const esPasada = vto < hoyStr;
                 cuotas.push({
                     nro_cuota: i,
                     vto_cuota: vto,
                     importe: montoCuota,
-                    saldo_cli: esPasada ? 0 : montoCuota,
-                    estado: esPasada ? 'PAGADA' : 'PENDIENTE',
-                    fecha_pago: esPasada ? 'Registrado en AGS' : null,
+                    saldo_cli: montoCuota,
+                    estado: 'PENDIENTE',
+                    fecha_pago: null,
                     lote: 'Sincronizado con AGS'
                 });
             }

@@ -181,7 +181,7 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updatePoliza = db.prepare(`
-        UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, cuotas_debe = ?, estado = ?, anulada = ?
+        UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, estado = ?, anulada = ?
         WHERE operacion = ?
     `);
     const anularAnterioresPorPatente = db.prepare(`
@@ -290,7 +290,7 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             const existingPoliza = findPoliza.get(item.operacion);
             if (existingPoliza) {
-                updatePoliza.run(item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, item.cuoDebe, estado, anulada, item.operacion);
+                updatePoliza.run(item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, estado, anulada, item.operacion);
                 actualizados++;
             } else {
                 // Shield main active portfolio: Only insert new active/vigente policies into polizas. Old historical records go to polizas_historicas!

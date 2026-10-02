@@ -205,9 +205,9 @@ function parseMuestroPolizasMod(html) {
             nro_cuota: nroCuota,
             vto_cuota: vtoIso,
             importe,
-            saldo_cli: saldo,
-            estado: saldo <= 2500 ? 'PAGADA' : 'PENDIENTE',
-            fecha_pago: saldo <= 2500 ? 'Registrado en AGS' : null,
+            saldo_cli: saldo > 0 ? saldo : importe,
+            estado: 'PENDIENTE',
+            fecha_pago: null,
             lote: 'Sincronizado con AGS'
         });
     }
