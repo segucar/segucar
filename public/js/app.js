@@ -2923,12 +2923,19 @@ function showCuotasModal(polizaId, operacion) {
     const saldo = targetPoliza ? (parseFloat(targetPoliza.saldo_pendiente) || 0) : 0;
 
     historial = [];
+    const polNroCuota = targetPoliza ? (parseInt(targetPoliza.nro_cuota, 10) || 1) : 1;
     for (let i = 1; i <= totalCuotas; i++) {
-      const esImpaga = (i > (totalCuotas - cuotasDebe));
+      // Si la cuota es futura (mayor a la cuota en curso), está pendiente/a vencer, NUNCA pagada
+      // Para cuotas anteriores o iguales a polNroCuota:
+      // Las últimas cuotasDebe son PENDIENTE, las anteriores son PAGADA
+      const esFutura = i > polNroCuota;
+      const cuotaInicioDeuda = Math.max(1, polNroCuota - cuotasDebe + 1);
+      const esImpaga = esFutura || (i >= cuotaInicioDeuda && i <= polNroCuota);
+
       historial.push({
         nro_cuota: i,
-        vto_cuota: esImpaga ? vtoCuota : null,
-        saldo_cli: esImpaga ? (saldo / Math.max(1, cuotasDebe)) : 0,
+        vto_cuota: (i === polNroCuota) ? vtoCuota : null,
+        saldo_cli: (i <= polNroCuota && esImpaga) ? (saldo / Math.max(1, cuotasDebe)) : 0,
         estado: esImpaga ? 'PENDIENTE' : 'PAGADA',
         fecha_pago: esImpaga ? null : (isAGSPoliza ? 'Registrado en AGS' : 'Registrado en NRE'),
         lote: esImpaga ? '-' : (isAGSPoliza ? 'Sincronizado con AGS' : 'Lote NRE Sincronizado')

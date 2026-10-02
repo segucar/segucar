@@ -715,10 +715,11 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                                     // 🛡️ DETECTOR INTELIGENTE DE PAGOS NRE (Detrás de switch, APAGADO por defecto)
                                     const pagoCorresp = pagosHistorial.find(p => p.nro === nroCuota);
                                     let esPagoIndividualValido = false;
+                                    let evaluacion = null;
                                     try {
                                         const configDetector = obtenerConfigDetector();
                                         if (configDetector && configDetector.activo && pagoCorresp && !esPagadaManual) {
-                                            const evaluacion = clasificarPagoNRE(pagoCorresp);
+                                            evaluacion = clasificarPagoNRE(pagoCorresp);
                                             if (evaluacion.esPagoReal && !evaluacion.esLote) {
                                                 esPagoIndividualValido = true;
                                             }
@@ -727,6 +728,33 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
                                     const esPagada = esPagadaManual || esPagoIndividualValido;
                                     const saldoReal = esPagada ? 0 : (existingCuota && existingCuota.saldo_cli !== undefined ? existingCuota.saldo_cli : importeCuota);
+
+                                    // Registrar en auditoría inmutable si el detector imputó el pago automáticamente
+                                    if (esPagoIndividualValido && !esPagadaManual && typeof db.registrarAuditoriaPago === 'function') {
+                                        try {
+                                            const cid = pol.cliente_id || db.prepare("SELECT cliente_id FROM polizas WHERE operacion = ?").get(pol.operacion)?.cliente_id;
+                                            const cliente = cid ? db.prepare('SELECT nombre FROM clientes WHERE id = ?').get(cid) : null;
+                                            db.registrarAuditoriaPago({
+                                                poliza_id: pol.id || pol.operacion,
+                                                operacion: pol.operacion,
+                                                patente: pol.patente || '',
+                                                cliente_nombre: cliente ? cliente.nombre : '',
+                                                numero_cuota: nroCuota,
+                                                monto: importeCuota,
+                                                estado_anterior: 'PENDIENTE',
+                                                estado_nuevo: 'PAGADA',
+                                                origen: `Detector Automático NRE (Recibo ${pagoCorresp.recibo})`,
+                                                usuario: 'Detector IA / NRE',
+                                                detalles: {
+                                                    recibo: pagoCorresp.recibo,
+                                                    fecha_pago: pagoCorresp.fecha,
+                                                    razon: evaluacion ? evaluacion.razon : 'Pago individual validado'
+                                                }
+                                            });
+                                        } catch(auditErr) {
+                                            console.warn('[syncPagosNRE] Error registrando auditoría de detector:', auditErr.message);
+                                        }
+                                    }
 
                                     cuotasHistorial.push({
                                         nro_cuota: nroCuota,

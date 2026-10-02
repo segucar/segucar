@@ -5583,13 +5583,17 @@ app.post('/api/polizas/:id/cuotas/:nroCuota/marcar-pago', (req, res) => {
             const saldo = parseFloat(poliza.saldo_pendiente) || 0;
             const montoPorCuota = saldo > 0 && cuotasDebe > 0 ? (saldo / cuotasDebe) : 32000;
 
+            const polNroCuota = parseInt(poliza.nro_cuota, 10) || 1;
             for (let i = 1; i <= total; i++) {
-                const esImpaga = (i > (total - cuotasDebe));
+                const esFutura = i > polNroCuota;
+                const cuotaInicioDeuda = Math.max(1, polNroCuota - cuotasDebe + 1);
+                const esImpaga = esFutura || (i >= cuotaInicioDeuda && i <= polNroCuota);
+
                 cuotas.push({
                     nro_cuota: i,
-                    vto_cuota: poliza.fecha_vencimiento || null,
+                    vto_cuota: (i === polNroCuota) ? poliza.fecha_vencimiento : null,
                     importe: montoPorCuota,
-                    saldo_cli: esImpaga ? montoPorCuota : 0,
+                    saldo_cli: (i <= polNroCuota && esImpaga) ? montoPorCuota : 0,
                     estado: esImpaga ? 'PENDIENTE' : 'PAGADA',
                     fecha_pago: esImpaga ? null : 'Histórico Anterior',
                     lote: esImpaga ? '' : 'Histórico'
@@ -5751,6 +5755,146 @@ app.get('/api/admin/auditoria-pagos', (req, res) => {
     }
 });
 
+// 🛠️ POST /api/admin/corregir-bug-indice-cuotas — Corrige pólizas donde cuotas futuras (C2/C3) quedaron PAGADA teniendo la C1 PENDIENTE
+app.post('/api/admin/corregir-bug-indice-cuotas', (req, res) => {
+    try {
+        const polizasConHistorial = db.prepare("SELECT id, operacion, patente, nro_cuota, cuotas_debe, saldo_pendiente, fecha_vencimiento, cuotas_historial FROM polizas WHERE cuotas_historial IS NOT NULL AND cuotas_historial != ''").all();
+        const corregidas = [];
+
+        for (const pol of polizasConHistorial) {
+            let cuotas = [];
+            try {
+                cuotas = JSON.parse(pol.cuotas_historial);
+            } catch(e) {
+                continue;
+            }
+            if (!Array.isArray(cuotas) || cuotas.length < 2) continue;
+
+            const c1 = cuotas.find(c => parseInt(c.nro_cuota, 10) === 1);
+            if (!c1 || c1.estado !== 'PENDIENTE') continue;
+
+            let huboCambio = false;
+            for (const c of cuotas) {
+                const nro = parseInt(c.nro_cuota, 10);
+                if (nro > 1 && c.estado === 'PAGADA') {
+                    const polNro = parseInt(pol.nro_cuota, 10) || 1;
+                    if (polNro <= 1 || !c.lote || c.lote.includes('Histórico') || c.lote.includes('Lote NRE') || c.lote.includes('239')) {
+                        c.estado = 'PENDIENTE';
+                        c.fecha_pago = null;
+                        c.lote = '';
+                        c.saldo_cli = 0;
+                        huboCambio = true;
+                    }
+                }
+            }
+
+            if (huboCambio) {
+                db.prepare("UPDATE polizas SET cuotas_historial = ? WHERE id = ?").run(JSON.stringify(cuotas), pol.id);
+                corregidas.push({
+                    operacion: pol.operacion,
+                    patente: pol.patente,
+                    cuotas: cuotas.map(c => ({ nro: c.nro_cuota, estado: c.estado, vto: c.vto_cuota, lote: c.lote }))
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            total_corregidas: corregidas.length,
+            corregidas
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 💳 POST /api/admin/imputar-pagos-lote-manual — Imputar en bloque los pagos reales validados por oficina
+app.post('/api/admin/imputar-pagos-lote-manual', (req, res) => {
+    try {
+        const { pagos, origen } = req.body; // Array de { operacion, nro_cuota, fecha_pago, metodo }
+        if (!Array.isArray(pagos) || pagos.length === 0) {
+            return res.status(400).json({ error: 'Se requiere un array de pagos: [{ operacion, nro_cuota }]' });
+        }
+
+        const hoyIso = new Date().toISOString().slice(0, 10);
+        const resultados = [];
+
+        for (const item of pagos) {
+            const opStr = String(item.operacion || item.patente || '').trim();
+            const nro = parseInt(item.nro_cuota || 1, 10);
+            const poliza = db.prepare('SELECT * FROM polizas WHERE operacion = ? OR LOWER(patente) = LOWER(?)').get(opStr, opStr);
+            if (!poliza) {
+                resultados.push({ operacion: opStr, error: 'Póliza no encontrada' });
+                continue;
+            }
+
+            let cuotas = [];
+            if (poliza.cuotas_historial) {
+                try { cuotas = JSON.parse(poliza.cuotas_historial); } catch(e){}
+            }
+
+            let targetCuota = cuotas.find(c => parseInt(c.nro_cuota, 10) === nro);
+            if (!targetCuota) {
+                targetCuota = {
+                    nro_cuota: nro,
+                    vto_cuota: poliza.fecha_vencimiento,
+                    importe: 32000,
+                    saldo_cli: 0,
+                    estado: 'PAGADA',
+                    fecha_pago: item.fecha_pago || hoyIso,
+                    lote: item.metodo || origen || 'Cobro Manual Oficina'
+                };
+                cuotas.push(targetCuota);
+            } else {
+                targetCuota.estado = 'PAGADA';
+                targetCuota.saldo_cli = 0;
+                targetCuota.fecha_pago = item.fecha_pago || hoyIso;
+                targetCuota.lote = item.metodo || origen || 'Cobro Manual Oficina';
+            }
+
+            const cuotasPendientes = cuotas.filter(c => c.estado === 'PENDIENTE');
+            const cuotasPendientesPrincipales = cuotasPendientes.filter(c => (parseFloat(c.saldo_cli) || 0) > 2500);
+            const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (parseFloat(c.saldo_cli) || 0), 0);
+            const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < hoyIso).length;
+
+            db.prepare(`
+                UPDATE polizas
+                SET saldo_pendiente = ?,
+                    cuotas_debe = ?,
+                    cuotas_historial = ?
+                WHERE id = ?
+            `).run(nuevoSaldo, cantDebe, JSON.stringify(cuotas), poliza.id);
+
+            if (typeof db.registrarAuditoriaPago === 'function') {
+                const cliente = db.prepare('SELECT nombre FROM clientes WHERE id = ?').get(poliza.cliente_id);
+                db.registrarAuditoriaPago({
+                    poliza_id: poliza.id,
+                    operacion: poliza.operacion,
+                    patente: poliza.patente,
+                    cliente_nombre: cliente ? cliente.nombre : '',
+                    numero_cuota: nro,
+                    monto: targetCuota.importe || 0,
+                    estado_anterior: 'PENDIENTE',
+                    estado_nuevo: 'PAGADA',
+                    origen: item.metodo || origen || 'Carga Masiva Casa Central',
+                    usuario: 'Casa Central',
+                    detalles: { saldo_restante: nuevoSaldo, cuotas_debe: cantDebe, fecha_pago: targetCuota.fecha_pago }
+                });
+            }
+
+            resultados.push({ operacion: poliza.operacion, patente: poliza.patente, nro_cuota: nro, status: 'PAGADA' });
+        }
+
+        res.json({
+            success: true,
+            total_procesados: resultados.length,
+            resultados
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ⚙️ GET /api/admin/config-deteccion-pagos — Estado del Detector Inteligente de Pagos NRE
 app.get('/api/admin/config-deteccion-pagos', (req, res) => {
     try {
@@ -5764,6 +5908,60 @@ app.get('/api/admin/config-deteccion-pagos', (req, res) => {
                 : 'Detección automática de pagos NRE APAGADA (Modo Seguro 100% Manual).'
         });
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 🔍 GET /api/admin/detector-pagos/muestra-sombra — Análisis en modo sombra de los recibos de NRE sin tocar la base
+app.get('/api/admin/detector-pagos/muestra-sombra', (req, res) => {
+    try {
+        const { analizarLotesRecibosNRE, clasificarPagoNRE } = require('./nre_payment_detector');
+        const polizas = db.prepare("SELECT operacion, patente, cliente_id, cuotas_historial FROM polizas WHERE cuotas_historial IS NOT NULL AND cuotas_historial != ''").all();
+        
+        const todosLosRecibos = [];
+        for (const p of polizas) {
+            try {
+                const cuotas = JSON.parse(p.cuotas_historial);
+                if (Array.isArray(cuotas)) {
+                    for (const c of cuotas) {
+                        if (c.lote && (c.lote.includes('Recibo') || /\d{5,}/.test(c.lote))) {
+                            todosLosRecibos.push({
+                                operacion: p.operacion,
+                                patente: p.patente,
+                                nro_cuota: c.nro_cuota,
+                                recibo: c.lote.replace(/[^0-9]/g, ''),
+                                fecha: c.fecha_pago || 'SIN_FECHA',
+                                importe: c.importe || 0
+                            });
+                        }
+                    }
+                }
+            } catch(e) {}
+        }
+
+        const contexto = analizarLotesRecibosNRE(todosLosRecibos);
+        const lotes = [];
+        const individuales = [];
+
+        for (const item of todosLosRecibos) {
+            const evaluacion = clasificarPagoNRE(item, contexto);
+            if (evaluacion.esLote) {
+                lotes.push({ ...item, evaluacion });
+            } else {
+                individuales.push({ ...item, evaluacion });
+            }
+        }
+
+        res.json({
+            success: true,
+            total_evaluados: todosLosRecibos.length,
+            total_lotes_bloqueados: lotes.length,
+            total_individuales_autorizados: individuales.length,
+            fechas_concentradas: contexto.clasificacionFechas,
+            muestra_lotes: lotes.slice(0, 15),
+            muestra_individuales: individuales.slice(0, 15)
+        });
+    } catch(e) {
         res.status(500).json({ error: e.message });
     }
 });
