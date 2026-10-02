@@ -5402,11 +5402,15 @@ app.post('/api/admin/revertir-pagos-lote-octubre', (req, res) => {
         if (typeof db.sincronizarEstadosCuotasMoraFechas === 'function') {
             db.sincronizarEstadosCuotasMoraFechas();
         }
+        if (typeof db.evaluarAtribucionMetricas === 'function') {
+            db.evaluarAtribucionMetricas();
+        }
+        calcularDashboardStatsData();
 
-        console.log(`[Admin] Reversión de Lote Octubre completada: ${polizasRevertidas} pólizas revertidas (${cuotasRevertidas} cuotas).`);
+        console.log(`[Admin] Reversión de Lote Octubre completada: ${polizasRevertidas} pólizas revertidas (${cuotasRevertidas} cuotas). Métricas recalibradas.`);
         res.json({
             ok: true,
-            mensaje: `Se revirtieron exitosamente ${cuotasRevertidas} cuotas falsamente cobradas en ${polizasRevertidas} pólizas.`,
+            mensaje: `Se revirtieron exitosamente ${cuotasRevertidas} cuotas falsamente cobradas en ${polizasRevertidas} pólizas y se recalibraron las métricas de gestiones WhatsApp.`,
             polizas_revertidas: polizasRevertidas,
             cuotas_revertidas: cuotasRevertidas,
             muestra: revertidasDetalle.slice(0, 10)

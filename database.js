@@ -613,6 +613,39 @@ db.evaluarAtribucionMetricas = () => {
                     updateGestion.run('vencido_sin_pago', g.id);
                 }
             }
+
+            // 🛡️ REVERSIÓN DE FALSOS COBROS EN GESTIONES WHATSAPP:
+            // Si una gestión de cobranza fue atribuida falsamente pero el cliente/póliza aún debe dinero (saldo >= saldo_al_enviar - 100),
+            // se devuelve inmediatamente a 'pendiente' para no inflar estadísticas de cobros.
+            const exitosasCobranza = db.prepare(`
+                SELECT * FROM historial_gestiones_whatsapp
+                WHERE estado_resultado IN ('exitoso_total', 'exitoso_parcial')
+                  AND tipo_plantilla NOT IN ('renovacion_7_dias', 'poliza_vencida', 'recuperacion_historica')
+                  AND fecha_resolucion >= date('now', '-7 days', 'localtime')
+            `).all();
+
+            const revertirGestion = db.prepare(`
+                UPDATE historial_gestiones_whatsapp
+                SET estado_resultado = 'pendiente',
+                    fecha_resolucion = NULL,
+                    dias_hasta_pago = NULL
+                WHERE id = ?
+            `);
+
+            for (const g of exitosasCobranza) {
+                let currentSaldo = 0;
+                if (g.poliza_id) {
+                    const polRes = checkPolizaDetails.get(g.poliza_id);
+                    currentSaldo = polRes ? parseFloat(polRes.saldo || 0) : 0;
+                } else {
+                    const saldoRes = checkClienteSaldo.get(g.cliente_id);
+                    currentSaldo = saldoRes ? parseFloat(saldoRes.total_saldo || 0) : 0;
+                }
+
+                if (currentSaldo > 0 && currentSaldo >= (g.saldo_al_enviar - 100)) {
+                    revertirGestion.run(g.id);
+                }
+            }
         })();
     } catch (e) {
         console.error('Error evaluando atribución de métricas:', e);
