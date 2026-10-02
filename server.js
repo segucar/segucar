@@ -5434,6 +5434,9 @@ app.post('/api/admin/revertir-pagos-lote-octubre', (req, res) => {
 });
 
 app.post('/api/sync-nre/general', async (req, res) => {
+    if (global.AUTO_SYNC_PAUSADO) {
+        return res.status(403).json({ success: false, error: 'Sincronización general con NRE en pausa por administración.' });
+    }
     try {
         const usuario = req.body.usuario || process.env.SISTEMA_USUARIO || 'SUA';
         const password = req.body.password || process.env.SISTEMA_PASSWORD || 'sua';
@@ -6193,106 +6196,25 @@ async function executeWithRetry(fn, maxRetries = 2, delayMs = 12000, name = 'Tas
     throw lastError;
 }
 
-// ─── AUTO-SYNC NRE CADA 1 HORA (días hábiles, 7am-8pm hora Argentina) ──────
+// ─── AUTO-SYNC PAUSADO POR ADMINISTRACIÓN ─────────────────────────────────
 function iniciarAutoSyncNRE() {
-    const INTERVALO_MS = 60 * 60 * 1000; // 1 hora
-
-    function getHoraArgentina() {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Argentina/Buenos_Aires',
-            hour: 'numeric', hour12: false, weekday: 'short'
-        });
-        const parts = formatter.formatToParts(new Date());
-        const hora = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-        const dia = parts.find(p => p.type === 'weekday')?.value;
-        const esDomingo = dia === 'Sun';
-        return { hora, esDomingo };
-    }
-
-    async function correrAutoSync() {
-        const { hora, esDomingo } = getHoraArgentina();
-
-        if (esDomingo || hora < 7 || hora >= 20) {
-            console.log(`⏭️  Auto-sync NRE omitido (${esDomingo ? 'Domingo' : 'fuera de horario ' + hora + 'hs ARG}'})`);
-            return;
-        }
-
-        if (isSyncingNRE) {
-            console.log('⏭️  Auto-sync NRE omitido (sync manual en curso)');
-            return;
-        }
-
-        try {
-            isSyncingNRE = true;
-            const usuario = process.env.SISTEMA_USUARIO || 'SUA';
-            const password = process.env.SISTEMA_PASSWORD || 'sua';
-            console.log(`🔄 Auto-sync NRE iniciado (${hora}hs ARG)...`);
-            const result = await executeWithRetry(() => syncGeneralNRE(usuario, password), 2, 12000, 'Auto-sync NRE');
-            updateLastSyncDate('nre', 'ok', result);
-            console.log(`✅ Auto-sync NRE — ${result?.vencimientos_sincronizados || 0} pólizas, ${result?.polizas_saldadas_verificadas || 0} saldadas detectadas`);
-        } catch (err) {
-            updateLastSyncDate('nre', 'error', { error: err.message });
-            console.error('❌ Auto-sync NRE error tras reintentos:', err.message);
-        } finally {
-            isSyncingNRE = false;
-        }
-    }
-
-    // Correr al inicio del servidor con 20 seg de delay para que Render arranque limpio y cargue datos de inmediato
-    setTimeout(correrAutoSync, 20 * 1000);
-
-    // Repetir cada 2 horas en horario hábil para no competir con requests web
-    setInterval(correrAutoSync, 2 * 60 * 60 * 1000);
-
-    console.log('⏰ Auto-sync NRE programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
+    console.log('⏸️ [Auto-sync NRE] PAUSADO POR ADMINISTRACIÓN — Temporizadores y corridas de fondo detenidos al 100%.');
 }
 
-// ─── AUTO-SYNC AGS CADA 2 HORAS (días hábiles, 7am-8pm hora Argentina) ──────
 function iniciarAutoSyncAGS() {
-    const INTERVALO_MS = 2 * 60 * 60 * 1000; // 2 horas
-
-    function getHoraArgentina() {
-        const formatter = new Intl.DateTimeFormat('en-US', {
-            timeZone: 'America/Argentina/Buenos_Aires',
-            hour: 'numeric', hour12: false, weekday: 'short'
-        });
-        const parts = formatter.formatToParts(new Date());
-        const hora = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
-        const dia = parts.find(p => p.type === 'weekday')?.value;
-        return { hora, esDomingo: dia === 'Sun' };
-    }
-
-    async function correrAutoSyncAGS() {
-        const { hora, esDomingo } = getHoraArgentina();
-        if (esDomingo || hora < 7 || hora >= 20) {
-            console.log(`⏭️  Auto-sync AGS omitido (${esDomingo ? 'Domingo' : 'fuera de horario ' + hora + 'hs ARG}'})`);
-            return;
-        }
-
-        if (isSyncingAGS) {
-            console.log('⏭️  Auto-sync AGS omitido (sync AGS en curso)');
-            return;
-        }
-
-        try {
-            isSyncingAGS = true;
-            console.log(`🔵 Auto-sync AGS iniciado (${hora}hs ARG)...`);
-            const result = await executeWithRetry(() => syncAGS(), 2, 12000, 'Auto-sync AGS');
-            updateLastSyncDate('ags', 'ok', result);
-            console.log(`✅ Auto-sync AGS — ${result.polizas_actualizadas || 0} actualizadas`);
-        } catch (err) {
-            updateLastSyncDate('ags', 'error', { error: err.message });
-            console.error('❌ Auto-sync AGS error tras reintentos:', err.message);
-        } finally {
-            isSyncingAGS = false;
-        }
-    }
-
-    // Delay de 35 seg para correr justo después de NRE al arrancar
-    setTimeout(correrAutoSyncAGS, 35 * 1000);
-    setInterval(correrAutoSyncAGS, INTERVALO_MS);
-    console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
+    console.log('⏸️ [Auto-sync AGS] PAUSADO POR ADMINISTRACIÓN — Temporizadores y corridas de fondo detenidos al 100%.');
 }
+
+app.get('/api/admin/auto-sync/status', (req, res) => {
+    res.json({
+        auto_sync_pausado: Boolean(global.AUTO_SYNC_PAUSADO),
+        nre_timer_activo: false,
+        ags_timer_activo: false,
+        evaluar_atribucion_pausado: true,
+        timestamp: new Date().toISOString(),
+        mensaje: 'El auto-sync automático y la atribución dinámica de métricas se encuentran 100% detenidos.'
+    });
+});
 
 // ─── DESPACHADOR AUTOMÁTICO DE WHATSAPP 8:00 AM & AUTO-SYNC ─────────────────
 if (require.main === module) {
