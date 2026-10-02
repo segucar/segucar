@@ -12,12 +12,11 @@
 
 const db = require('./database');
 
-// Configuración por defecto: ESTRICTAMENTE APAGADO
+// Configuración: ACTIVADO Y EN PRODUCCIÓN (Sin umbral por cantidad diaria)
 const CONFIG_DETECTOR_DEFAULT = {
-    activo: false,                    // Interruptor maestro: FALSE = No imputa nada
-    modo_sombra: true,                // Modo sombra: analiza y genera log sin tocar datos
-    umbral_min_lote: 4,               // Si hay 4 o más recibos en la misma fecha, se considera Lote Administrativo
-    max_delta_recibos_lote: 250,      // Si la diferencia entre números de recibos es pequeña, es corrida masiva
+    activo: true,                     // Interruptor maestro: TRUE = Imputa pagos individuales validados
+    modo_sombra: false,               // Modo producción real
+    max_delta_recibos_lote: 250,      // Si la diferencia entre números de recibos es pequeña y correlativa masiva
     prefijos_lote_conocidos: ['239']  // Prefijos identificados de preliquidaciones administrativas de Triunvirato
 };
 
@@ -69,21 +68,18 @@ function analizarLotesRecibosNRE(todosLosPagos = []) {
         let esLoteCorrelativo = false;
         let esPrefijoLote = false;
 
-        // 1. Chequeo por volumen en la misma fecha
-        const cantidad = pagos.length;
-
-        // 2. Chequeo de correlatividad o rango numérico
-        if (recibosNums.length >= 2) {
+        // 1. Chequeo de correlatividad técnica en bloque (números de recibos casi idénticos y consecutivos en gran volumen)
+        if (recibosNums.length >= 15) {
             const minNum = Math.min(...recibosNums);
             const maxNum = Math.max(...recibosNums);
             const delta = maxNum - minNum;
-            // Si el rango entre el menor y mayor recibo es muy compacto relativo al volumen
-            if (delta <= CONFIG_DETECTOR_DEFAULT.max_delta_recibos_lote && cantidad >= CONFIG_DETECTOR_DEFAULT.umbral_min_lote) {
+            // Si hay 15 o más recibos y la diferencia numérica es casi 1 a 1, es corrida técnica de liquidación
+            if (delta <= CONFIG_DETECTOR_DEFAULT.max_delta_recibos_lote && delta < (pagos.length * 1.5)) {
                 esLoteCorrelativo = true;
             }
         }
 
-        // 3. Chequeo de prefijos conocidos de liquidación de broker
+        // 2. Chequeo de prefijos conocidos de liquidación de broker (ej. serie 239xxxx de preliquidación NRE)
         const conPrefijoLote = pagos.filter(p => {
             const numStr = String(p.recibo || '').replace(/[^0-9]/g, '');
             return CONFIG_DETECTOR_DEFAULT.prefijos_lote_conocidos.some(pref => numStr.startsWith(pref));
@@ -93,15 +89,17 @@ function analizarLotesRecibosNRE(todosLosPagos = []) {
             esPrefijoLote = true;
         }
 
-        const esLoteAdministrativo = (cantidad >= CONFIG_DETECTOR_DEFAULT.umbral_min_lote) || esLoteCorrelativo || esPrefijoLote;
+        // Solo es lote administrativo si tiene prefijo técnico conocido o correlatividad masiva técnica
+        // NUNCA se bloquea por cantidad de recibos en el mismo día
+        const esLoteAdministrativo = esPrefijoLote || esLoteCorrelativo;
 
         clasificacionFechas[fecha] = {
             fecha,
-            cantidad_recibos: cantidad,
+            cantidad_recibos: pagos.length,
             es_lote_administrativo: esLoteAdministrativo,
             motivo: esLoteAdministrativo 
-                ? (esPrefijoLote ? 'Prefijo de liquidación masiva NRE' : (esLoteCorrelativo ? 'Recibos correlativos en bloque' : 'Volumen masivo concentrado en misma fecha'))
-                : 'Recibos dispersos / candidato individual'
+                ? (esPrefijoLote ? 'Prefijo de liquidación masiva NRE (serie 239xxxx)' : 'Recibos correlativos técnicos en bloque')
+                : 'Pagos autorizados (carga diaria u oficina)'
         };
     }
 
