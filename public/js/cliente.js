@@ -588,6 +588,10 @@ function showCuotasModal(polizaId, operacion) {
         let loteStr = item.lote || '-';
         if (loteStr === 'Lote NRE Sincronizado' && isAGSPoliza) loteStr = 'Sincronizado con AGS';
 
+        const btnAccion = isPend
+            ? `<button class="btn btn-sm" style="background:#2ed573; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; cursor:pointer;" onclick="togglePagoCuotaOficina('${escapeHtml(String(opStr))}', ${item.nro_cuota}, 'PAGADA')">💳 Imputar Pago</button>`
+            : `<button class="btn btn-sm" style="background:rgba(255,255,255,0.06); color:#ff4757; border:1px solid #ff4757; padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:600; cursor:pointer;" onclick="togglePagoCuotaOficina('${escapeHtml(String(opStr))}', ${item.nro_cuota}, 'PENDIENTE')">↩️ Desmarcar</button>`;
+
         rowsHtml += `
             <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
                 <td style="padding:10px 14px;"><strong>Cuota ${item.nro_cuota}</strong></td>
@@ -596,6 +600,7 @@ function showCuotasModal(polizaId, operacion) {
                 <td style="padding:10px 14px;">${estadoBadge}</td>
                 <td style="padding:10px 14px; font-family:monospace; color:var(--text-secondary);">${pagoFormatted}</td>
                 <td style="padding:10px 14px; font-family:monospace; color:var(--accent-cyan-light);">${loteStr}</td>
+                <td style="padding:10px 14px; text-align:center;">${btnAccion}</td>
             </tr>
         `;
     });
@@ -616,6 +621,7 @@ function showCuotasModal(polizaId, operacion) {
                         <th style="padding: 10px 14px; color: var(--text-secondary);">ESTADO</th>
                         <th style="padding: 10px 14px; color: var(--text-secondary);">FECHA PAGO</th>
                         <th style="padding: 10px 14px; color: var(--text-secondary);">N° LOTE NRE</th>
+                        <th style="padding: 10px 14px; color: var(--accent-cyan-light); text-align: center;">ACCIÓN OFICINA</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -626,6 +632,37 @@ function showCuotasModal(polizaId, operacion) {
     `;
 
     modal.style.display = 'flex';
+}
+
+async function togglePagoCuotaOficina(operacion, nroCuota, nuevoEstado) {
+    const opStr = String(operacion);
+    const confirmMsg = nuevoEstado === 'PAGADA'
+        ? `¿Confirmas imputar manualmente el pago de la Cuota ${nroCuota} para la póliza ${opStr}?\n\nAcción: La cuota pasará a PAGADA y se descontará la deuda en el sistema.`
+        : `¿Confirmas revertir la Cuota ${nroCuota} a PENDIENTE para la póliza ${opStr}?\n\nAcción: Se reabrirá la deuda de la cuota en el sistema.`;
+    if (!confirm(confirmMsg)) return;
+
+    try {
+        const res = await fetch(`/api/polizas/${encodeURIComponent(opStr)}/cuotas/${nroCuota}/marcar-pago`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ estado: nuevoEstado, metodo: 'Cobro Manual Oficina' })
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+            alert(`Error al actualizar estado: ${data.error || 'Error desconocido'}`);
+            return;
+        }
+        if (typeof currentClient !== 'undefined' && currentClient && Array.isArray(currentClient.polizas)) {
+            const p = currentClient.polizas.find(item => String(item.operacion) === opStr || String(item.id) === opStr);
+            if (p && data.poliza) {
+                Object.assign(p, data.poliza);
+            }
+        }
+        showCuotasModal(opStr);
+        if (typeof loadClientData === 'function') loadClientData();
+    } catch (err) {
+        alert('Error al conectar con el servidor: ' + err.message);
+    }
 }
 
 function closeCuotasModal() {

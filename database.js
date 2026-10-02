@@ -541,6 +541,9 @@ db.marcarTelefonoInvalido = (clienteId, motivo = 'numero_inexistente') => {
 };
 
 db.evaluarAtribucionMetricas = () => {
+    if (global.AUTO_SYNC_PAUSADO) {
+        return;
+    }
     try {
         const activas = db.prepare(`
             SELECT * FROM historial_gestiones_whatsapp 
@@ -887,28 +890,9 @@ db.sincronizarPolizasSaldadasNRE = () => {
         db.transaction(() => {
             for (const p of saldadas) {
                 const total = p.total_cuotas || (p.aseguradora === 'AGS' ? 4 : 3);
-                const fvFin = p.fin_vigencia_poliza || p.fecha_vencimiento;
-
-                let histJson = p.cuotas_historial;
-                if (!histJson && fvFin) {
-                    const cuotas = [];
-                    for (let i = 1; i <= total; i++) {
-                        cuotas.push({
-                            nro_cuota: i,
-                            vto_cuota: fvFin,
-                            saldo_cli: 0,
-                            estado: 'PAGADA',
-                            fecha_pago: p.aseguradora === 'AGS' ? 'Registrado en AGS' : 'Registrado en NRE',
-                            lote: p.aseguradora === 'AGS' ? 'Sincronizado con AGS' : 'Lote NRE Sincronizado'
-                        });
-                    }
-                    histJson = JSON.stringify(cuotas);
-                }
-
-                updatePol.run(total, histJson, p.id);
+                updatePol.run(total, p.cuotas_historial, p.id);
             }
         })();
-        console.log(`✅ ${saldadas.length} pólizas saldadas sincronizadas con cuota completa y sin mora falsa.`);
     } catch(e) {
         console.error('Error en sincronizarPolizasSaldadasNRE:', e);
     }

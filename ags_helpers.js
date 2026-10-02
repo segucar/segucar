@@ -72,11 +72,13 @@ function generarCronogramaCuotasAGS(finVigencia, premio, historialExistente = nu
             const existing = histMap[i];
             const esPagadaManual = existing && existing.estado === 'PAGADA';
 
+            const imp = (existing && existing.importe) ? existing.importe : montoCuota;
+
             if (esPagadaManual) {
                 cuotas.push({
                     nro_cuota: i,
                     vto_cuota: existing ? (existing.vto_cuota || vto) : vto,
-                    importe: montoCuota,
+                    importe: imp,
                     saldo_cli: 0,
                     estado: 'PAGADA',
                     fecha_pago: existing.fecha_pago || 'Cobro Manual',
@@ -86,8 +88,8 @@ function generarCronogramaCuotasAGS(finVigencia, premio, historialExistente = nu
                 cuotas.push({
                     nro_cuota: i,
                     vto_cuota: existing.vto_cuota || vto,
-                    importe: montoCuota,
-                    saldo_cli: existing.saldo_cli !== undefined ? existing.saldo_cli : montoCuota,
+                    importe: imp,
+                    saldo_cli: existing.saldo_cli !== undefined ? existing.saldo_cli : imp,
                     estado: 'PENDIENTE',
                     fecha_pago: null,
                     lote: existing.lote || 'Sincronizado con AGS'

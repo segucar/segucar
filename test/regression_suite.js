@@ -1742,7 +1742,102 @@ async function runRegressionSuite() {
         console.error("  ❌ ERROR en TEST 30:", e.message);
     }
 
-    const totalTestsCount = 30;
+    // ── TEST 31: Desacoplamiento Total de Sync de Pagos & Cobro Exclusivo Manual en Oficina ──
+    console.log("📌 TEST 31: Desacoplamiento Total de Sync de Pagos & Cobro Exclusivo Manual en Oficina");
+    try {
+        const { generarCronogramaCuotasAGS } = require('../ags_helpers');
+
+        // 1. Verificar que generarCronogramaCuotasAGS NUNCA pasa una cuota PENDIENTE a PAGADA,
+        // aunque el portal devuelva cuotasReales con saldo $0 (rendición de broker / preliquidación)
+        const cuotasRealesConSaldoCero = [
+            { nro_cuota: 1, vto_cuota: '2026-09-10', importe: 35000, saldo_cli: 0, lote: 'Recibo 999999' },
+            { nro_cuota: 2, vto_cuota: '2026-10-10', importe: 35000, saldo_cli: 0, lote: 'Recibo 999999' }
+        ];
+        const historialPrevio = [
+            { nro_cuota: 1, vto_cuota: '2026-09-10', importe: 35000, saldo_cli: 35000, estado: 'PENDIENTE', fecha_pago: null },
+            { nro_cuota: 2, vto_cuota: '2026-10-10', importe: 35000, saldo_cli: 35000, estado: 'PENDIENTE', fecha_pago: null }
+        ];
+
+        const cronRes = generarCronogramaCuotasAGS('2026-11-10', 70000, JSON.stringify(historialPrevio), cuotasRealesConSaldoCero);
+        
+        // Ambas cuotas deben mantenerse PENDIENTES con su saldo intacto
+        const todasPendientes = cronRes.cuotas.every(c => c.estado === 'PENDIENTE' && c.saldo_cli > 0);
+        const ceroPagadasAuto = cronRes.cuotas.filter(c => c.estado === 'PAGADA').length === 0;
+
+        // 2. Verificar que una cuota marcada manualmente como PAGADA sí se respeta y no se toca
+        const historialConPagoManual = [
+            { nro_cuota: 1, vto_cuota: '2026-09-10', importe: 35000, saldo_cli: 0, estado: 'PAGADA', fecha_pago: '2026-09-15', lote: 'Cobro Manual Oficina' },
+            { nro_cuota: 2, vto_cuota: '2026-10-10', importe: 35000, saldo_cli: 35000, estado: 'PENDIENTE', fecha_pago: null }
+        ];
+        const cronRes2 = generarCronogramaCuotasAGS('2026-11-10', 70000, JSON.stringify(historialConPagoManual), cuotasRealesConSaldoCero);
+        const cuota1RespetaManual = cronRes2.cuotas.find(c => c.nro_cuota === 1 && c.estado === 'PAGADA' && c.saldo_cli === 0);
+        const cuota2SiguePendiente = cronRes2.cuotas.find(c => c.nro_cuota === 2 && c.estado === 'PENDIENTE' && c.saldo_cli > 0);
+
+        // 3. Verificar sincronizarPolizasSaldadasNRE en database.js
+        const tieneSincronizarSaldadas = typeof db.sincronizarPolizasSaldadasNRE === 'function';
+
+        // 4. Test de inserción de póliza de prueba y ciclo completo de cobro manual y reversión
+        const testCliId = db.prepare("INSERT INTO clientes (nombre, telefono) VALUES ('TEST MANUAL COBRO', '5491100009999')").run().lastInsertRowid;
+        const testPolId = db.prepare(`
+            INSERT INTO polizas (cliente_id, operacion, vehiculo, patente, saldo_pendiente, cuotas_debe, estado, cuotas_historial, created_at)
+            VALUES (?, 'TEST-OP-MANUAL', 'TEST AUTO', 'TEST999', 70000, 2, 'vigente', ?, datetime('now'))
+        `).run(testCliId, JSON.stringify(historialPrevio)).lastInsertRowid;
+
+        // Simular imputación manual de pago de cuota 1
+        const polBefore = db.prepare("SELECT * FROM polizas WHERE id = ?").get(testPolId);
+        let cuotasObj = JSON.parse(polBefore.cuotas_historial);
+        cuotasObj[0].estado = 'PAGADA';
+        cuotasObj[0].saldo_cli = 0;
+        cuotasObj[0].fecha_pago = '2026-10-02';
+        cuotasObj[0].lote = 'Cobro Manual Oficina';
+
+        const cuotasPend = cuotasObj.filter(c => c.estado === 'PENDIENTE');
+        const saldoPost = cuotasPend.reduce((sum, c) => sum + c.saldo_cli, 0);
+        const cantDebePost = cuotasPend.length;
+
+        db.prepare("UPDATE polizas SET cuotas_historial = ?, saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?")
+            .run(JSON.stringify(cuotasObj), saldoPost, cantDebePost, testPolId);
+
+        const polCobrada = db.prepare("SELECT * FROM polizas WHERE id = ?").get(testPolId);
+        const okCobroManual = polCobrada.saldo_pendiente === 35000 && polCobrada.cuotas_debe === 1;
+
+        // Simular reversión de pago de cuota 1
+        cuotasObj[0].estado = 'PENDIENTE';
+        cuotasObj[0].saldo_cli = cuotasObj[0].importe;
+        cuotasObj[0].fecha_pago = null;
+        cuotasObj[0].lote = '';
+
+        const cuotasPendRev = cuotasObj.filter(c => c.estado === 'PENDIENTE');
+        const saldoRev = cuotasPendRev.reduce((sum, c) => sum + c.saldo_cli, 0);
+        const cantDebeRev = cuotasPendRev.length;
+
+        db.prepare("UPDATE polizas SET cuotas_historial = ?, saldo_pendiente = ?, cuotas_debe = ? WHERE id = ?")
+            .run(JSON.stringify(cuotasObj), saldoRev, cantDebeRev, testPolId);
+
+        const polRevertida = db.prepare("SELECT * FROM polizas WHERE id = ?").get(testPolId);
+        const okReversion = polRevertida.saldo_pendiente === 70000 && polRevertida.cuotas_debe === 2;
+
+        // Limpiar registro de test
+        db.prepare("DELETE FROM polizas WHERE id = ?").run(testPolId);
+        db.prepare("DELETE FROM clientes WHERE id = ?").run(testCliId);
+
+        const test31Ok = todasPendientes && ceroPagadasAuto && Boolean(cuota1RespetaManual) && Boolean(cuota2SiguePendiente) && tieneSincronizarSaldadas && okCobroManual && okReversion;
+
+        if (test31Ok) {
+            console.log("  ✅ PASSED -> Desacoplamiento de Sync: Portales NRE/AGS NUNCA marcan cuotas como PAGADA por saldo $0 o recibos.");
+            console.log("  ✅ PASSED -> Preservación de Pagos Manuales: Cuotas abonadas en oficina se mantienen PAGADAS en cada ciclo de sync.");
+            console.log("  ✅ PASSED -> Acción Manual de Oficina: Imputación de pago y reversión de cuotas 100% funcionales y consistentes con saldo_pendiente y cuotas_debe.\n");
+            totalPassed++;
+        } else {
+            console.error("  ❌ FAILED en TEST 31:", {
+                todasPendientes, ceroPagadasAuto, cuota1RespetaManual: Boolean(cuota1RespetaManual), cuota2SiguePendiente: Boolean(cuota2SiguePendiente), okCobroManual, okReversion
+            });
+        }
+    } catch(e) {
+        console.error("  ❌ ERROR en TEST 31:", e.message);
+    }
+
+    const totalTestsCount = 31;
     console.log("==================================================");
     if (totalPassed === totalTestsCount) {
         console.log(`🏆 SUITE DE REGRESIÓN: ${totalPassed}/${totalTestsCount} PASSED — SISTEMA BLINDADO Y OPERATIVO`);

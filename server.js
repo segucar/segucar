@@ -15,6 +15,9 @@ const { inferirGeneroPorNombre, calcularEstadisticasDemograficas } = require('./
 const waService = require('./whatsapp_service');
 const { obtenerPendientesHoy, ejecutarDespachoDiario, iniciarScheduler8AM } = require('./automation_scheduler');
 
+// 🛑 BANDERA GLOBAL: Auto-sync y mutaciones automáticas PAUSADOS por administración
+global.AUTO_SYNC_PAUSADO = true;
+
 // ─── MIGRACIÓN AUTOMÁTICA: Alinear plantillas con nombres de Meta ────────────
 (function migrarPlantillas() {
     try {
@@ -2290,6 +2293,9 @@ let isSyncingNRE = false;
 let isSyncingAGS = false;
 
 app.post('/api/sync-nre', async (req, res) => {
+    if (global.AUTO_SYNC_PAUSADO) {
+        return res.status(403).json({ success: false, error: 'Sincronización con NRE en pausa por administración.' });
+    }
     if (isSyncingNRE) {
         return res.json({
             success: true,
@@ -2320,6 +2326,9 @@ app.post('/api/sync-nre', async (req, res) => {
 });
 
 app.post('/api/sync-ags', async (req, res) => {
+    if (global.AUTO_SYNC_PAUSADO) {
+        return res.status(403).json({ success: false, error: 'Sincronización con AGS en pausa por administración.' });
+    }
     if (isSyncingAGS) {
         return res.json({
             success: true,
@@ -3582,6 +3591,9 @@ app.get('/api/siniestros/buscar', (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 function evaluarAtribucionMetricas() {
+    if (global.AUTO_SYNC_PAUSADO) {
+        return;
+    }
     if (typeof db.evaluarAtribucionMetricas === 'function') {
         db.evaluarAtribucionMetricas();
     }
@@ -5534,6 +5546,150 @@ app.patch('/api/admin/cuotas/:id', (req, res) => {
         const updatedCuota = db.prepare('SELECT * FROM cuotas_admin WHERE id = ?').get(id);
         res.json(updatedCuota);
     } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 💳 ACCIÓN MANUAL DE OFICINA: Imputar o Revertir Pago de Cuota
+// Única vía (junto con Mercado Pago) para cambiar el estado de pago de una cuota
+app.post('/api/polizas/:id/cuotas/:nroCuota/marcar-pago', (req, res) => {
+    try {
+        const { id, nroCuota } = req.params;
+        const nro = parseInt(nroCuota, 10);
+        const { estado, metodo } = req.body; // 'PAGADA' o 'PENDIENTE'
+
+        const poliza = db.prepare('SELECT * FROM polizas WHERE id = ? OR operacion = ?').get(id, id);
+        if (!poliza) {
+            return res.status(404).json({ error: 'Póliza no encontrada' });
+        }
+
+        let cuotas = [];
+        if (poliza.cuotas_historial) {
+            try {
+                cuotas = JSON.parse(poliza.cuotas_historial);
+            } catch(e) {
+                cuotas = [];
+            }
+        }
+
+        if (!Array.isArray(cuotas) || cuotas.length === 0) {
+            const isAGS = poliza.aseguradora === 'AGS' || poliza.aseguradora === 'Agrosalta';
+            const total = poliza.total_cuotas || (isAGS ? 4 : 3);
+            const cuotasDebe = poliza.cuotas_debe || 0;
+            const saldo = parseFloat(poliza.saldo_pendiente) || 0;
+            const montoPorCuota = saldo > 0 && cuotasDebe > 0 ? (saldo / cuotasDebe) : 32000;
+
+            for (let i = 1; i <= total; i++) {
+                const esImpaga = (i > (total - cuotasDebe));
+                cuotas.push({
+                    nro_cuota: i,
+                    vto_cuota: poliza.fecha_vencimiento || null,
+                    importe: montoPorCuota,
+                    saldo_cli: esImpaga ? montoPorCuota : 0,
+                    estado: esImpaga ? 'PENDIENTE' : 'PAGADA',
+                    fecha_pago: esImpaga ? null : 'Histórico Anterior',
+                    lote: esImpaga ? '' : 'Histórico'
+                });
+            }
+        }
+
+        let targetCuota = cuotas.find(c => parseInt(c.nro_cuota, 10) === nro);
+        if (!targetCuota) {
+            targetCuota = {
+                nro_cuota: nro,
+                vto_cuota: poliza.fecha_vencimiento,
+                importe: 32000,
+                saldo_cli: 32000,
+                estado: 'PENDIENTE',
+                fecha_pago: null,
+                lote: ''
+            };
+            cuotas.push(targetCuota);
+        }
+
+        const nuevoEstado = estado ? estado.toUpperCase() : (targetCuota.estado === 'PAGADA' ? 'PENDIENTE' : 'PAGADA');
+        const hoyIso = new Date().toISOString().slice(0, 10);
+
+        if (nuevoEstado === 'PAGADA') {
+            targetCuota.estado = 'PAGADA';
+            targetCuota.saldo_cli = 0;
+            targetCuota.fecha_pago = req.body.fecha_pago || hoyIso;
+            targetCuota.lote = metodo || 'Cobro Manual Oficina';
+        } else {
+            targetCuota.estado = 'PENDIENTE';
+            targetCuota.saldo_cli = targetCuota.importe > 0 ? targetCuota.importe : (parseFloat(poliza.saldo_pendiente) || 32000);
+            targetCuota.fecha_pago = null;
+            targetCuota.lote = '';
+        }
+
+        // Recalcular saldo pendiente, cuotas_debe y próxima cuota activa
+        const cuotasPendientes = cuotas.filter(c => c.estado === 'PENDIENTE');
+        const cuotasPendientesPrincipales = cuotasPendientes.filter(c => (parseFloat(c.saldo_cli) || 0) > 2500);
+        const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (parseFloat(c.saldo_cli) || 0), 0);
+        const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < hoyIso).length;
+
+        const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
+            ? cuotasPendientesPrincipales.sort((a, b) => (a.vto_cuota || '').localeCompare(b.vto_cuota || ''))[0].vto_cuota 
+            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+        const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+            ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+
+        db.prepare(`
+            UPDATE polizas
+            SET saldo_pendiente = ?,
+                cuotas_debe = ?,
+                nro_cuota = COALESCE(?, nro_cuota),
+                fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                cuotas_historial = ?
+            WHERE id = ?
+        `).run(
+            nuevoSaldo,
+            cantDebe,
+            primerNroPendiente,
+            primerVtoPendiente,
+            JSON.stringify(cuotas),
+            poliza.id
+        );
+
+        // Mantener sincronizado cuotas_admin si existe
+        try {
+            const adminEstado = nuevoEstado === 'PAGADA' ? 'PAGADO' : 'PENDIENTE';
+            db.prepare(`
+                UPDATE cuotas_admin 
+                SET estado = ?, 
+                    fecha_pago = ? 
+                WHERE poliza_id = ? AND numero_cuota = ?
+            `).run(
+                adminEstado, 
+                nuevoEstado === 'PAGADA' ? new Date().toISOString() : null, 
+                poliza.id, 
+                nro
+            );
+        } catch(e) {}
+
+        if (typeof db.evaluarAtribucionMetricas === 'function') {
+            db.evaluarAtribucionMetricas();
+        }
+
+        const polizaActualizada = db.prepare('SELECT * FROM polizas WHERE id = ?').get(poliza.id);
+
+        res.json({
+            success: true,
+            mensaje: `Cuota ${nro} actualizada a ${nuevoEstado} exitosamente.`,
+            cuota: targetCuota,
+            poliza: {
+                id: polizaActualizada.id,
+                operacion: polizaActualizada.operacion,
+                saldo_pendiente: polizaActualizada.saldo_pendiente,
+                cuotas_debe: polizaActualizada.cuotas_debe,
+                nro_cuota: polizaActualizada.nro_cuota,
+                fecha_vencimiento: polizaActualizada.fecha_vencimiento,
+                cuotas_historial: polizaActualizada.cuotas_historial
+            }
+        });
+    } catch(e) {
+        console.error('Error al marcar pago manual de cuota:', e);
         res.status(500).json({ error: e.message });
     }
 });

@@ -417,23 +417,17 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
                     nro_cuota: nroInt,
                     vto_cuota: vtoCuota,
                     saldo_cli: saldoCli,
-                    estado: estaPendiente ? 'PENDIENTE' : 'PAGADA',
-                    fecha_pago: fechaPago,
-                    lote: lote
+                    estado: 'PENDIENTE',
+                    fecha_pago: null,
+                    lote: ''
                 });
             }
         }
     });
 
-    // 🛡️ PROTECCIÓN CRÍTICA: NO resetear masivamente a 0 pólizas que tienen cuotas pendientes reales en su historial
-    const resetCuotas = db.prepare(`
-        UPDATE polizas 
-        SET cuotas_debe = 0, saldo_pendiente = 0 
-        WHERE cuotas_historial IS NULL 
-           OR cuotas_historial = '' 
-           OR cuotas_historial = '[]' 
-           OR cuotas_historial NOT LIKE '%"estado":"PENDIENTE"%'
-    `);
+    // 🛡️ REGLA CENTRAL DE ORGANIZADOR: NUNCA resetear masivamente deudas a 0 por lisdeupmo.
+    // NRE puede quitar cuotas de su lista por liquidación interna del broker, pero el cliente NO pagó.
+    // Solo cobros manuales en oficina cambian cuotas a PAGADA.
     const updatePolizaDeuda = db.prepare(`
         UPDATE polizas 
         SET cuotas_debe = ?, 
@@ -452,15 +446,63 @@ async function syncDeudasNRE(usuario, password, desdeStr, hastaStr) {
     `);
 
     db.transaction((map) => {
-        resetCuotas.run();
         for (const [op, infoData] of Object.entries(map)) {
-            const historialJson = JSON.stringify(infoData.historial);
+            const currentPol = db.prepare('SELECT cuotas_historial FROM polizas WHERE operacion = ?').get(op);
+            let mergedHistorial = [];
+            let existingMap = {};
+            if (currentPol && currentPol.cuotas_historial) {
+                try {
+                    const parsed = JSON.parse(currentPol.cuotas_historial);
+                    if (Array.isArray(parsed)) {
+                        for (const c of parsed) {
+                            if (c && c.nro_cuota) existingMap[c.nro_cuota] = c;
+                        }
+                    }
+                } catch(e){}
+            }
+
+            for (const item of infoData.historial) {
+                const exist = existingMap[item.nro_cuota];
+                if (exist) {
+                    // Preservar estado del CRM (PAGADA o PENDIENTE) — el portal NO lo cambia a PAGADA
+                    mergedHistorial.push({
+                        nro_cuota: item.nro_cuota,
+                        vto_cuota: exist.vto_cuota || item.vto_cuota,
+                        saldo_cli: exist.estado === 'PAGADA' ? 0 : (exist.saldo_cli !== undefined ? exist.saldo_cli : item.saldo_cli),
+                        estado: exist.estado || 'PENDIENTE',
+                        fecha_pago: exist.fecha_pago || null,
+                        lote: exist.lote || ''
+                    });
+                    delete existingMap[item.nro_cuota];
+                } else {
+                    mergedHistorial.push({
+                        nro_cuota: item.nro_cuota,
+                        vto_cuota: item.vto_cuota,
+                        saldo_cli: item.saldo_cli,
+                        estado: 'PENDIENTE',
+                        fecha_pago: null,
+                        lote: ''
+                    });
+                }
+            }
+            for (const rem of Object.values(existingMap)) {
+                mergedHistorial.push(rem);
+            }
+            mergedHistorial.sort((a, b) => a.nro_cuota - b.nro_cuota);
+
+            const cuotasPend = mergedHistorial.filter(c => c.estado === 'PENDIENTE');
+            const cuotasPendPrinc = cuotasPend.filter(c => (c.saldo_cli || 0) > 2500);
+            const totalSaldoReal = cuotasPend.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
+            const primerVto = cuotasPendPrinc.length > 0 ? cuotasPendPrinc.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota : (cuotasPend.length > 0 ? cuotasPend[0].vto_cuota : null);
+            const primerNro = cuotasPendPrinc.length > 0 ? cuotasPendPrinc.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota : (cuotasPend.length > 0 ? cuotasPend[0].nro_cuota : null);
+            const cantDebeReal = cuotasPendPrinc.filter(c => c.vto_cuota && c.vto_cuota < hoyStr).length;
+
             const info = updatePolizaDeuda.run(
-                infoData.cantDebe,
-                infoData.primeraCuota,
-                infoData.totalSaldo,
-                infoData.vtoPrimeraCuota,
-                historialJson,
+                cantDebeReal,
+                primerNro,
+                totalSaldoReal,
+                primerVto,
+                JSON.stringify(mergedHistorial),
                 op
             );
             if (info.changes > 0) actualizados++;
@@ -548,15 +590,6 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
     console.log(`[syncPagosNRE] Verificando ${candidatos.length} pólizas candidatas contra NRE muestro-polizas...`);
 
     let saldadas = 0;
-    const actualizarSaldada = db.prepare(`
-        UPDATE polizas 
-        SET cuotas_debe = 0, 
-            saldo_pendiente = 0, 
-            nro_cuota = COALESCE(total_cuotas, 3),
-            fecha_vencimiento = COALESCE(fin_vigencia_poliza, fecha_vencimiento),
-            cuotas_historial = ?
-        WHERE operacion = ?
-    `);
 
     const cheerio = require('cheerio');
     const CONCURRENCIA = 10;
@@ -638,7 +671,22 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                     }
                 });
 
-                // 2. Extraer tabla de Cronograma de Cuotas (con Saldo Cli)
+                // 2. Extraer tabla de Cronograma de Cuotas
+                // 🛡️ REGLA CENTRAL DE ORGANIZADOR: El portal NRE NUNCA imputa pagos.
+                // Consultamos el historial existente en CRM para preservar fielmente los estados reales (PAGADA / PENDIENTE).
+                const polExistente = db.prepare('SELECT cuotas_historial FROM polizas WHERE operacion = ?').get(pol.operacion);
+                let existingMap = {};
+                if (polExistente && polExistente.cuotas_historial) {
+                    try {
+                        const parsed = JSON.parse(polExistente.cuotas_historial);
+                        if (Array.isArray(parsed)) {
+                            for (const c of parsed) {
+                                if (c && c.nro_cuota) existingMap[c.nro_cuota] = c;
+                            }
+                        }
+                    } catch(e){}
+                }
+
                 const cuotasHistorial = [];
                 $('table').each((tIdx, table) => {
                     const headerText = $(table).find('tr').first().text().toLowerCase();
@@ -658,32 +706,20 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
                                 const vtoRaw = cols[colIdxVto];
                                 const vtoIso = vtoRaw && vtoRaw.includes('/') ? vtoRaw.split('/').reverse().join('-') : vtoRaw;
                                 const importeCuota = parseFloat((cols[colIdxImporte] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
-                                const saldoCli = parseFloat((cols[colIdxSaldoCli] || '0').replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
                                 
                                 if (vtoIso && /\d{4}-\d{2}-\d{2}/.test(vtoIso)) {
-                                    const pagoCorresp = pagosHistorial.find(p => p.nro === nroCuota);
-                                    
-                                    // 🛡️ PROTECCIÓN CRÍTICA CONTRA PRELIQUIDACIONES / LOTES ADMINISTRATIVOS DE NRE:
-                                    // Los recibos masivos emitidos en NRE el 01/10 (ej. Lote 32018 con recibos 239xxxx)
-                                    // representan liquidación interna con el broker, NO cobranzas reales de los clientes.
-                                    const esPreliquidacionBatch = Boolean(
-                                        pagoCorresp && (
-                                            (pagoCorresp.recibo && String(pagoCorresp.recibo).startsWith('239')) ||
-                                            (pagoCorresp.fecha && (pagoCorresp.fecha.includes('01/10/2026') || pagoCorresp.fecha.includes('02/10/2026')))
-                                        )
-                                    );
-
-                                    const estadoCuota = (saldoCli <= 0 && !esPreliquidacionBatch) ? 'PAGADA' : 'PENDIENTE';
-                                    const saldoReal = esPreliquidacionBatch ? (saldoCli > 0 ? saldoCli : importeCuota) : saldoCli;
+                                    const existingCuota = existingMap[nroCuota];
+                                    const esPagadaManual = existingCuota && existingCuota.estado === 'PAGADA';
+                                    const saldoReal = esPagadaManual ? 0 : (existingCuota && existingCuota.saldo_cli !== undefined ? existingCuota.saldo_cli : importeCuota);
 
                                     cuotasHistorial.push({
                                         nro_cuota: nroCuota,
                                         vto_cuota: vtoIso,
                                         importe: importeCuota,
                                         saldo_cli: saldoReal,
-                                        estado: estadoCuota,
-                                        fecha_pago: (pagoCorresp && !esPreliquidacionBatch) ? pagoCorresp.fecha : null,
-                                        lote: (pagoCorresp && !esPreliquidacionBatch) ? `Recibo ${pagoCorresp.recibo}` : ''
+                                        estado: esPagadaManual ? 'PAGADA' : 'PENDIENTE',
+                                        fecha_pago: esPagadaManual ? (existingCuota.fecha_pago || 'Cobro Manual') : null,
+                                        lote: existingCuota?.lote || ''
                                     });
                                 }
                             }
@@ -693,39 +729,33 @@ async function syncPagosNRE(usuario = 'SUA', password = 'sua', opsEnNreDeuda = n
 
                 if (cuotasHistorial.length > 0) {
                     const cuotasPendientes = cuotasHistorial.filter(c => c.estado === 'PENDIENTE');
-                    if (cuotasPendientes.length === 0) {
-                        actualizarSaldada.run(JSON.stringify(cuotasHistorial), pol.operacion);
-                        saldadas++;
-                    } else {
-                        // Tiene cuotas pendientes pero quizás menos que antes
-                        const cuotasPendientesPrincipales = cuotasPendientes.filter(c => c.saldo_cli > 2500);
-                        const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
-                        const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
-                            ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota 
-                            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
-                        const primerNroPendiente = cuotasPendientesPrincipales.length > 0
-                            ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
-                            : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
-                        const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
+                    const cuotasPendientesPrincipales = cuotasPendientes.filter(c => c.saldo_cli > 2500);
+                    const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (c.saldo_cli || 0), 0);
+                    const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
+                        ? cuotasPendientesPrincipales.sort((a, b) => a.vto_cuota.localeCompare(b.vto_cuota))[0].vto_cuota 
+                        : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+                    const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+                        ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                        : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+                    const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < new Date().toISOString().slice(0, 10)).length;
 
-                        db.prepare(`
-                            UPDATE polizas
-                            SET saldo_pendiente = ?,
-                                cuotas_debe = ?,
-                                nro_cuota = COALESCE(?, nro_cuota),
-                                fecha_vencimiento = COALESCE(?, fecha_vencimiento),
-                                cuotas_historial = ?
-                            WHERE operacion = ?
-                        `).run(
-                            nuevoSaldo,
-                            cantDebe,
-                            primerNroPendiente,
-                            primerVtoPendiente,
-                            JSON.stringify(cuotasHistorial),
-                            pol.operacion
-                        );
-                        saldadas++;
-                    }
+                    db.prepare(`
+                        UPDATE polizas
+                        SET saldo_pendiente = ?,
+                            cuotas_debe = ?,
+                            nro_cuota = COALESCE(?, nro_cuota),
+                            fecha_vencimiento = COALESCE(?, fecha_vencimiento),
+                            cuotas_historial = ?
+                        WHERE operacion = ?
+                    `).run(
+                        nuevoSaldo,
+                        cantDebe,
+                        primerNroPendiente,
+                        primerVtoPendiente,
+                        JSON.stringify(cuotasHistorial),
+                        pol.operacion
+                    );
+                    saldadas++;
                 }
             } catch (e) {
                 // Ignore timeouts / NRE errors
