@@ -5966,6 +5966,25 @@ app.get('/api/admin/detector-pagos/muestra-sombra', (req, res) => {
     }
 });
 
+// 🔒 POST /api/admin/config-despacho/toggle — Interruptor de despacho automático de cobranzas 8AM
+app.post("/api/admin/config-despacho/toggle", (req, res) => {
+    try {
+        const { activo } = req.body;
+        const nuevoValor = (activo === true || activo === 1 || activo === "1") ? 1 : 0;
+        db.prepare("UPDATE config_whatsapp_api SET despacho_activo = ? WHERE id = 1").run(nuevoValor);
+        const cfg = db.prepare("SELECT * FROM config_whatsapp_api WHERE id = 1").get();
+        res.json({
+            success: true,
+            despacho_activo: cfg.despacho_activo,
+            mensaje: nuevoValor === 1 
+                ? "Despacho automático de WhatsApp 8AM ACTIVADO." 
+                : "Despacho automático de WhatsApp 8AM PAUSADO."
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 🔒 POST /api/admin/config-deteccion-pagos/toggle — Interruptor maestro de detección automática
 app.post('/api/admin/config-deteccion-pagos/toggle', (req, res) => {
     try {

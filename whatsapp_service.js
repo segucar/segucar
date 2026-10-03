@@ -47,12 +47,12 @@ function getConfig() {
 /**
  * Guarda la configuración de la API (API Key, modo, n8n webhook, etc.)
  */
-function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url }) {
+function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url, despacho_activo }) {
   try {
     const existing = db.prepare('SELECT * FROM config_whatsapp_api WHERE id = 1').get() || {};
     db.prepare(`
-      INSERT INTO config_whatsapp_api (id, proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url, updated_at)
-      VALUES (1, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+      INSERT INTO config_whatsapp_api (id, proveedor, api_key, waba_id, phone_number_id, modo, webhook_url, n8n_webhook_url, despacho_activo, updated_at)
+      VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT(id) DO UPDATE SET
         proveedor = COALESCE(excluded.proveedor, proveedor),
         api_key = COALESCE(excluded.api_key, api_key),
@@ -61,6 +61,7 @@ function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhoo
         modo = COALESCE(excluded.modo, modo),
         webhook_url = COALESCE(excluded.webhook_url, webhook_url),
         n8n_webhook_url = COALESCE(excluded.n8n_webhook_url, n8n_webhook_url),
+        despacho_activo = COALESCE(excluded.despacho_activo, despacho_activo),
         updated_at = CURRENT_TIMESTAMP
     `).run(
       proveedor || existing.proveedor || '360dialog',
@@ -69,7 +70,8 @@ function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhoo
       phone_number_id !== undefined ? phone_number_id : (existing.phone_number_id || ''),
       modo || existing.modo || 'simulacion',
       webhook_url !== undefined ? webhook_url : (existing.webhook_url || ''),
-      n8n_webhook_url !== undefined ? n8n_webhook_url : (existing.n8n_webhook_url || '')
+      n8n_webhook_url !== undefined ? n8n_webhook_url : (existing.n8n_webhook_url || ''),
+      despacho_activo !== undefined ? (despacho_activo ? 1 : 0) : (existing.despacho_activo !== undefined ? existing.despacho_activo : 0)
     );
     return { ok: true };
   } catch (err) {
