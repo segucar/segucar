@@ -181,6 +181,16 @@ db.exec(`
     );
 
     -- ⚙️ TABLA: Configuración WhatsApp API (360dialog / Meta)
+    
+    CREATE TABLE IF NOT EXISTS historial_sync (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        proveedor TEXT NOT NULL,
+        estado TEXT NOT NULL,
+        detalles TEXT,
+        duracion_seg REAL,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS config_whatsapp_api (
         id INTEGER PRIMARY KEY DEFAULT 1,
         proveedor TEXT DEFAULT '360dialog',

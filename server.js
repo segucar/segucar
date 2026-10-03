@@ -565,6 +565,18 @@ function updateLastSyncDate(provider = 'nre', status = 'ok', details = null) {
         }
         current.last_sync_date = now;
         fs.writeFileSync(syncFile, JSON.stringify(current, null, 2));
+        try {
+            const dur = details && details.duracion_seg ? parseFloat(details.duracion_seg) : null;
+            const detStr = details ? JSON.stringify(details) : null;
+            db.prepare('INSERT INTO historial_sync (proveedor, estado, detalles, duracion_seg) VALUES (?, ?, ?, ?)').run(
+                provider.toUpperCase(),
+                status,
+                detStr,
+                dur
+            );
+        } catch(dbErr) {
+            console.error('Error insertando en historial_sync:', dbErr.message);
+        }
     } catch(e) {
         console.error('Error guardando sync info:', e);
     }
@@ -6546,8 +6558,10 @@ function iniciarAutoSyncNRE() {
             const password = process.env.SISTEMA_PASSWORD || 'sua';
             console.log(`🔄 Auto-sync NRE de fondo iniciado...`);
             const result = await syncGeneralNRE(usuario, password);
+            updateLastSyncDate('nre', 'ok', result);
             console.log(`✅ Auto-sync NRE completado`);
         } catch (err) {
+            updateLastSyncDate('nre', 'error', { error: err.message });
             console.error('❌ Auto-sync NRE error:', err.message);
         }
     }
@@ -6580,8 +6594,10 @@ function iniciarAutoSyncAGS() {
         try {
             console.log(`🔄 Auto-sync AGS de fondo iniciado...`);
             const result = await syncAGS();
+            updateLastSyncDate('ags', 'ok', result);
             console.log(`✅ Auto-sync AGS completado`);
         } catch (err) {
+            updateLastSyncDate('ags', 'error', { error: err.message });
             console.error('❌ Auto-sync AGS error:', err.message);
         }
     }
@@ -6590,6 +6606,24 @@ function iniciarAutoSyncAGS() {
     setInterval(correrAutoSyncAGS, INTERVALO_MS);
     console.log('⏰ Auto-sync AGS programado: cada 2hs en días hábiles (7am-8pm hora Argentina)');
 }
+
+// GET /api/admin/sync/historial — Historial persistente de sincronizaciones
+app.get('/api/admin/sync/historial', (req, res) => {
+    if (!checkRequestAuth(req)) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Acceso no autorizado.' });
+    }
+    try {
+        const rows = db.prepare('SELECT * FROM historial_sync ORDER BY id DESC LIMIT 20').all();
+        const lastSyncInfo = getLastSyncInfo();
+        res.json({
+            success: true,
+            info_actual: lastSyncInfo,
+            historial: rows
+        });
+    } catch(e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 app.get('/api/admin/auto-sync/status', (req, res) => {
     res.json({
