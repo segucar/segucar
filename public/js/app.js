@@ -2877,6 +2877,19 @@ function makeColumnsResizable() {
   });
 }
 
+function formatDateClean(dateStr) {
+  if (!dateStr) return "-";
+  const str = String(dateStr).trim();
+  if (str.startsWith("Registrado") || str.startsWith("Histórico")) return str;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(str)) return str;
+  const clean = str.split("T")[0].split(" ")[0];
+  const parts = clean.split("-");
+  if (parts.length === 3) {
+    return `${parts[2].padStart(2, "0")}/${parts[1].padStart(2, "0")}/${parts[0]}`;
+  }
+  return clean;
+}
+
 function showCuotasModal(polizaId, operacion) {
   let targetPoliza = null;
   let targetCliente = null;
@@ -2951,16 +2964,12 @@ function showCuotasModal(polizaId, operacion) {
     const vtoFormatted = item.vto_cuota ? formatDate(item.vto_cuota) : '-';
     let rawPago = item.fecha_pago;
     if (rawPago === 'Registrado en NRE' && isAGSPoliza) rawPago = 'Registrado en AGS';
-    const pagoFormatted = rawPago ? (rawPago.startsWith('Registrado') ? rawPago : formatDate(rawPago)) : (isPend ? '-' : 'Abonada');
+    const pagoFormatted = rawPago ? (rawPago.startsWith('Registrado') ? rawPago : formatDateClean(rawPago)) : (isPend ? '-' : 'Abonada');
     const saldoFormatted = item.saldo_cli > 0 
       ? `$ ${parseFloat(item.saldo_cli).toLocaleString('es-AR', { minimumFractionDigits:2, maximumFractionDigits:2 })}` 
       : '$ 0,00';
     let loteStr = item.lote || '-';
     if (loteStr === 'Lote NRE Sincronizado' && isAGSPoliza) loteStr = 'Sincronizado con AGS';
-
-    const btnAccion = isPend
-      ? `<button class="btn btn-sm" style="background:#2ed573; color:#fff; border:none; padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:700; cursor:pointer;" onclick="togglePagoCuotaOficina('${escapeHtml(String(opStr))}', ${item.nro_cuota}, 'PAGADA')">💳 Imputar Pago</button>`
-      : `<button class="btn btn-sm" style="background:rgba(255,255,255,0.06); color:#ff4757; border:1px solid #ff4757; padding:4px 8px; border-radius:6px; font-size:0.75rem; font-weight:600; cursor:pointer;" onclick="togglePagoCuotaOficina('${escapeHtml(String(opStr))}', ${item.nro_cuota}, 'PENDIENTE')">↩️ Desmarcar</button>`;
 
     rowsHtml += `
       <tr style="border-bottom:1px solid rgba(255,255,255,0.06);">
@@ -2970,7 +2979,6 @@ function showCuotasModal(polizaId, operacion) {
         <td style="padding:10px 14px;">${estadoBadge}</td>
         <td style="padding:10px 14px; font-family:monospace; color:var(--text-secondary);">${escapeHtml(pagoFormatted)}</td>
         <td style="padding:10px 14px; font-family:monospace; color:var(--accent-cyan-light);">${escapeHtml(loteStr)}</td>
-        <td style="padding:10px 14px; text-align:center;">${btnAccion}</td>
       </tr>
     `;
   });
@@ -3003,7 +3011,6 @@ function showCuotasModal(polizaId, operacion) {
             <th style="padding: 10px 14px; color: var(--text-secondary);">ESTADO</th>
             <th style="padding: 10px 14px; color: var(--text-secondary);">FECHA PAGO</th>
             <th style="padding: 10px 14px; color: var(--text-secondary);">${isAGSPoliza ? 'REFERENCIA / LOTE' : 'N° LOTE NRE'}</th>
-            <th style="padding: 10px 14px; color: var(--accent-cyan-light); text-align: center;">ACCIÓN OFICINA</th>
           </tr>
         </thead>
         <tbody>
