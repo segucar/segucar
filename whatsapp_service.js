@@ -65,7 +65,7 @@ function saveConfig({ proveedor, api_key, waba_id, phone_number_id, modo, webhoo
         updated_at = CURRENT_TIMESTAMP
     `).run(
       proveedor || existing.proveedor || '360dialog',
-      api_key !== undefined ? api_key : (existing.api_key || ''),
+      api_key !== undefined && !String(api_key).includes('...') ? api_key : (existing.api_key || ''),
       waba_id !== undefined ? waba_id : (existing.waba_id || ''),
       phone_number_id !== undefined ? phone_number_id : (existing.phone_number_id || ''),
       modo || existing.modo || 'simulacion',

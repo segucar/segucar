@@ -3053,18 +3053,30 @@ app.get('/api/validacion-telefonos', (req, res) => {
 //  📱 WHATSAPP BUSINESS API (360dialog / Meta Directo)
 // ═══════════════════════════════════════════════════════════════════════════
 
-// GET Config de WhatsApp API
+// GET Config de WhatsApp API (Protegido por autenticación y con API Key enmascarada)
 app.get('/api/whatsapp/config', (req, res) => {
+    if (!checkRequestAuth(req)) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Acceso no autorizado. Iniciar sesión o proveer x-api-key.' });
+    }
     try {
         const cfg = waService.getConfig();
-        res.json(cfg);
+        const sanitized = {
+            ...cfg,
+            // 🔒 Enmascarar la API Key para que nunca viaje en texto plano
+            api_key: cfg.api_key ? (cfg.api_key.slice(0, 4) + '...' + cfg.api_key.slice(-4)) : '',
+            tiene_api_key: Boolean(cfg.api_key)
+        };
+        res.json(sanitized);
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
 });
 
-// POST Guardar Config de WhatsApp API (API Key, modo, etc)
+// POST Guardar Config de WhatsApp API (Protegido por autenticación)
 app.post('/api/whatsapp/config', (req, res) => {
+    if (!checkRequestAuth(req)) {
+        return res.status(401).json({ error: 'UNAUTHORIZED', message: 'Acceso no autorizado. Iniciar sesión o proveer x-api-key.' });
+    }
     try {
         const result = waService.saveConfig(req.body);
         res.json(result);
