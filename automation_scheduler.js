@@ -160,21 +160,47 @@ function obtenerPendientesHoy(db, fechaRef = null) {
         let tipo = null;
         let plantilla = null;
 
-        // ── 1. Evaluar Cobranzas con la función oficial de días hábiles ──────
-        const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldo, hoyDate);
+        // 🛡️ BLINDAJE DE COBRANZAS:
+        // Si la póliza tiene cuotas_historial, verificar si la cuota evaluada ya fue pagada
+        // o si no tiene cuotas pendientes reales (saldo_cli > 2500).
+        let cuotaPagadaEnHistorial = false;
+        if (p.cuotas_historial) {
+            try {
+                const hist = JSON.parse(p.cuotas_historial);
+                if (Array.isArray(hist) && hist.length > 0) {
+                    const cuotaMatch = hist.find(c => c && c.vto_cuota === p.fecha_vencimiento);
+                    if (cuotaMatch && cuotaMatch.estado === 'PAGADA') {
+                        cuotaPagadaEnHistorial = true;
+                    }
+                    const pendientesReales = hist.filter(c => c && c.estado === 'PENDIENTE' && (parseFloat(c.saldo_cli) || 0) > 2500);
+                    if (pendientesReales.length === 0) {
+                        cuotaPagadaEnHistorial = true;
+                    }
+                }
+            } catch(e) {}
+        }
 
-        if (estadoHabil === 'recordatorio_48hs') {
-            const vtoCuotaDate = normalizarFecha(p.fecha_vencimiento);
-            if (vtoCuotaDate && vtoCuotaDate >= hoyDate) {
-                tipo = 'recordatorio_48hs';
-                plantilla = 'recordatorio_preventivo_48hs';
+        // ── 1. Evaluar Cobranzas con la función oficial de días hábiles ──────
+        if (!cuotaPagadaEnHistorial && saldo > 2500) {
+            const estadoHabil = evaluarEstadoCobranzaHabil(p.fecha_vencimiento, saldo, hoyDate);
+
+            if (estadoHabil === 'recordatorio_48hs') {
+                const vtoCuotaDate = normalizarFecha(p.fecha_vencimiento);
+                if (vtoCuotaDate && vtoCuotaDate >= hoyDate) {
+                    tipo = 'recordatorio_48hs';
+                    plantilla = 'recordatorio_preventivo_48hs';
+                }
+            } else if (estadoHabil === 'cuota_vencida_0_48hs') {
+                if (cuotasDebe > 0 || !p.cuotas_historial) {
+                    tipo = 'primer_aviso';
+                    plantilla = 'primer_aviso_vencida_48hs';
+                }
+            } else if (estadoHabil === 'cuota_vencida_48_96hs') {
+                if (cuotasDebe > 0 || !p.cuotas_historial) {
+                    tipo = 'segundo_aviso';
+                    plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
+                }
             }
-        } else if (estadoHabil === 'cuota_vencida_0_48hs') {
-            tipo = 'primer_aviso';
-            plantilla = 'primer_aviso_vencida_48hs';
-        } else if (estadoHabil === 'cuota_vencida_48_96hs') {
-            tipo = 'segundo_aviso';
-            plantilla = 'cuota_segundo_aviso_vencida_hace_96_hs';
         }
 
         // ── 2. Evaluar Renovaciones (Aviso 7 días exactos para clientes AL DÍA) ────
@@ -502,6 +528,7 @@ function yaSeDespachoHoy(db, fechaStr) {
  */
 function iniciarScheduler8AM({ db, waService }) {
     let isRunning = false;
+    let isRunningAudit = false;
 
     console.log('⏰ [Automation Scheduler] Programado: Lunes a Sábados a las 8:00 AM (Hora Argentina)');
 
@@ -560,6 +587,19 @@ function iniciarScheduler8AM({ db, waService }) {
                 isRunning = true;
                 console.log(`🌅 [Despacho 8AM] Disparando despacho automático de las 8:00 AM (${info.fechaStr})...`);
 
+                // 🔄 Sincronización preventiva pre-despacho:
+                // Sincronizar pagos de NRE para que cualquier cobro registrado en caja el día anterior
+                // o fin de semana quede imputado en la DB antes de evaluar candidatos
+                try {
+                    const { syncPagosNRE } = require('./sync_nre');
+                    if (typeof syncPagosNRE === 'function') {
+                        console.log(`🔄 [Despacho 8AM] Sincronizando pagos recientes en NRE antes del despacho...`);
+                        await syncPagosNRE('SUA', 'sua', 150);
+                    }
+                } catch (syncErr) {
+                    console.warn(`⚠️ [Despacho 8AM] Advertencia en sync preventivo NRE:`, syncErr.message);
+                }
+
                 const result = await ejecutarDespachoDiario({
                     dryRun: false,
                     db,
@@ -578,6 +618,23 @@ function iniciarScheduler8AM({ db, waService }) {
                 console.error(`❌ [Despacho 8AM] Error durante la ejecución del despacho diario:`, err);
             } finally {
                 isRunning = false;
+            }
+        }
+
+        // ── Chequeo de Auditoría Semanal: Lunes entre 9:00 AM y 9:30 AM (Hora Argentina) ──
+        if (info.diaSemana === 'Mon' && info.hora === 9 && info.minuto >= 0 && info.minuto <= 30) {
+            const auditReportPath = require('path').join(__dirname, 'data', 'reportes_auditoria', `reporte_semanal_${info.fechaStr}.md`);
+            if (!require('fs').existsSync(auditReportPath) && !isRunningAudit) {
+                try {
+                    isRunningAudit = true;
+                    console.log(`🛡️ [Auditoría Semanal] Disparando auditoría programada de los Lunes 9:00 AM (${info.fechaStr})...`);
+                    const { ejecutarAuditoriaSemanal } = require('./scripts/auditoria_semanal');
+                    await ejecutarAuditoriaSemanal({ guardarArchivo: true });
+                } catch (audErr) {
+                    console.error(`❌ [Auditoría Semanal] Error en auditoría programada:`, audErr);
+                } finally {
+                    isRunningAudit = false;
+                }
             }
         }
     }, 60 * 1000);

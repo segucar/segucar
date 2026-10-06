@@ -17,7 +17,7 @@ const CONFIG_DETECTOR_DEFAULT = {
     activo: true,                     // Interruptor maestro: TRUE = Imputa pagos individuales validados
     modo_sombra: false,               // Modo producción real
     max_delta_recibos_lote: 250,      // Si la diferencia entre números de recibos es pequeña y correlativa masiva
-    prefijos_lote_conocidos: ['239']  // Prefijos identificados de preliquidaciones administrativas de Triunvirato
+    prefijos_lote_conocidos: []       // Limpio: en Octubre 2026 toda la emisión de Triunvirato es serie 239xxxx
 };
 
 /**
@@ -66,7 +66,6 @@ function analizarLotesRecibosNRE(todosLosPagos = []) {
             .filter(n => n !== null);
 
         let esLoteCorrelativo = false;
-        let esPrefijoLote = false;
 
         // 1. Chequeo de correlatividad técnica en bloque (números de recibos casi idénticos y consecutivos en gran volumen)
         if (recibosNums.length >= 15) {
@@ -79,26 +78,16 @@ function analizarLotesRecibosNRE(todosLosPagos = []) {
             }
         }
 
-        // 2. Chequeo de prefijos conocidos de liquidación de broker (ej. serie 239xxxx de preliquidación NRE)
-        const conPrefijoLote = pagos.filter(p => {
-            const numStr = String(p.recibo || '').replace(/[^0-9]/g, '');
-            return CONFIG_DETECTOR_DEFAULT.prefijos_lote_conocidos.some(pref => numStr.startsWith(pref));
-        }).length;
-
-        if (conPrefijoLote >= 3) {
-            esPrefijoLote = true;
-        }
-
-        // Solo es lote administrativo si tiene prefijo técnico conocido o correlatividad masiva técnica
-        // NUNCA se bloquea por cantidad de recibos en el mismo día
-        const esLoteAdministrativo = esPrefijoLote || esLoteCorrelativo;
+        // Solo es lote administrativo si tiene correlatividad masiva técnica en bloque (15+ consecutivos)
+        // o si los recibos específicos están en la lista negra del incidente del 01/10
+        const esLoteAdministrativo = esLoteCorrelativo;
 
         clasificacionFechas[fecha] = {
             fecha,
             cantidad_recibos: pagos.length,
             es_lote_administrativo: esLoteAdministrativo,
             motivo: esLoteAdministrativo 
-                ? (esPrefijoLote ? 'Prefijo de liquidación masiva NRE (serie 239xxxx)' : 'Recibos correlativos técnicos en bloque')
+                ? 'Recibos correlativos técnicos en bloque (lote administrativo masivo)'
                 : 'Pagos autorizados (carga diaria u oficina)'
         };
     }
@@ -175,7 +164,18 @@ function clasificarPagoNRE(pago, contextoLotes = {}) {
         }
     }
 
-    // 3. Pago individual real válido (incluso si empieza con 239 u otra serie)
+    // 3. Filtro de contexto del día (si la fecha fue clasificada como lote masivo o técnico correlativo)
+    const fecha = pago.fecha;
+    const infoFecha = contextoLotes.clasificacionFechas && contextoLotes.clasificacionFechas[fecha];
+    if (infoFecha && infoFecha.es_lote_administrativo) {
+        return {
+            esPagoReal: false,
+            esLote: true,
+            razon: `Emitido en fecha ${fecha} dentro de un lote administrativo (${infoFecha.cantidad_recibos} pólizas simultáneas: ${infoFecha.motivo})`
+        };
+    }
+
+    // 4. Pago individual real válido (incluso si empieza con 239 u otra serie)
     return {
         esPagoReal: true,
         esLote: false,

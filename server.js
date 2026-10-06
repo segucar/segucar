@@ -5779,6 +5779,31 @@ app.get('/api/admin/auditoria-pagos', (req, res) => {
     }
 });
 
+// 🛡️ GET /api/admin/auditoria-semanal — Consultar el último reporte de auditoría semanal
+app.get('/api/admin/auditoria-semanal', (req, res) => {
+    try {
+        const jsonPath = path.join(__dirname, 'data', 'reportes_auditoria', 'ultimo_reporte.json');
+        if (fs.existsSync(jsonPath)) {
+            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+            return res.json({ success: true, reporte: data });
+        }
+        res.json({ success: false, message: 'Aún no se ha generado ningún reporte de auditoría semanal.' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// 🛡️ POST /api/admin/auditoria-semanal — Disparar auditoría completa bajo demanda
+app.post('/api/admin/auditoria-semanal', async (req, res) => {
+    try {
+        const { ejecutarAuditoriaSemanal } = require('./scripts/auditoria_semanal');
+        const resultado = await ejecutarAuditoriaSemanal({ guardarArchivo: true });
+        res.json({ success: true, resultado });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // 🛠️ POST /api/admin/corregir-bug-indice-cuotas — Corrige pólizas donde cuotas futuras (C2/C3) quedaron PAGADA teniendo la C1 PENDIENTE
 app.post('/api/admin/corregir-bug-indice-cuotas', (req, res) => {
     try {
@@ -5881,13 +5906,22 @@ app.post('/api/admin/imputar-pagos-lote-manual', (req, res) => {
             const nuevoSaldo = cuotasPendientes.reduce((sum, c) => sum + (parseFloat(c.saldo_cli) || 0), 0);
             const cantDebe = cuotasPendientesPrincipales.filter(c => c.vto_cuota && c.vto_cuota < hoyIso).length;
 
+            const primerVtoPendiente = cuotasPendientesPrincipales.length > 0 
+                ? cuotasPendientesPrincipales.sort((a, b) => (a.vto_cuota || '').localeCompare(b.vto_cuota || ''))[0].vto_cuota 
+                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].vto_cuota : null);
+            const primerNroPendiente = cuotasPendientesPrincipales.length > 0
+                ? cuotasPendientesPrincipales.sort((a, b) => a.nro_cuota - b.nro_cuota)[0].nro_cuota
+                : (cuotasPendientes.length > 0 ? cuotasPendientes[0].nro_cuota : null);
+
             db.prepare(`
                 UPDATE polizas
                 SET saldo_pendiente = ?,
                     cuotas_debe = ?,
+                    nro_cuota = COALESCE(?, nro_cuota),
+                    fecha_vencimiento = COALESCE(?, fecha_vencimiento),
                     cuotas_historial = ?
                 WHERE id = ?
-            `).run(nuevoSaldo, cantDebe, JSON.stringify(cuotas), poliza.id);
+            `).run(nuevoSaldo, cantDebe, primerNroPendiente, primerVtoPendiente, JSON.stringify(cuotas), poliza.id);
 
             if (typeof db.registrarAuditoriaPago === 'function') {
                 const cliente = db.prepare('SELECT nombre FROM clientes WHERE id = ?').get(poliza.cliente_id);

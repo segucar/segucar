@@ -93,6 +93,9 @@ Cualquier agente de IA o desarrollador que intervenga en esta base de código **
 | **Bergallo / Castro (Fechas AGS)** | Pólizas AGS mostraban vencimientos y cuotas incorrectas (ej. fin de contrato como cuota). | `sync_ags.js` asignaba `fecha_vencimiento = fin_vigencia` y no generaba cronograma mensual de 4 cuotas. | Se implementó el generador de cronograma de 4 cuotas (M-4 a M-1, `premio/4`), fijando la cuota activa y fecha operativa real. |
 | **Barreiro / Cannata / Dinelli** | Pólizas 100% saldadas mostraban textos de mora vieja o "Cuota 1/3 vencida". | `nro_cuota` nulo y `fecha_vencimiento` reteniendo cuota anterior pagada. | Se sincronizan a `nro_cuota = 3/3`, `fecha_vencimiento = fin_vigencia` y badge `🟢 Al día`. |
 | **Napoli Juan Vicente (`Op. 11967082`)** | 1) Al hacer clic en WA en *Primer Aviso (48 hs)* envió erróneamente *Segundo Aviso (96 hs)*. 2) Figuraba con deuda tras haber pagado ayer en NRE (`Recibo 2375584`). | 1) `getTemplateMatchScore` bloqueaba plantillas con `"48 hs"` en nombre para cuotas vencidas, anulando `primer_aviso`. 2) `syncPagosNRE` usaba `?poli=` en vez de `?prop=`, filtraba filas por `/cuota/i` (inexistente en data) y tenía `LIMIT 100`. | 1) Se discriminó el recordatorio preventivo del primer aviso vencido en `app.js`. 2) Se corrigió la consulta NRE a `?prop=`, el parser dinámico de `Saldo Cli` y recibos de pago, y se amplió el barrido a toda la ventana activa, saldando 1.372 pólizas. |
+| **Detector NRE / Lotes Masivos (Test 32)** | En `npm test`, Test 32 fallaba (`okRechazoLote = false`) porque `clasificarPagoNRE` ignoraba la clasificación de lote por fecha masiva/correlativa. | `clasificarPagoNRE` no evaluaba `contextoLotes.clasificacionFechas[fecha].es_lote_administrativo`. | Se reincorporó la evaluación de `infoFecha.es_lote_administrativo` manteniendo la discriminación de recibos aislados válidos y la lista negra del 01/10. Suite al 100% (32/32). |
+| **Cobros Octubre & Falso Positivo 239 / 8 AM** | Clientes que pagaron en oficina/NRE (ej. Visconti, Perez Sauthier, Fiorini, etc.) recibían avisos de mora falsos a las 8:00 AM. | 1) `nre_payment_detector.js` bloqueaba cualquier día con >=3 recibos serie 239 como "lote administrativo", pero en Octubre 2026 TODOS los recibos de Triunvirato inician con 239. 2) `automation_scheduler.js` no validaba `cuotas_historial` de cuotas pagadas y alertaba con `cuotas_debe = 0`. | Se eliminó el falso filtro de prefijo 239 preservando la lista negra del 01/10 y la correlatividad masiva técnica (>=15). Se blindó `automation_scheduler.js` para descartar cuotas ya pagadas en historial y se agregó sync preventivo pre-despacho 8 AM. Se imputaron y avanzaron deudas de 22 clientes afectados en producción. |
+
 
 ---
 
@@ -214,7 +217,7 @@ CAPACIDADES:
 # Iniciar servidor
 npm start
 
-# Ejecutar Suite de Regresión Automatizada (4/4 tests de blindaje)
+# Ejecutar Suite de Regresión Automatizada (32/32 tests de blindaje)
 npm test
 ```
 
