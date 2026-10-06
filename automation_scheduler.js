@@ -395,7 +395,44 @@ async function ejecutarDespachoDiario({
             continue;
         }
 
-        // 3. Ejecución / Despacho
+        // 3. 🛡️ PRE-FLIGHT LIVE CHECK (Verificación en tiempo real contra DB y NRE):
+        // Re-verificar la póliza en la base de datos justo antes de enviar:
+        const polActual = db.prepare('SELECT id, saldo_pendiente, cuotas_debe, cuotas_historial, operacion, patente, anulada, estado FROM polizas WHERE id = ?').get(item.poliza_id);
+        if (polActual) {
+            const saldoActual = parseFloat(polActual.saldo_pendiente || 0);
+            const debeActual = parseInt(polActual.cuotas_debe || 0, 10);
+            
+            // Si es aviso de mora pero en DB ya figura saldada o saldo <= 2500:
+            if ((item.tipo === 'primer_aviso' || item.tipo === 'segundo_aviso') && (saldoActual <= 2500 || debeActual <= 0)) {
+                console.log(`🛡️ [Despacho 8AM] INTERCEPTADO EN DB: ${item.nombre} (${item.patente}) ya figura al día en DB. Envío cancelado.`);
+                continue;
+            }
+            if (item.tipo === 'recordatorio_48hs' && saldoActual <= 2500) {
+                console.log(`🛡️ [Despacho 8AM] INTERCEPTADO EN DB: ${item.nombre} (${item.patente}) con saldo cubierto. Envío cancelado.`);
+                continue;
+            }
+
+            // Si es aviso de mora y la póliza tiene operación de NRE, verificar en tiempo real contra el portal:
+            if (!dryRun && (item.tipo === 'primer_aviso' || item.tipo === 'segundo_aviso' || item.tipo === 'recordatorio_48hs') && polActual.operacion) {
+                try {
+                    const { verificarPagoEnVivoNRE } = require('./sync_nre');
+                    if (typeof verificarPagoEnVivoNRE === 'function') {
+                        const liveCheck = await verificarPagoEnVivoNRE(polActual.operacion);
+                        if (liveCheck && liveCheck.yaPago) {
+                            console.log(`🛡️ [Despacho 8AM] INTERCEPTADO EN VIVO POR NRE: ${item.nombre} (${item.patente}) ya pagó (${liveCheck.motivo}). Mensaje CANCELADO.`);
+                            try {
+                                db.prepare("UPDATE polizas SET cuotas_debe = 0, saldo_pendiente = 0 WHERE id = ?").run(polActual.id);
+                            } catch(dbErr) {}
+                            continue;
+                        }
+                    }
+                } catch(liveErr) {
+                    console.warn(`⚠️ [Despacho 8AM] Preflight live check advertencia:`, liveErr.message);
+                }
+            }
+        }
+
+        // 4. Ejecución / Despacho
         if (dryRun) {
             enviados.push({
                 cliente_id: item.cliente_id,

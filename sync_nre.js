@@ -1322,6 +1322,118 @@ async function auditarParidadNRE(usuario, password) {
     }
 }
 
-module.exports = { loginNRE, syncVencimientosNRE, syncDeudasNRE, syncGeneralNRE, syncPagosNRE, syncAnuladasNRE, syncCoberturasNREProgresivo, syncDnisNREProgresivo, calcularDeudaRealConReglas, auditarParidadNRE };
+/**
+ * 🛡️ PRE-FLIGHT LIVE CHECK:
+ * Verifica en tiempo real contra el portal NRE si una póliza ya tiene recibo o saldo $0
+ * antes de enviar cualquier notificación automática de cobranza por WhatsApp.
+ * 
+ * @param {string|number} operacion
+ * @param {object} [sessionNRE] - Sesión reutilizable { baseUrl, getCookieString }
+ * @returns {Promise<{ yaPago: boolean, motivo: string, recibo?: string, fecha?: string }>}
+ */
+async function verificarPagoEnVivoNRE(operacion, sessionNRE = null) {
+    if (!operacion) return { yaPago: false, motivo: 'Sin operación' };
+    const numOp = String(operacion).replace(/[^0-9]/g, '');
+    if (!numOp) return { yaPago: false, motivo: 'Operación no numérica' };
+
+    try {
+        let session = sessionNRE;
+        if (!session) {
+            session = await loginNRE('SUA', 'sua');
+        }
+        const cheerio = require('cheerio');
+        const res = await fetchWithRetry(`${session.baseUrl}/muestro-polizas.php?prop=${numOp}`, {
+            headers: { 'Cookie': session.getCookieString() }
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+
+        // 1. Chequear si la póliza está anulada
+        if (html.includes('ANULADA') || $('#anulada').length > 0) {
+            return { yaPago: true, motivo: 'Póliza anulada en NRE' };
+        }
+
+        // 2. Extraer recibos de pago
+        const pagos = [];
+        $('table').each((tIdx, table) => {
+            const header = $(table).find('tr').first().text().toLowerCase();
+            if (header.includes('recibo') && header.includes('importe')) {
+                $(table).find('tr').each((rIdx, tr) => {
+                    if (rIdx === 0) return;
+                    const cols = $(tr).find('td, th').map((_, td) => $(td).text().trim()).get();
+                    if (cols.length >= 4) {
+                        pagos.push({
+                            nro: parseInt(cols[0], 10) || rIdx,
+                            fecha: cols[1],
+                            recibo: cols[2],
+                            importe: cols[3]
+                        });
+                    }
+                });
+            }
+        });
+
+        // 3. Extraer cuotas y saldos de cliente
+        const cuotas = [];
+        $('table').each((tIdx, table) => {
+            const header = $(table).find('tr').first().text().toLowerCase();
+            if (header.includes('saldo cli') || (header.includes('cuota') && header.includes('vencimiento'))) {
+                $(table).find('tr').each((rIdx, tr) => {
+                    if (rIdx === 0) return;
+                    const cols = $(tr).find('td, th').map((_, td) => $(td).text().trim()).get();
+                    if (cols.length >= 4) {
+                        const saldoVal = parseFloat(cols[3].replace(/[^0-9,-]/g, '').replace(',', '.')) || 0;
+                        cuotas.push({
+                            nro: parseInt(cols[0], 10) || rIdx,
+                            vto: cols[1],
+                            importe: cols[2],
+                            saldo_cli: saldoVal
+                        });
+                    }
+                });
+            }
+        });
+
+        // 4. Verificar si hay recibos válidos que no sean del incidente del 01/10
+        const { RECIBOS_INCIDENTE_01_OCT } = require('./nre_payment_detector');
+        for (const p of pagos) {
+            const numRecibo = String(p.recibo || '').replace(/[^0-9]/g, '');
+            if (numRecibo && !RECIBOS_INCIDENTE_01_OCT.has(numRecibo)) {
+                return {
+                    yaPago: true,
+                    motivo: `Recibo de pago ${p.recibo} detectado en NRE (${p.fecha})`,
+                    recibo: p.recibo,
+                    fecha: p.fecha
+                };
+            }
+        }
+
+        // 5. Verificar si todas las cuotas registran saldo <= $2.500
+        if (cuotas.length > 0 && cuotas.every(c => c.saldo_cli <= 2500)) {
+            return {
+                yaPago: true,
+                motivo: 'Todas las cuotas registran saldo $0 en NRE'
+            };
+        }
+
+        return { yaPago: false, motivo: 'Registra saldo pendiente en NRE' };
+    } catch (e) {
+        return { yaPago: false, motivo: `Error consultando NRE: ${e.message}` };
+    }
+}
+
+module.exports = {
+    loginNRE,
+    syncVencimientosNRE,
+    syncDeudasNRE,
+    syncGeneralNRE,
+    syncPagosNRE,
+    syncAnuladasNRE,
+    syncCoberturasNREProgresivo,
+    syncDnisNREProgresivo,
+    calcularDeudaRealConReglas,
+    auditarParidadNRE,
+    verificarPagoEnVivoNRE
+};
 
 

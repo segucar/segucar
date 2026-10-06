@@ -550,6 +550,17 @@ async function processWebhookPayload(payload) {
           VALUES (?, ?, 'entrante', ?, ?, ?, 'recibido', ?, 'cliente', 'cliente')
         `).run(clienteId, waMsgId, fromPhone, textContent, msg.type || 'texto', JSON.stringify(msg));
 
+        // 💳 Auto-silenciamiento preventivo si el cliente declara pago o adjunta comprobante:
+        // Evita que al día siguiente a las 8 AM el despachador vuelva a reclamarle deuda
+        const esDeclaracionPago = /(ya\s*(pagu[eé]|abon[eé]|transfer[ií]|lo\s*pagu[eé]|est[aá]\s*pag[oa]|lo\s*abon[eé]|envi[eé]\s*el\s*pago)|comprobante|transferencia|ticket)/i.test(textContent) ||
+                                  msg.type === 'image' || 
+                                  msg.type === 'document';
+
+        if (esDeclaracionPago) {
+          console.log(`💳 [WA Webhook] Cliente ${fromPhone} declaró pago o envió comprobante. Silenciando bot por 48hs preventivas.`);
+          silenciarBot(fromPhone, { horas: 48, motivo: 'cliente_declaro_pago_en_chat', clienteId, autor: 'sistema_deteccion_pago' });
+        }
+
         // Verificar si el bot está silenciado para esta conversación
         const botState = getEstadoBot(fromPhone);
 
