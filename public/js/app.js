@@ -2783,6 +2783,54 @@ async function handleGuardarPoliza(e) {
   }
 }
 
+async function verificarDatosNREEnVivo() {
+  const polizaId = getEl('editPolizaId')?.value;
+  if (!polizaId) return;
+
+  const btn = getEl('btnVerificarNRE');
+  const originalHtml = btn ? btn.innerHTML : '';
+  if (btn) {
+    btn.disabled = true;
+    btn.innerHTML = '<span>⏳</span> <span>Consultando NRE...</span>';
+  }
+
+  try {
+    const res = await fetch(`/api/polizas/${polizaId}/verificar-datos-nre`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo consultar NRE');
+
+    const nre = data.nre || {};
+    const actuales = data.datos_actuales || {};
+
+    if (actuales.titular) {
+      getEl('editPolizaTitularActual').textContent = `${actuales.titular} (DNI: ${actuales.dni || 'Sin DNI'})`;
+    }
+    if (actuales.telefono) {
+      getEl('editPolizaTelefono').value = actuales.telefono;
+    }
+    if (nre.patente) {
+      getEl('editPolizaPatente').value = nre.patente;
+    }
+    if (nre.vehiculo) {
+      getEl('editPolizaVehiculo').value = nre.vehiculo;
+    }
+
+    showToast(data.mensaje || 'Datos verificados con NRE con éxito', 'success');
+    if (typeof fetchStats === 'function') fetchStats();
+    if (typeof fetchClientes === 'function') fetchClientes();
+  } catch (err) {
+    showToast('Error consultando NRE: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  }
+}
+
 async function eliminarPoliza(polizaId, patente) {
   if (!confirm(`¿Estás seguro de eliminar únicamente la póliza ${patente || ''}? El cliente y sus otros vehículos no se verán afectados.`)) return;
 

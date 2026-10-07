@@ -1425,6 +1425,85 @@ async function verificarPagoEnVivoNRE(operacion, sessionNRE = null) {
     }
 }
 
+/**
+ * 🔍 Obtiene en vivo la ficha completa de una póliza en NRE (Asegurado, DNI, Teléfono, Observaciones, Patente, Vehículo)
+ * @param {string|number} operacion
+ * @param {object} [sessionNRE]
+ */
+async function obtenerDatosFichaNRE(operacion, sessionNRE = null) {
+    if (!operacion) return { success: false, error: 'Sin operación' };
+    const numOp = String(operacion).replace(/[^0-9]/g, '');
+    if (!numOp) return { success: false, error: 'Operación no numérica' };
+
+    try {
+        let session = sessionNRE;
+        if (!session) {
+            session = await loginNRE('SUA', 'sua');
+        }
+        const cheerio = require('cheerio');
+        const res = await fetchWithRetry(`${session.baseUrl}/muestro-polizas.php?prop=${numOp}`, {
+            headers: { 'Cookie': session.getCookieString() }
+        });
+        const html = await res.text();
+        const $ = cheerio.load(html);
+        const bodyText = $.text().replace(/\s+/g, ' ');
+
+        // 1. Asegurado
+        let asegurado = null;
+        const asegMatch = bodyText.match(/Aseg\.:\s*([A-Za-zÁÉÍÓÚáéíóúñÑ\s]+?)(?:Operaci|Documento|Endoso|IVA)/i);
+        if (asegMatch && asegMatch[1]) {
+            asegurado = asegMatch[1].trim();
+        }
+
+        // 2. Documento (DNI)
+        let dni = null;
+        const docMatch = bodyText.match(/(?:Documento|DNI):\s*([0-9]{7,11})/i);
+        if (docMatch && docMatch[1]) {
+            dni = docMatch[1].trim();
+        }
+
+        // 3. Teléfono de casilla
+        let telCasilla = null;
+        const telMatch = bodyText.match(/Tel[ée]fono:\s*([0-9\s\-\+\(\)]{6,25})(?:Veh[íi]culo|Direcci|Localidad|C\. Postal)/i);
+        if (telMatch && telMatch[1] && /[0-9]{6,}/.test(telMatch[1])) {
+            telCasilla = telMatch[1].trim();
+        }
+
+        // 4. Teléfono en Observaciones
+        let telObs = null;
+        const obsMatch = bodyText.match(/Observaciones\s*([0-9\s\-\+\(\)]{6,25})(?:Premio|Prima|Vigencia|Ingresada)/i);
+        if (obsMatch && obsMatch[1] && /[0-9]{6,}/.test(obsMatch[1])) {
+            telObs = obsMatch[1].trim();
+        }
+
+        // 5. Teléfono efectivo sanitizado
+        const rawTel = telObs || telCasilla;
+        const telefonoEfectivo = rawTel ? sanitizeAndFixPhone(rawTel) : null;
+
+        // 6. Patente y Vehículo
+        let patente = null;
+        const patMatch = bodyText.match(/Patente:\s*([A-Z0-9]{5,8})/i);
+        if (patMatch && patMatch[1]) patente = patMatch[1].trim();
+
+        let vehiculo = null;
+        const vehMatch = bodyText.match(/Veh[íi]culo:\s*([^]+?)(?:Modelo:|Patente:|Motor:)/i);
+        if (vehMatch && vehMatch[1]) vehiculo = vehMatch[1].trim();
+
+        return {
+            success: true,
+            operacion: numOp,
+            asegurado,
+            dni,
+            telefono: telefonoEfectivo,
+            telefono_crudo: rawTel,
+            patente,
+            vehiculo
+        };
+    } catch (e) {
+        return { success: false, error: e.message };
+    }
+}
+
 module.exports = {
     loginNRE,
     syncVencimientosNRE,
@@ -1436,7 +1515,9 @@ module.exports = {
     syncDnisNREProgresivo,
     calcularDeudaRealConReglas,
     auditarParidadNRE,
-    verificarPagoEnVivoNRE
+    verificarPagoEnVivoNRE,
+    obtenerDatosFichaNRE,
+    sanitizeAndFixPhone
 };
 
 

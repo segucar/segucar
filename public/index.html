@@ -465,9 +465,14 @@
               <span style="font-size: 0.78rem; text-transform: uppercase; color: var(--text-secondary); letter-spacing: 0.5px;">Titular actual</span>
               <div id="editPolizaTitularActual" style="font-weight: 700; color: #fff; font-size: 1rem; margin-top: 2px;">-</div>
             </div>
-            <button type="button" class="btn btn-sm btn-ghost" onclick="toggleTransferirTitular()" style="border: 1px solid rgba(0, 180, 216, 0.4); color: #48cae4; font-size: 0.8rem; font-weight: 700;">
-              🔄 Cambiar de Dueño
-            </button>
+            <div style="display: flex; gap: 8px;">
+              <button type="button" class="btn btn-sm btn-ghost" onclick="verificarDatosNREEnVivo()" id="btnVerificarNRE" style="border: 1px solid #00b4d8; color: #48cae4; font-size: 0.8rem; font-weight: 700; gap: 4px; display: inline-flex; align-items: center;" title="Consulta el portal NRE en vivo para verificar si cambiaron el titular, DNI o teléfono">
+                <span>🔍</span> <span>Verificar en NRE</span>
+              </button>
+              <button type="button" class="btn btn-sm btn-ghost" onclick="toggleTransferirTitular()" style="border: 1px solid rgba(0, 180, 216, 0.4); color: #48cae4; font-size: 0.8rem; font-weight: 700;">
+                🔄 Cambiar Dueño
+              </button>
+            </div>
           </div>
         </div>
 

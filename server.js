@@ -2658,6 +2658,78 @@ app.post('/api/polizas/:id/transferir', (req, res) => {
     }
 });
 
+// POST /api/polizas/:id/verificar-datos-nre — Consulta en vivo a NRE y actualiza titular, DNI y teléfono si cambiaron
+app.post('/api/polizas/:id/verificar-datos-nre', async (req, res) => {
+    try {
+        const pol = db.prepare('SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.dni as cliente_dni FROM polizas p JOIN clientes c ON p.cliente_id = c.id WHERE p.id = ?').get(req.params.id);
+        if (!pol) return res.status(404).json({ success: false, error: 'Póliza no encontrada' });
+        if (!pol.operacion) return res.status(400).json({ success: false, error: 'La póliza no tiene número de operación NRE' });
+
+        const { obtenerDatosFichaNRE } = require('./sync_nre');
+        const nreData = await obtenerDatosFichaNRE(pol.operacion);
+        if (!nreData.success) {
+            return res.status(502).json({ success: false, error: nreData.error || 'No se pudo consultar NRE' });
+        }
+
+        const cambios = [];
+        let nuevoClienteId = pol.cliente_id;
+        let titularNombre = pol.cliente_nombre;
+
+        // 1. ¿Cambió el Asegurado en NRE?
+        if (nreData.asegurado && nreData.asegurado.trim() && norm(nreData.asegurado) !== norm(pol.cliente_nombre)) {
+            const nomNuevo = nreData.asegurado.trim();
+            const existing = db.prepare("SELECT id, nombre FROM clientes WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(?))").get(nomNuevo);
+            if (existing) {
+                nuevoClienteId = existing.id;
+            } else {
+                const ins = db.prepare("INSERT INTO clientes (nombre, dni, telefono) VALUES (?, ?, ?)").run(
+                    nomNuevo,
+                    nreData.dni || null,
+                    nreData.telefono || ''
+                );
+                nuevoClienteId = ins.lastInsertRowid;
+            }
+            db.prepare("UPDATE polizas SET cliente_id = ? WHERE id = ?").run(nuevoClienteId, pol.id);
+            titularNombre = nomNuevo;
+            cambios.push(`Titular transferido de "${pol.cliente_nombre}" a "${nomNuevo}"`);
+        }
+
+        // 2. ¿DNI nuevo o actualizado?
+        if (nreData.dni && (!pol.cliente_dni || pol.cliente_dni !== nreData.dni)) {
+            db.prepare("UPDATE clientes SET dni = ? WHERE id = ?").run(nreData.dni, nuevoClienteId);
+            cambios.push(`DNI actualizado a ${nreData.dni}`);
+        }
+
+        // 3. ¿Teléfono en NRE? (casilla u observaciones)
+        if (nreData.telefono && nreData.telefono !== pol.cliente_telefono && nreData.telefono !== pol.telefono) {
+            db.prepare("UPDATE polizas SET telefono = ? WHERE id = ?").run(nreData.telefono, pol.id);
+            db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(nreData.telefono, nuevoClienteId);
+            if (typeof db.guardarTelefonoMaestro === 'function') {
+                db.guardarTelefonoMaestro(nuevoClienteId, titularNombre, nreData.telefono, 'nre');
+            }
+            cambios.push(`Teléfono actualizado a ${nreData.telefono} (desde NRE)`);
+        }
+
+        res.json({
+            success: true,
+            nre: nreData,
+            cambios_realizados: cambios,
+            mensaje: cambios.length > 0 
+                ? `Datos sincronizados con NRE: ${cambios.join(', ')}`
+                : 'Los datos en el CRM ya coinciden exactamente con NRE.',
+            datos_actuales: {
+                cliente_id: nuevoClienteId,
+                titular: titularNombre,
+                dni: nreData.dni || pol.cliente_dni,
+                telefono: nreData.telefono || pol.telefono || pol.cliente_telefono
+            }
+        });
+    } catch (err) {
+        console.error('[/api/polizas/:id/verificar-datos-nre Error]', err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.post('/api/polizas/:id/toggle-anulada', (req, res) => {
     try {
         const idParam = req.params.id;
