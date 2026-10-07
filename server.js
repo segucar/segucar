@@ -2569,6 +2569,21 @@ app.post('/api/clientes/:id/polizas', (req, res) => {
     }
 });
 
+app.get('/api/polizas/:id', (req, res) => {
+    try {
+        const pol = db.prepare(`
+            SELECT p.*, c.nombre as cliente_nombre, c.telefono as cliente_telefono, c.dni as cliente_dni
+            FROM polizas p
+            JOIN clientes c ON p.cliente_id = c.id
+            WHERE p.id = ?
+        `).get(req.params.id);
+        if (!pol) return res.status(404).json({ error: 'Póliza no encontrada' });
+        res.json(pol);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.put('/api/polizas/:id', (req, res) => {
     try {
         const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo, telefono } = req.body;

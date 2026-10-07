@@ -2671,6 +2671,7 @@ async function deleteClient(id) {
 async function openModalEditarPoliza(polizaId) {
   const modal = getEl('modalEditarPoliza');
   if (!modal) return;
+  modal.classList.add('active');
   modal.style.display = 'flex';
 
   let targetPoliza = null;
@@ -2686,6 +2687,24 @@ async function openModalEditarPoliza(polizaId) {
           break;
         }
       }
+    }
+  }
+
+  // Fallback si no está en la memoria del paginado
+  if (!targetPoliza && polizaId) {
+    try {
+      const res = await fetch(`/api/polizas/${polizaId}`);
+      if (res.ok) {
+        targetPoliza = await res.json();
+        targetClient = {
+          id: targetPoliza.cliente_id,
+          nombre: targetPoliza.cliente_nombre,
+          telefono: targetPoliza.cliente_telefono,
+          dni: targetPoliza.cliente_dni
+        };
+      }
+    } catch (e) {
+      console.error('Error buscando poliza por id:', e);
     }
   }
 
@@ -2708,7 +2727,10 @@ async function openModalEditarPoliza(polizaId) {
 
 function closeModalEditarPoliza() {
   const modal = getEl('modalEditarPoliza');
-  if (modal) modal.style.display = 'none';
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
 }
 
 function toggleTransferirTitular() {
