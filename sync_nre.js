@@ -273,11 +273,15 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
             const existing = findClienteByName.get(item.nombre);
             if (existing) {
                 cliente_id = existing.id;
-                const sanitized = sanitizeAndFixPhone(item.telefono);
-                if (sanitized && !item.telefono.includes('9902073')) {
-                    updateClienteTel.run(sanitized, cliente_id);
-                    if (typeof db.guardarTelefonoMaestro === 'function') {
-                        db.guardarTelefonoMaestro(cliente_id, item.nombre, sanitized, 'nre');
+                // 🔒 BLINDAJE ESTRICTO: Si el cliente ya tiene un teléfono válido en el CRM, NUNCA sobreescribirlo ni reemplazarlo con NRE
+                const currentCli = db.prepare('SELECT telefono FROM clientes WHERE id = ?').get(cliente_id);
+                if (!currentCli || !currentCli.telefono || currentCli.telefono.trim().length < 10) {
+                    const sanitized = sanitizeAndFixPhone(item.telefono);
+                    if (sanitized && !item.telefono.includes('9902073')) {
+                        updateClienteTel.run(sanitized, cliente_id);
+                        if (typeof db.guardarTelefonoMaestro === 'function') {
+                            db.guardarTelefonoMaestro(cliente_id, item.nombre, sanitized, 'nre');
+                        }
                     }
                 }
             } else {

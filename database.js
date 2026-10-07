@@ -463,6 +463,7 @@ db.guardarTelefonoMaestro = (cliente_id, nombre, telefono, origen = 'scraper') =
                 telefono = excluded.telefono,
                 origen = excluded.origen,
                 updated_at = CURRENT_TIMESTAMP
+            WHERE telefonos_maestros.origen != 'manual' OR excluded.origen = 'manual'
         `).run(cliente_id, nombre || '', telefono, origen);
     } catch (e) {
         console.error('Error guardando teléfono maestro:', e);
@@ -471,6 +472,19 @@ db.guardarTelefonoMaestro = (cliente_id, nombre, telefono, origen = 'scraper') =
 
 db.restaurarTelefonosMaestros = () => {
     try {
+        // 0. Blindaje prioritario: Registrar como 'manual' todos los teléfonos válidos presentes en 'clientes' en CRM
+        db.exec(`
+            INSERT INTO telefonos_maestros (cliente_id, nombre, telefono, origen, updated_at)
+            SELECT id, nombre, telefono, 'manual', CURRENT_TIMESTAMP
+            FROM clientes
+            WHERE telefono IS NOT NULL AND length(telefono) >= 10
+            ON CONFLICT(cliente_id) DO UPDATE SET
+                telefono = excluded.telefono,
+                origen = 'manual',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE telefonos_maestros.origen != 'manual' OR telefonos_maestros.telefono IS NULL;
+        `);
+
         // 1. Unificar clientes duplicados con el mismo norm(nombre), traspasando pólizas al registro con teléfono válido
         const dupes = db.prepare(`
             SELECT norm(nombre) as norm_name, COUNT(*) as cnt 

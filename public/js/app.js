@@ -1665,11 +1665,8 @@ function createClientRow(client, poliza, isSecondary = false) {
             <span>${effectivePhone ? 'Inválido' : 'Sin Teléfono'}</span>
           </button>
         `}
-        ${poliza ? `
-          <button type="button" class="btn btn-sm btn-ghost" onclick="openModalEditarPoliza(${poliza.id})" title="Editar Vehículo, Teléfono o Transferir Titular" style="color: #48cae4; font-weight: 700;">🚗</button>
-        ` : ''}
+        <button type="button" class="btn btn-sm btn-ghost" onclick="editClient(${client.id}, ${poliza ? poliza.id : 'null'})" title="Editar Cliente y Vehículo">✏️</button>
         ${!isSecondary ? `
-          <button type="button" class="btn btn-sm btn-ghost" onclick="editClient(${client.id})" title="Editar Cliente">✏️</button>
           <button type="button" class="btn btn-sm btn-danger" onclick="deleteClient(${client.id})" title="Eliminar Cliente y todas sus pólizas">🗑️</button>
         ` : `
           <button type="button" class="btn btn-sm btn-danger" onclick="eliminarPoliza(${poliza.id}, '${escapeQuotes(poliza.patente || '')}')" title="Eliminar solo este vehículo/póliza (no borra al cliente)">🗑️</button>
@@ -2506,26 +2503,69 @@ function formatDate(dateStr) {
 
 // ─── CRUD ACTIONS ─────────────────────────────────────────────────────────
 
-async function openModal(client = null) {
+function switchEditTab(tabName) {
+  const tabCli = getEl('tabBtnCliente');
+  const tabVeh = getEl('tabBtnVehiculo');
+  const contentCli = getEl('tabContentCliente');
+  const contentVeh = getEl('tabContentVehiculo');
+
+  if (tabName === 'vehiculo') {
+    if (contentCli) contentCli.style.display = 'none';
+    if (contentVeh) contentVeh.style.display = 'block';
+    if (tabVeh) {
+      tabVeh.className = 'btn btn-sm btn-primary';
+      tabVeh.style.color = '#fff';
+    }
+    if (tabCli) {
+      tabCli.className = 'btn btn-sm btn-ghost';
+      tabCli.style.color = '#48cae4';
+    }
+  } else {
+    if (contentCli) contentCli.style.display = 'block';
+    if (contentVeh) contentVeh.style.display = 'none';
+    if (tabCli) {
+      tabCli.className = 'btn btn-sm btn-primary';
+      tabCli.style.color = '#fff';
+    }
+    if (tabVeh) {
+      tabVeh.className = 'btn btn-sm btn-ghost';
+      tabVeh.style.color = '#48cae4';
+    }
+  }
+}
+
+async function openModal(client = null, polizaId = null) {
   const modal = getEl('clientModal');
   if (!modal) return;
   modal.classList.add('active');
+  modal.style.display = 'flex';
 
-  const titleEl = getEl('modalTitle');
+  const titleTextEl = getEl('modalTitleText') || getEl('modalTitle');
   const idEl = getEl('clientId');
+  const editPolIdEl = getEl('editPolizaId');
+  const editPolCliEl = getEl('editPolizaClienteActualId');
+  const modalTabs = getEl('modalEditTabs');
+  const secTrans = getEl('seccionTransferirTitular');
+
+  if (secTrans) secTrans.style.display = 'none';
+  if (getEl('nuevoTitularNombre')) getEl('nuevoTitularNombre').value = '';
+  if (getEl('nuevoTitularDNI')) getEl('nuevoTitularDNI').value = '';
+  if (getEl('nuevoTitularTel')) getEl('nuevoTitularTel').value = '';
+
+  switchEditTab('cliente');
 
   if (client) {
     const targetId = client.id || client.cliente_id;
-    if (titleEl) titleEl.textContent = 'Editar Cliente';
+    if (titleTextEl) titleTextEl.textContent = polizaId ? 'Editar Cliente & Vehículo' : 'Editar Cliente';
     if (idEl) idEl.value = targetId || '';
     
     getEl('clientName').value = client.nombre || '';
     getEl('clientDNI').value = client.dni || '';
     getEl('clientPhone').value = client.telefono || '';
     getEl('clientAddress').value = client.direccion || '';
-    getEl('clientEmail').value = client.email || '';
+    if (getEl('clientEmail')) getEl('clientEmail').value = client.email || '';
 
-    // Auto-fetch full details from backend to pre-fill all fields (DNI, Teléfono, Dirección, Email, App)
+    // Auto-fetch full details from backend to pre-fill all client fields
     if (targetId) {
       try {
         const res = await fetch(`/api/clientes/${targetId}`);
@@ -2536,7 +2576,7 @@ async function openModal(client = null) {
             getEl('clientDNI').value = fullData.dni || client.dni || '';
             getEl('clientPhone').value = fullData.telefono || client.telefono || '';
             getEl('clientAddress').value = fullData.direccion || client.direccion || '';
-            getEl('clientEmail').value = fullData.email || client.email || '';
+            if (getEl('clientEmail')) getEl('clientEmail').value = fullData.email || client.email || '';
             const sinWaCb = getEl('clientSinWhatsapp');
             if (sinWaCb) sinWaCb.checked = !!(fullData.sin_whatsapp);
             const appCb = getEl('clientAppDescargada');
@@ -2544,14 +2584,63 @@ async function openModal(client = null) {
           }
         }
       } catch (err) {
-        console.error('Error auto-populating full client details:', err);
+        console.error('Error auto-populating client details:', err);
       }
     }
+
+    // Si viene vinculado a una póliza / vehículo:
+    if (polizaId) {
+      if (modalTabs) modalTabs.style.display = 'flex';
+      if (editPolIdEl) editPolIdEl.value = polizaId;
+      if (editPolCliEl) editPolCliEl.value = targetId || '';
+
+      let targetPoliza = null;
+      if (client.polizas) {
+        targetPoliza = client.polizas.find(p => p.id == polizaId);
+      }
+      if (!targetPoliza && state.clients) {
+        for (const c of state.clients) {
+          if (c.polizas) {
+            const found = c.polizas.find(p => p.id == polizaId);
+            if (found) { targetPoliza = found; break; }
+          }
+        }
+      }
+
+      // Si no estaba en memoria, traer de la API
+      if (!targetPoliza) {
+        try {
+          const resPol = await fetch(`/api/polizas/${polizaId}`);
+          if (resPol.ok) {
+            targetPoliza = await resPol.json();
+          }
+        } catch (e) {
+          console.error('Error buscando poliza por id:', e);
+        }
+      }
+
+      if (targetPoliza) {
+        if (getEl('editPolizaPatente')) getEl('editPolizaPatente').value = targetPoliza.patente || '';
+        if (getEl('editPolizaVehiculo')) getEl('editPolizaVehiculo').value = targetPoliza.vehiculo || '';
+        if (getEl('editPolizaTelefono')) getEl('editPolizaTelefono').value = targetPoliza.telefono || '';
+        if (getEl('tabVehiculoBadgePatente')) getEl('tabVehiculoBadgePatente').textContent = targetPoliza.patente || 'Vehículo';
+        if (getEl('editPolizaTitularActual')) {
+          getEl('editPolizaTitularActual').textContent = `${client.nombre || targetPoliza.cliente_nombre || '-'} (DNI: ${client.dni || targetPoliza.cliente_dni || 'Sin DNI'})`;
+        }
+      }
+    } else {
+      if (modalTabs) modalTabs.style.display = 'none';
+      if (editPolIdEl) editPolIdEl.value = '';
+      if (editPolCliEl) editPolCliEl.value = '';
+    }
   } else {
-    if (titleEl) titleEl.textContent = 'Agregar Cliente';
+    if (titleTextEl) titleTextEl.textContent = 'Agregar Cliente';
     const form = getEl('clientForm');
     if (form) form.reset();
     if (idEl) idEl.value = '';
+    if (editPolIdEl) editPolIdEl.value = '';
+    if (editPolCliEl) editPolCliEl.value = '';
+    if (modalTabs) modalTabs.style.display = 'none';
     const sinWaCbNew = getEl('clientSinWhatsapp');
     if (sinWaCbNew) sinWaCbNew.checked = false;
     const appCbNew = getEl('clientAppDescargada');
@@ -2561,20 +2650,24 @@ async function openModal(client = null) {
 
 function closeModal() {
   const modal = getEl('clientModal');
-  if (modal) modal.classList.remove('active');
+  if (modal) {
+    modal.classList.remove('active');
+    modal.style.display = 'none';
+  }
 }
 
 async function handleClientSubmit(e) {
   if (e) e.preventDefault();
 
   const id = getEl('clientId')?.value;
-  const submitBtn = getEl('clientForm')?.querySelector('button[type="submit"]');
+  const polizaId = getEl('editPolizaId')?.value;
+  const submitBtn = getEl('btnSubmitUnified') || getEl('clientForm')?.querySelector('button[type="submit"]');
   if (submitBtn) {
     submitBtn.disabled = true;
     submitBtn.textContent = 'Guardando...';
   }
 
-  const body = {
+  const clientBody = {
     nombre: getEl('clientName')?.value || '',
     dni: getEl('clientDNI')?.value || '',
     telefono: getEl('clientPhone')?.value || '',
@@ -2589,17 +2682,56 @@ async function handleClientSubmit(e) {
     const url = isEdit ? `/api/clientes/${id}` : '/api/clientes';
     const method = isEdit ? 'PUT' : 'POST';
 
-    const res = await fetch(url, {
+    const resCli = await fetch(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
+      body: JSON.stringify(clientBody)
     });
 
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Error al guardar cliente');
+    const dataCli = await resCli.json();
+    if (!resCli.ok) throw new Error(dataCli.error || 'Error al guardar cliente');
+
+    // Si además había una póliza vinculada a este modal:
+    if (polizaId && String(polizaId).trim() !== '' && String(polizaId) !== 'undefined') {
+      const patente = getEl('editPolizaPatente')?.value?.trim();
+      const vehiculo = getEl('editPolizaVehiculo')?.value?.trim();
+      const telPoliza = getEl('editPolizaTelefono')?.value?.trim();
+
+      // 1. Si se especificó cambio de titular:
+      const nuevoNombre = getEl('nuevoTitularNombre')?.value?.trim();
+      if (nuevoNombre) {
+        const nuevoDNI = getEl('nuevoTitularDNI')?.value?.trim();
+        const nuevoTel = getEl('nuevoTitularTel')?.value?.trim();
+
+        const resTrans = await fetch(`/api/polizas/${polizaId}/transferir`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            nuevo_nombre: nuevoNombre,
+            nuevo_dni: nuevoDNI,
+            nuevo_telefono: nuevoTel || telPoliza
+          })
+        });
+        const dataTrans = await resTrans.json();
+        if (!resTrans.ok) throw new Error(dataTrans.error || 'Error al transferir póliza');
+      }
+
+      // 2. Actualizar datos propios del vehículo (patente, vehículo, teléfono particular)
+      const resPol = await fetch(`/api/polizas/${polizaId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patente,
+          vehiculo,
+          telefono: telPoliza || null
+        })
+      });
+      const dataPol = await resPol.json();
+      if (!resPol.ok) throw new Error(dataPol.error || 'Error al actualizar vehículo');
+    }
 
     closeModal();
-    showToast(isEdit ? 'Cliente actualizado con éxito' : 'Cliente creado con éxito', 'success');
+    showToast(isEdit ? 'Datos guardados con éxito' : 'Cliente creado con éxito', 'success');
     if (typeof fetchStats === 'function') fetchStats();
     if (typeof fetchClientes === 'function') fetchClientes();
   } catch (err) {
@@ -2607,17 +2739,25 @@ async function handleClientSubmit(e) {
   } finally {
     if (submitBtn) {
       submitBtn.disabled = false;
-      submitBtn.textContent = 'Guardar';
+      submitBtn.textContent = 'Guardar Cambios';
     }
   }
 }
 
-function editClient(id) {
+function editClient(id, polizaId = null) {
   let client = state.clients ? state.clients.find(c => c.id == id || c.cliente_id == id) : null;
   if (!client) {
     client = { id };
   }
-  openModal(client);
+  openModal(client, polizaId);
+}
+
+// Compatibilidad
+function openModalEditarPoliza(polizaId) {
+  editClient(null, polizaId);
+}
+function closeModalEditarPoliza() {
+  closeModal();
 }
 
 async function toggleAppDescargada(clienteId, currentVal, event) {
@@ -2667,72 +2807,6 @@ async function deleteClient(id) {
   }
 }
 
-// 🚗 Modal Editar Vehículo / Póliza & Transferir Titular
-async function openModalEditarPoliza(polizaId) {
-  const modal = getEl('modalEditarPoliza');
-  if (!modal) return;
-  modal.classList.add('active');
-  modal.style.display = 'flex';
-
-  let targetPoliza = null;
-  let targetClient = null;
-
-  if (state.clients) {
-    for (const c of state.clients) {
-      if (c.polizas) {
-        const found = c.polizas.find(p => p.id == polizaId);
-        if (found) {
-          targetPoliza = found;
-          targetClient = c;
-          break;
-        }
-      }
-    }
-  }
-
-  // Fallback si no está en la memoria del paginado
-  if (!targetPoliza && polizaId) {
-    try {
-      const res = await fetch(`/api/polizas/${polizaId}`);
-      if (res.ok) {
-        targetPoliza = await res.json();
-        targetClient = {
-          id: targetPoliza.cliente_id,
-          nombre: targetPoliza.cliente_nombre,
-          telefono: targetPoliza.cliente_telefono,
-          dni: targetPoliza.cliente_dni
-        };
-      }
-    } catch (e) {
-      console.error('Error buscando poliza por id:', e);
-    }
-  }
-
-  getEl('editPolizaId').value = polizaId;
-  getEl('editPolizaClienteActualId').value = targetClient ? targetClient.id : '';
-  getEl('editPolizaTitularActual').textContent = targetClient ? `${targetClient.nombre} (DNI: ${targetClient.dni || 'Sin DNI'})` : '-';
-  
-  const secTrans = getEl('seccionTransferirTitular');
-  if (secTrans) secTrans.style.display = 'none';
-  getEl('nuevoTitularNombre').value = '';
-  getEl('nuevoTitularDNI').value = '';
-  getEl('nuevoTitularTel').value = '';
-
-  if (targetPoliza) {
-    getEl('editPolizaPatente').value = targetPoliza.patente || '';
-    getEl('editPolizaVehiculo').value = targetPoliza.vehiculo || '';
-    getEl('editPolizaTelefono').value = targetPoliza.telefono || '';
-  }
-}
-
-function closeModalEditarPoliza() {
-  const modal = getEl('modalEditarPoliza');
-  if (modal) {
-    modal.classList.remove('active');
-    modal.style.display = 'none';
-  }
-}
-
 function toggleTransferirTitular() {
   const sec = getEl('seccionTransferirTitular');
   if (!sec) return;
@@ -2740,68 +2814,6 @@ function toggleTransferirTitular() {
   sec.style.display = isHidden ? 'block' : 'none';
   if (isHidden) {
     getEl('nuevoTitularNombre').focus();
-  }
-}
-
-async function handleGuardarPoliza(e) {
-  if (e) e.preventDefault();
-  const polizaId = getEl('editPolizaId').value;
-  if (!polizaId) return;
-
-  const btn = getEl('btnGuardarEditarPoliza');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Guardando...';
-  }
-
-  try {
-    const patente = getEl('editPolizaPatente').value.trim();
-    const vehiculo = getEl('editPolizaVehiculo').value.trim();
-    const telefono = getEl('editPolizaTelefono').value.trim();
-
-    // 1. Si se especificó cambio de titular:
-    const nuevoNombre = getEl('nuevoTitularNombre').value.trim();
-    if (nuevoNombre) {
-      const nuevoDNI = getEl('nuevoTitularDNI').value.trim();
-      const nuevoTel = getEl('nuevoTitularTel').value.trim();
-
-      const resTrans = await fetch(`/api/polizas/${polizaId}/transferir`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          nuevo_nombre: nuevoNombre,
-          nuevo_dni: nuevoDNI,
-          nuevo_telefono: nuevoTel || telefono
-        })
-      });
-      const dataTrans = await resTrans.json();
-      if (!resTrans.ok) throw new Error(dataTrans.error || 'Error al transferir póliza');
-    }
-
-    // 2. Actualizar datos propios del vehículo (patente, vehículo, teléfono específico)
-    const resPol = await fetch(`/api/polizas/${polizaId}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        patente,
-        vehiculo,
-        telefono: telefono || null
-      })
-    });
-    const dataPol = await resPol.json();
-    if (!resPol.ok) throw new Error(dataPol.error || 'Error al actualizar vehículo');
-
-    showToast('Vehículo / Póliza guardada con éxito', 'success');
-    closeModalEditarPoliza();
-    if (typeof fetchStats === 'function') fetchStats();
-    if (typeof fetchClientes === 'function') fetchClientes();
-  } catch (err) {
-    showToast('Error: ' + err.message, 'error');
-  } finally {
-    if (btn) {
-      btn.disabled = false;
-      btn.textContent = 'Guardar Cambios';
-    }
   }
 }
 

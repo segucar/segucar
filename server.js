@@ -2716,13 +2716,19 @@ app.post('/api/polizas/:id/verificar-datos-nre', async (req, res) => {
         }
 
         // 3. ¿Teléfono en NRE? (casilla u observaciones)
-        if (nreData.telefono && nreData.telefono !== pol.cliente_telefono && nreData.telefono !== pol.telefono) {
-            db.prepare("UPDATE polizas SET telefono = ? WHERE id = ?").run(nreData.telefono, pol.id);
-            db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(nreData.telefono, nuevoClienteId);
-            if (typeof db.guardarTelefonoMaestro === 'function') {
-                db.guardarTelefonoMaestro(nuevoClienteId, titularNombre, nreData.telefono, 'nre');
+        // 🔒 BLINDAJE: Solo actualizar teléfono en CRM si está vacío o incompleto (para nunca pisar teléfonos manuales)
+        if (nreData.telefono) {
+            const cliActual = db.prepare("SELECT telefono FROM clientes WHERE id = ?").get(nuevoClienteId);
+            if (!cliActual || !cliActual.telefono || cliActual.telefono.trim().length < 10) {
+                db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(nreData.telefono, nuevoClienteId);
+                if (typeof db.guardarTelefonoMaestro === 'function') {
+                    db.guardarTelefonoMaestro(nuevoClienteId, titularNombre, nreData.telefono, 'nre');
+                }
+                cambios.push(`Teléfono de cliente completado con ${nreData.telefono} (desde NRE)`);
             }
-            cambios.push(`Teléfono actualizado a ${nreData.telefono} (desde NRE)`);
+            if (!pol.telefono || pol.telefono.trim().length < 10) {
+                db.prepare("UPDATE polizas SET telefono = ? WHERE id = ?").run(nreData.telefono, pol.id);
+            }
         }
 
         res.json({
