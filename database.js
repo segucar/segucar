@@ -399,6 +399,7 @@ addColumn('frecuencia_renovacion', "TEXT DEFAULT 'TRIMESTRAL'");
 addColumn('cobertura', 'TEXT');
 addColumn('anulada', 'INTEGER DEFAULT 0');
 addColumn('estado_nre', "TEXT DEFAULT ''");
+addColumn('telefono', 'TEXT NULL');
 
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_polizas_anulada ON polizas(anulada)"); } catch(e) {}
 try { db.exec("CREATE INDEX IF NOT EXISTS idx_polizas_estado_nre ON polizas(estado_nre)"); } catch(e) {}

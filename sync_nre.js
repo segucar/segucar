@@ -176,13 +176,13 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
               SELECT 1 FROM telefonos_invalidos ti WHERE ti.cliente_id = clientes.id
           )
     `);
-    const findPoliza = db.prepare('SELECT id FROM polizas WHERE operacion = ?');
+    const findPoliza = db.prepare('SELECT id, cliente_id FROM polizas WHERE operacion = ?');
     const insertPoliza = db.prepare(`
         INSERT INTO polizas (cliente_id, operacion, seccion, tipo_vehiculo, patente, vehiculo, suma_asegurada, cod_prod, cuenta, fecha_vencimiento, fin_vigencia_poliza, renovada, cuotas_debe, estado, anulada)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const updatePoliza = db.prepare(`
-        UPDATE polizas SET seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, estado = ?, anulada = ?
+        UPDATE polizas SET cliente_id = ?, seccion = ?, tipo_vehiculo = ?, patente = ?, vehiculo = ?, suma_asegurada = ?, fin_vigencia_poliza = ?, renovada = ?, estado = ?, anulada = ?
         WHERE operacion = ?
     `);
     const anularAnterioresPorPatente = db.prepare(`
@@ -291,7 +291,10 @@ async function syncVencimientosNRE(usuario, password, desdeStr, hastaStr) {
 
             const existingPoliza = findPoliza.get(item.operacion);
             if (existingPoliza) {
-                updatePoliza.run(item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, estado, anulada, item.operacion);
+                if (existingPoliza.cliente_id !== cliente_id) {
+                    console.log(`🔄 [syncVencimientosNRE] Cambio de titular detectado para operación ${item.operacion} (${item.patente}) -> asignado a cliente_id ${cliente_id} (${item.nombre})`);
+                }
+                updatePoliza.run(cliente_id, item.seccion, tipoVehiculo, item.patente, item.vehiculo, item.sumaAseg, finVig, item.renovada, estado, anulada, item.operacion);
                 actualizados++;
             } else {
                 // Shield main active portfolio: Only insert new active/vigente policies into polizas. Old historical records go to polizas_historicas!

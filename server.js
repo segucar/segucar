@@ -2571,25 +2571,28 @@ app.post('/api/clientes/:id/polizas', (req, res) => {
 
 app.put('/api/polizas/:id', (req, res) => {
     try {
-        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo } = req.body;
+        const { operacion, tipo_vehiculo, patente, vehiculo, fecha_vencimiento, seccion, estado, grucar_activo, telefono } = req.body;
         const cleanPatente = sanitizePatente(patente);
-        
-        let info;
-        if (grucar_activo !== undefined) {
-            const hasGrucar = (grucar_activo === 1 || grucar_activo === '1' || grucar_activo === true) ? 1 : 0;
-            info = db.prepare(`
-                UPDATE polizas SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=?, grucar_activo=? WHERE id=?
-            `).run(operacion, tipo_vehiculo, cleanPatente, vehiculo, fecha_vencimiento, seccion, estado, hasGrucar, req.params.id);
-        } else {
-            info = db.prepare(`
-                UPDATE polizas SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=? WHERE id=?
-            `).run(operacion, tipo_vehiculo, cleanPatente, vehiculo, fecha_vencimiento, seccion, estado, req.params.id);
-        }
+        const pol = db.prepare('SELECT * FROM polizas WHERE id = ?').get(req.params.id);
+        if (!pol) return res.status(404).json({ error: 'Póliza no encontrada' });
 
-        if (info.changes === 0) return res.status(404).json({ error: 'Póliza no encontrada' });
-        
-        console.log(`[Admin Audit] Póliza actualizada. ID=${req.params.id}, Patente=${cleanPatente}, GrucarActivo=${grucar_activo}`);
-        res.json({ message: 'Póliza actualizada', patente: cleanPatente, has_grucar: grucar_activo === 1 });
+        const newOperacion = operacion !== undefined ? operacion : pol.operacion;
+        const newTipoVehiculo = tipo_vehiculo !== undefined ? tipo_vehiculo : pol.tipo_vehiculo;
+        const newPatente = patente !== undefined ? cleanPatente : pol.patente;
+        const newVehiculo = vehiculo !== undefined ? vehiculo : pol.vehiculo;
+        const newFechaVenc = fecha_vencimiento !== undefined ? fecha_vencimiento : pol.fecha_vencimiento;
+        const newSeccion = seccion !== undefined ? seccion : pol.seccion;
+        const newEstado = estado !== undefined ? estado : pol.estado;
+        const newGrucar = grucar_activo !== undefined ? ((grucar_activo === 1 || grucar_activo === '1' || grucar_activo === true) ? 1 : 0) : pol.grucar_activo;
+        const newTelefono = telefono !== undefined ? (telefono ? sanitizeAndFixPhone(telefono) : null) : pol.telefono;
+
+        db.prepare(`
+            UPDATE polizas 
+            SET operacion=?, tipo_vehiculo=?, patente=?, vehiculo=?, fecha_vencimiento=?, seccion=?, estado=?, grucar_activo=?, telefono=? 
+            WHERE id=?
+        `).run(newOperacion, newTipoVehiculo, newPatente, newVehiculo, newFechaVenc, newSeccion, newEstado, newGrucar, newTelefono, req.params.id);
+
+        res.json({ success: true, message: 'Póliza actualizada', patente: newPatente, telefono: newTelefono, has_grucar: newGrucar === 1 });
     } catch (error) {
         console.error('[Admin Audit Exception] Error actualizando póliza:', error.message);
         res.status(500).json({ error: error.message });
@@ -2600,9 +2603,58 @@ app.delete('/api/polizas/:id', (req, res) => {
     try {
         const info = db.prepare('DELETE FROM polizas WHERE id = ?').run(req.params.id);
         if (info.changes === 0) return res.status(404).json({ error: 'Póliza no encontrada' });
-        res.json({ message: 'Póliza eliminada' });
+        res.json({ success: true, message: 'Póliza eliminada' });
     } catch (error) {
         res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/polizas/:id/transferir — Cambiar titular de póliza / transferir dominio a otro cliente
+app.post('/api/polizas/:id/transferir', (req, res) => {
+    try {
+        const { nuevo_cliente_id, nuevo_nombre, nuevo_dni, nuevo_telefono } = req.body;
+        const pol = db.prepare('SELECT * FROM polizas WHERE id = ?').get(req.params.id);
+        if (!pol) return res.status(404).json({ error: 'Póliza no encontrada' });
+
+        let targetClienteId = nuevo_cliente_id ? parseInt(nuevo_cliente_id, 10) : null;
+        if (!targetClienteId && nuevo_nombre && nuevo_nombre.trim()) {
+            const nomLimpio = nuevo_nombre.trim();
+            const existing = db.prepare("SELECT id FROM clientes WHERE UPPER(TRIM(nombre)) = UPPER(TRIM(?))").get(nomLimpio);
+            if (existing) {
+                targetClienteId = existing.id;
+                if (nuevo_telefono) {
+                    const telSan = sanitizeAndFixPhone(nuevo_telefono);
+                    if (telSan) db.prepare("UPDATE clientes SET telefono = ? WHERE id = ?").run(telSan, targetClienteId);
+                }
+                if (nuevo_dni) {
+                    db.prepare("UPDATE clientes SET dni = ? WHERE id = ?").run(String(nuevo_dni).trim(), targetClienteId);
+                }
+            } else {
+                const telSan = nuevo_telefono ? sanitizeAndFixPhone(nuevo_telefono) : '';
+                const ins = db.prepare("INSERT INTO clientes (nombre, dni, telefono) VALUES (?, ?, ?)").run(nomLimpio, nuevo_dni ? String(nuevo_dni).trim() : null, telSan);
+                targetClienteId = ins.lastInsertRowid;
+            }
+        }
+
+        if (!targetClienteId) {
+            return res.status(400).json({ error: 'Debe especificar el nuevo titular (cliente existente o nuevo nombre).' });
+        }
+
+        const telPoliza = nuevo_telefono ? sanitizeAndFixPhone(nuevo_telefono) : null;
+        db.prepare("UPDATE polizas SET cliente_id = ?, telefono = ? WHERE id = ?").run(targetClienteId, telPoliza, pol.id);
+
+        const nuevoCliente = db.prepare("SELECT id, nombre, telefono, dni FROM clientes WHERE id = ?").get(targetClienteId);
+
+        console.log(`🤝 [Transferencia Póliza] Póliza ID ${pol.id} (${pol.patente}) transferida al cliente ${nuevoCliente.nombre} (ID: ${targetClienteId})`);
+
+        res.json({
+            success: true,
+            message: `Póliza ${pol.patente} transferida exitosamente a ${nuevoCliente.nombre}.`,
+            cliente: nuevoCliente
+        });
+    } catch (err) {
+        console.error('[Error transferir póliza]:', err);
+        res.status(500).json({ error: err.message });
     }
 });
 
